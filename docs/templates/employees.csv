@@ -1,0 +1,2 @@
+employee_id,full_name,position_id,specialization,level,org_unit_code,assignment_valid_from,assignment_valid_to,base_dec,bonus_dec,rk_sn_dec,currency
+E001,Иванов И.И.,P-100,Backend,Senior,DEPT-IT,2025-01-01,,250000,50000,0,RUB

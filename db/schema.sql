@@ -1,0 +1,2 @@
+-- PostgreSQL-compatible schema (also used via SQLAlchemy ORM)
+-- See apps/api/app/models.py for source of truth

@@ -1,0 +1,3 @@
+position_id,org_unit_code,specialization,level,limit_flag,is_vacancy
+P-100,DEPT-IT,Backend,Senior,IN_LIMIT,false
+P-101,DEPT-IT,Backend,Middle,IN_LIMIT,true

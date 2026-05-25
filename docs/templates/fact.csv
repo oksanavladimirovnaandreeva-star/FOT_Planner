@@ -1,0 +1,3 @@
+employee_id,year,month,article_code,amount,currency
+E001,2026,1,BASE,252000,RUB
+E001,2026,1,BONUS_PLAN,0,RUB

@@ -1,0 +1,9 @@
+{
+  "name": "fot-planner",
+  "private": true,
+  "scripts": {
+    "api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
+    "web": "cd apps/web && npm run dev",
+    "test:domain": "cd packages/domain && python -m pytest tests -q"
+  }
+}
