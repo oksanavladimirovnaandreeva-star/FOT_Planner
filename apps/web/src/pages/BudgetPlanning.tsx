@@ -51,6 +51,12 @@ type PositionGroup = {
 };
 
 const MONTHS = ["", "Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+const LIMIT_LABELS: Record<string, string> = {
+  IN_LIMIT: "В лимите",
+  OVER_LIMIT: "Сверх лимита",
+  UNLIMITED: "Без лимита",
+  UNSPECIFIED: "Не указан",
+};
 
 export default function BudgetPlanning() {
   const { planId, plan, recalculate } = usePlanContext();
@@ -274,11 +280,15 @@ export default function BudgetPlanning() {
             </tr>
           </thead>
           <tbody>
-            {Object.entries(byLimit).map(([key, val]) => {
+            {Object.entries(byLimit)
+              .sort(([a], [b]) => a.localeCompare(b, "ru"))
+              .map(([key, val]) => {
               const pct = val.decPrev === 0 ? (val.decPlan > 0 ? 100 : 0) : ((val.decPlan - val.decPrev) / val.decPrev) * 100;
               return (
                 <tr key={key}>
-                  <td>{key}</td>
+                  <td>
+                    {LIMIT_LABELS[key] || key} <span className="muted">({key})</span>
+                  </td>
                   <td>{val.total.toLocaleString("ru")} ₽</td>
                   <td>{val.decPrev.toLocaleString("ru")} ₽</td>
                   <td>{val.decPlan.toLocaleString("ru")} ₽</td>

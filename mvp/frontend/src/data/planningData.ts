@@ -1,24 +1,15 @@
 import { MONTHS } from "../types";
-import type { PlannedEvent, PositionRecord } from "../types";
+import type { LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 
-const MIDPOINTS: Record<string, Record<string, number>> = {
-  Engineering: {
-    Junior: 1_200_000,
-    Middle: 1_800_000,
-    Senior: 2_500_000,
-    Lead: 3_200_000,
-  },
-  Product: {
-    Middle: 1_900_000,
-    Senior: 2_700_000,
-    Lead: 3_300_000,
-  },
-  Marketing: {
-    Middle: 1_400_000,
-    Senior: 2_000_000,
-    Lead: 2_800_000,
-  },
-};
+import {
+  getMonthlyCR as crFromCatalog,
+  initialSalaryBands,
+  levelOptionsForSpecialization as levelsFromCatalog,
+  specializationOptions,
+} from "./salaryRangeData";
+import type { SalaryRangeBand } from "../types";
+
+const DEFAULT_BANDS = initialSalaryBands();
 
 export const ORG_STRUCTURE: Record<string, Record<string, string[]>> = {
   Engineering: {
@@ -35,11 +26,23 @@ export const ORG_STRUCTURE: Record<string, Record<string, string[]>> = {
   },
 };
 
-export const SPECIALIZATION_OPTIONS = Object.keys(MIDPOINTS);
+/** @deprecated Используйте specializationOptions(salaryBands) из контекста. */
+export const SPECIALIZATION_OPTIONS = specializationOptions(DEFAULT_BANDS);
 
-export function levelOptionsForSpecialization(specialization: string): string[] {
-  const levels = Object.keys(MIDPOINTS[specialization] ?? {});
-  return levels.length ? levels : ["Junior", "Middle", "Senior", "Lead"];
+export function levelOptionsForSpecialization(
+  specialization: string,
+  bands: SalaryRangeBand[] = DEFAULT_BANDS,
+): string[] {
+  return levelsFromCatalog(specialization, bands);
+}
+
+export function getMonthlyCR(
+  base: number,
+  spec: string,
+  level: string,
+  bands: SalaryRangeBand[] = DEFAULT_BANDS,
+): number {
+  return crFromCatalog(base, spec, level, bands);
 }
 
 export const departmentOptions = Object.keys(ORG_STRUCTURE);
@@ -86,9 +89,9 @@ export function initialPositions(): PositionRecord[] {
       unit: "ProductDev",
       team: "Frontend Web",
       slotType: "carryover",
+      limitFlag: "IN_LIMIT",
       activeFromMonth: 0,
       vacancySinceMonth: null,
-      annualLimit: 2_450_000,
       previousDecemberBase: 172_000,
       employeeName: "Ирина Соколова",
       employeeId: "E001",
@@ -114,9 +117,9 @@ export function initialPositions(): PositionRecord[] {
       unit: "Platform",
       team: "Backend Core",
       slotType: "carryover",
+      limitFlag: "IN_LIMIT",
       activeFromMonth: 0,
       vacancySinceMonth: null,
-      annualLimit: 2_100_000,
       previousDecemberBase: 150_000,
       employeeName: null,
       employeeId: null,
@@ -133,7 +136,15 @@ export function initialPositions(): PositionRecord[] {
       seedMonthlyLevel: twelve("Middle"),
       seedMonthlyBase: twelve(155_000),
       seedMonthlyBonus: twelve(0),
-      events: [],
+      events: [
+        {
+          id: "seed-carryover-p002",
+          type: "POSITION_CARRYOVER",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          createdOrder: 1,
+          payload: { month: 0 },
+        },
+      ],
     },
     {
       positionId: "P003",
@@ -142,9 +153,9 @@ export function initialPositions(): PositionRecord[] {
       unit: "Core",
       team: "PM Team A",
       slotType: "carryover",
+      limitFlag: "IN_LIMIT",
       activeFromMonth: 0,
       vacancySinceMonth: null,
-      annualLimit: 3_050_000,
       previousDecemberBase: 205_000,
       employeeName: "Марк Чен",
       employeeId: "E003",
@@ -170,32 +181,124 @@ function round(value: number): number {
   return Math.round(value);
 }
 
-export function getMonthlyCR(base: number, spec: string, level: string): number {
-  const midpoint = MIDPOINTS[spec]?.[level];
-  if (!midpoint) return 0;
-  return base / (midpoint / 12);
-}
-
 export function annualTotal(record: PositionRecord): number {
   return record.monthlyBase.reduce((sum, item) => sum + item, 0) + record.monthlyBonus.reduce((sum, item) => sum + item, 0);
-}
-
-export function limitUsagePercent(record: PositionRecord): number {
-  if (record.annualLimit <= 0) return 0;
-  return (annualTotal(record) / record.annualLimit) * 100;
-}
-
-export function getLimitStatus(record: PositionRecord): { label: "In Limit" | "Near Limit" | "Over Limit"; tone: "ok" | "warn" | "danger" } {
-  const usage = limitUsagePercent(record);
-  if (usage > 100) return { label: "Over Limit", tone: "danger" };
-  if (usage >= 90) return { label: "Near Limit", tone: "warn" };
-  return { label: "In Limit", tone: "ok" };
 }
 
 export function decToDec(prevDecember: number, currDecember: number): number {
   if (prevDecember === 0 && currDecember === 0) return 0;
   if (prevDecember === 0 && currDecember > 0) return 100;
   return ((currDecember - prevDecember) / prevDecember) * 100;
+}
+
+export type SlotTypeKey = PositionRecord["slotType"];
+
+export const SLOT_TYPE_LABELS: Record<SlotTypeKey, string> = {
+  carryover: "Перенос (старые)",
+  new: "Новый слот",
+};
+
+export const LIMIT_FLAG_LABELS: Record<LimitFlagKey, string> = {
+  IN_LIMIT: "В лимите",
+  OVER_LIMIT: "Сверх лимита",
+  UNLIMITED: "Без лимита",
+};
+
+export const POSITION_STATUS_LABELS: Record<PositionRecord["status"], string> = {
+  Occupied: "Занято",
+  Vacancy: "Вакансия",
+  Closed: "Закрыта",
+};
+
+export const LIMIT_FLAG_OPTIONS: { value: LimitFlagKey; label: string }[] = [
+  { value: "IN_LIMIT", label: "В лимите (IN_LIMIT)" },
+  { value: "OVER_LIMIT", label: "Сверх лимита (OVER_LIMIT)" },
+  { value: "UNLIMITED", label: "Без лимита (UNLIMITED)" },
+];
+
+/** Стартовое значение при создании слота (как в VacancyDrawer: carryover → только IN_LIMIT). */
+export function defaultLimitFlagForSlotType(slotType: PositionRecord["slotType"]): LimitFlagKey {
+  return slotType === "carryover" ? "IN_LIMIT" : "OVER_LIMIT";
+}
+
+export function hasCarryoverEvent(record: PositionRecord): boolean {
+  return record.events.some((event) => event.type === "POSITION_CARRYOVER");
+}
+
+export function decGrowthByLimitFlag(positions: PositionRecord[]): {
+  total: DecGrowthBucket;
+  IN_LIMIT: DecGrowthBucket;
+  OVER_LIMIT: DecGrowthBucket;
+} {
+  const active = positions.filter((position) => position.status !== "Closed");
+  return {
+    total: computeDecGrowthBucket(active),
+    IN_LIMIT: computeDecGrowthBucket(active.filter((position) => position.limitFlag === "IN_LIMIT")),
+    OVER_LIMIT: computeDecGrowthBucket(active.filter((position) => position.limitFlag === "OVER_LIMIT")),
+  };
+}
+
+export interface DecGrowthBucket {
+  decPrev: number;
+  decPlan: number;
+  delta: number;
+  pct: number;
+  positionCount: number;
+  annualFot: number;
+}
+
+export function computeDecGrowthBucket(positions: PositionRecord[]): DecGrowthBucket {
+  let decPrev = 0;
+  let decPlan = 0;
+  let annualFot = 0;
+  let positionCount = 0;
+  for (const position of positions) {
+    if (position.status === "Closed") continue;
+    decPrev += position.previousDecemberBase;
+    decPlan += position.monthlyBase[11];
+    annualFot += annualTotal(position);
+    positionCount += 1;
+  }
+  const delta = decPlan - decPrev;
+  return {
+    decPrev,
+    decPlan,
+    delta,
+    pct: decToDec(decPrev, decPlan),
+    positionCount,
+    annualFot,
+  };
+}
+
+export interface DecGrowthBySlot {
+  total: DecGrowthBucket;
+  carryover: DecGrowthBucket;
+  new: DecGrowthBucket;
+}
+
+export function decGrowthBySlotType(positions: PositionRecord[]): DecGrowthBySlot {
+  const active = positions.filter((position) => position.status !== "Closed");
+  return {
+    total: computeDecGrowthBucket(active),
+    carryover: computeDecGrowthBucket(active.filter((position) => position.slotType === "carryover")),
+    new: computeDecGrowthBucket(active.filter((position) => position.slotType === "new")),
+  };
+}
+
+export function formatGrowthPct(pct: number): string {
+  if (pct > 0) return `+${pct.toFixed(1)}%`;
+  return `${pct.toFixed(1)}%`;
+}
+
+export function formatGrowthDelta(delta: number): string {
+  if (delta > 0) return `+${delta.toLocaleString("ru-RU")} ₽`;
+  return `${delta.toLocaleString("ru-RU")} ₽`;
+}
+
+export function growthTone(delta: number): "up" | "down" | "flat" {
+  if (delta > 0) return "up";
+  if (delta < 0) return "down";
+  return "flat";
 }
 
 export function applyEvents(base: PositionRecord): PositionRecord {
@@ -283,6 +386,12 @@ export function applyEvents(base: PositionRecord): PositionRecord {
         next.employeeName = event.payload.employeeName ?? next.employeeName ?? "Planned Hire";
         next.employeeId = event.payload.employeeId ?? next.employeeId ?? "E-PLANNED";
         next.vacancySinceMonth = null;
+        for (let index = month; index < 12; index += 1) {
+          if (typeof event.payload.base === "number") next.monthlyBase[index] = event.payload.base;
+          if (typeof event.payload.bonus === "number") next.monthlyBonus[index] = event.payload.bonus;
+          if (event.payload.specialization) next.monthlySpec[index] = event.payload.specialization;
+          if (event.payload.level) next.monthlyLevel[index] = event.payload.level;
+        }
         break;
       }
       case "CANCEL_VACANCY": {
@@ -298,6 +407,15 @@ export function applyEvents(base: PositionRecord): PositionRecord {
         next.vacancySinceMonth = month;
         break;
       case "POSITION_CARRYOVER":
+        next.slotType = "carryover";
+        next.limitFlag = "IN_LIMIT";
+        if (next.status === "Vacancy") {
+          const carryMonth = Math.max(0, Math.min(11, event.payload.month));
+          if (carryMonth < next.activeFromMonth) {
+            next.activeFromMonth = carryMonth;
+          }
+        }
+        break;
       default:
         break;
     }

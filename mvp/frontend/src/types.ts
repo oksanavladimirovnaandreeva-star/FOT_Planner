@@ -14,6 +14,7 @@ export const MONTHS = [
 ] as const;
 
 export type MonthLabel = (typeof MONTHS)[number];
+export type LimitFlagKey = "IN_LIMIT" | "OVER_LIMIT" | "UNLIMITED";
 export type EventType =
   | "INDEXATION"
   | "MANUAL_OVERRIDE"
@@ -35,6 +36,13 @@ export interface EventPayload {
   specialization?: string;
   level?: string;
   transferToPositionId?: string;
+  transferKind?: "INTRA_UNIT" | "INTER_DEPARTMENT";
+  maternityMode?: "SHARED_POSITION";
+  maternityPrimaryEmployeeId?: string;
+  maternityPrimaryEmployeeName?: string;
+  targetDepartment?: string;
+  targetUnit?: string;
+  targetTeam?: string;
   employeeName?: string;
   employeeId?: string;
   transferFromPositionId?: string;
@@ -49,6 +57,19 @@ export interface PlannedEvent {
   payload: EventPayload;
 }
 
+export interface SalaryRangeBand {
+  id: string;
+  specialization: string;
+  level: string;
+  minSalary: number;
+  midpoint: number;
+  maxSalary: number;
+  currency: string;
+}
+
+/** Позже — из роли пользователя; в MVP только локальная заглушка. */
+export type SalaryCatalogAccess = "read" | "write";
+
 export interface PositionRecord {
   positionId: string;
   role: string;
@@ -56,9 +77,10 @@ export interface PositionRecord {
   unit: string;
   team: string;
   slotType: "carryover" | "new";
+  /** Как `positions.limit_flag` в API — задаётся явно, не из % ФОТ. */
+  limitFlag: LimitFlagKey;
   activeFromMonth: number;
   vacancySinceMonth: number | null;
-  annualLimit: number;
   previousDecemberBase: number;
   employeeName: string | null;
   employeeId: string | null;

@@ -25,31 +25,63 @@ type Report = {
 };
 
 export default function Variance() {
-  const { planId } = usePlanContext();
+  const { plans, planId, plan, setPlanId } = usePlanContext();
   const { viewMode } = useViewMode();
+  const [reportPlanId, setReportPlanId] = useState<number | "">("");
   const [month, setMonth] = useState<number | "">("");
   const [data, setData] = useState<Report | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const yearPlans = plans.filter((p) => (plan ? p.plan_year === plan.plan_year : true));
+
   useEffect(() => {
-    if (!planId) return;
+    if (planId) setReportPlanId(planId);
+  }, [planId]);
+
+  useEffect(() => {
+    const id = reportPlanId || planId;
+    if (!id) return;
     setErr(null);
     const q = month ? `?month=${month}` : "";
-    api<Report>(`/api/v1/plans/${planId}/variance-report${q}`)
+    api<Report>(`/api/v1/plans/${id}/variance-report${q}`)
       .then(setData)
       .catch((e) => setErr(e.message));
-  }, [planId, month]);
+  }, [reportPlanId, planId, month]);
 
-  if (!planId) return <p>Выберите план в сайдбаре</p>;
+  if (!planId && !reportPlanId) return <p>Выберите план в сайдбаре</p>;
 
   const fmt = (n: number) => n.toLocaleString("ru") + " ₽";
   const totals = viewMode === "total" ? data?.totals_total : data?.totals;
   const byLimitPlan = viewMode === "total" ? data?.by_limit_plan_total : data?.by_limit_plan;
   const byLimitFact = viewMode === "total" ? data?.by_limit_fact_total : data?.by_limit_fact;
 
+  const activeReportId = reportPlanId || planId;
+
   return (
     <div>
       <h2>План-факт</h2>
+      <div className="card form-row">
+        <label>
+          Версия плана (plan-side)
+          <select
+            value={activeReportId ?? ""}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              setReportPlanId(id);
+              setPlanId(id);
+            }}
+          >
+            {yearPlans.map((p) => (
+              <option key={p.id} value={p.id}>
+                #{p.id} {p.label} · {p.status}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="muted" style={{ margin: 0 }}>
+          Факт привязан к выбранной версии плана. Сравнение двух версий — на странице «Планы».
+        </p>
+      </div>
       {err && <div className="alert alert-error">{err}</div>}
 
       {data && (

@@ -5,9 +5,14 @@ type LookupPair = { specialization: string; level: string };
 type BandPreview = { min: number | null; mid: number | null; max: number | null; cr: number | null };
 
 const HIRE_STATUS_OPTIONS = [
-  { value: "NEW_HIRE", label: "Новый найм" },
-  { value: "PLANNED_HIRE", label: "Плановый найм" },
-  { value: "CARRYOVER", label: "Перенос с прошлого года" },
+  { value: "NEW_HIRE", label: "Новый слот (NEW_HIRE)" },
+  { value: "PLANNED_HIRE", label: "Плановый новый слот (PLANNED_HIRE)" },
+  { value: "CARRYOVER", label: "Carryover-слот с прошлого года" },
+];
+const LIMIT_OPTIONS = [
+  { value: "IN_LIMIT", label: "В лимите (IN_LIMIT)" },
+  { value: "OVER_LIMIT", label: "Сверх лимита (OVER_LIMIT)" },
+  { value: "UNLIMITED", label: "Без лимита (UNLIMITED)" },
 ];
 
 export function VacancyDrawer({
@@ -60,6 +65,7 @@ export function VacancyDrawer({
     () => pairs.filter((p) => p.specialization === specialization).map((p) => p.level),
     [pairs, specialization]
   );
+  const isCarryoverHire = hireStatus === "CARRYOVER";
   useEffect(() => {
     if (!levels.length) {
       setLevel("");
@@ -69,6 +75,11 @@ export function VacancyDrawer({
       setLevel(levels[0]);
     }
   }, [levels, level]);
+  useEffect(() => {
+    if (isCarryoverHire && limitFlag !== "IN_LIMIT") {
+      setLimitFlag("IN_LIMIT");
+    }
+  }, [isCarryoverHire, limitFlag]);
 
   useEffect(() => {
     if (!specialization || !level) return;
@@ -215,13 +226,20 @@ export function VacancyDrawer({
               </label>
               <label>
                 Лимит
-                <select value={limitFlag} onChange={(e) => setLimitFlag(e.target.value)}>
-                  <option value="IN_LIMIT">IN_LIMIT</option>
-                  <option value="OVER_LIMIT">OVER_LIMIT</option>
-                  <option value="UNLIMITED">UNLIMITED</option>
+                <select value={limitFlag} onChange={(e) => setLimitFlag(e.target.value)} disabled={isCarryoverHire}>
+                  {LIMIT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>
+            <p className="muted" style={{ marginTop: "0.5rem" }}>
+              {isCarryoverHire
+                ? "Carryover-слот автоматически помечается как IN_LIMIT."
+                : "Для new/planned-слотов лимит выбирается вручную."}
+            </p>
             {preview?.mid != null && (
               <div className="card preview-band">
                 <strong>Диапазон и CR (предпросмотр)</strong>

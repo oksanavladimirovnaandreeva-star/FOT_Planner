@@ -6,6 +6,7 @@ export type Plan = {
   plan_year: number;
   label: string;
   status: string;
+  parent_version_id?: number | null;
 };
 
 export function usePlanId(): [number | null, (id: number) => void] {

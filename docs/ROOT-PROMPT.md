@@ -3,8 +3,8 @@
 Проект: `c:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner`
 
 Контекст по умолчанию:
-- `docs/ROOT-PROMPT.md` (этот файл)
-- `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md`
+- `docs/HANDOFF.md` — единственный актуальный handoff MVP
+- `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` — только для prod-roadmap
 
 ## Режим экономии токенов (обязательно)
 - Не делать широкий обзор репозитория без явного запроса.

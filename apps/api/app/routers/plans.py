@@ -40,6 +40,9 @@ from app.services.budget import get_budget_kpis, get_budget_rows
 from app.services.import_csv import import_employees, import_fact
 from app.services.org_scope import build_org_subtree, filter_org_codes
 from app.services.carryover import apply_carryover_events
+from app.services.plan_compare import compare_plan_versions
+from app.services.plan_correction import create_correction_version
+from app.services.plan_guard import require_plan_draft_for_edit
 from app.services.recalc import recalculate_plan
 
 router = APIRouter(prefix="/api/v1/plans", tags=["plans"])
@@ -48,6 +51,22 @@ router = APIRouter(prefix="/api/v1/plans", tags=["plans"])
 @router.get("", response_model=list[PlanOut])
 def list_plans(db: Session = Depends(get_db)):
     return db.query(PlanVersion).order_by(PlanVersion.plan_year.desc(), PlanVersion.id.desc()).all()
+
+
+@router.get("/compare")
+def compare_plans(
+    left_plan_id: int,
+    right_plan_id: int,
+    article: str = "BASE",
+    month: int | None = None,
+    db: Session = Depends(get_db),
+    cu: CurrentUser = Depends(get_current_user),
+):
+    del cu  # read-only, any authenticated user
+    try:
+        return compare_plan_versions(db, left_plan_id, right_plan_id, article=article, month=month)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("", response_model=PlanOut)
@@ -71,6 +90,64 @@ def get_plan(plan_id: int, db: Session = Depends(get_db)):
     return plan
 
 
+@router.post("/{plan_id}/approve", response_model=PlanOut)
+def approve_plan(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    cu: CurrentUser = Depends(get_current_user),
+):
+    if not cu.is_admin:
+        raise HTTPException(403, "Утверждение доступно только admin")
+    plan = db.get(PlanVersion, plan_id)
+    if not plan:
+        raise HTTPException(404)
+    if plan.status != PlanStatus.DRAFT:
+        raise HTTPException(400, f"Утвердить можно только DRAFT, сейчас {plan.status.value}")
+    plan.status = PlanStatus.APPROVED
+    db.add(
+        AuditLog(
+            username=cu.user.username,
+            action="approve",
+            entity_type="plan_version",
+            entity_id=plan.id,
+            details={"plan_year": plan.plan_year, "label": plan.label},
+        )
+    )
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
+@router.post("/{plan_id}/correction", response_model=PlanOut)
+def create_plan_correction(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    cu: CurrentUser = Depends(get_current_user),
+    label: str | None = None,
+):
+    if not cu.is_admin:
+        raise HTTPException(403, "Корректировка доступна только admin")
+    parent = db.get(PlanVersion, plan_id)
+    if not parent:
+        raise HTTPException(404)
+    try:
+        child = create_correction_version(db, parent, label=label, username=cu.user.username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    db.add(
+        AuditLog(
+            username=cu.user.username,
+            action="correction",
+            entity_type="plan_version",
+            entity_id=child.id,
+            details={"parent_version_id": parent.id, "label": child.label},
+        )
+    )
+    db.commit()
+    db.refresh(child)
+    return child
+
+
 @router.post("/{plan_id}/recalculate")
 def recalc(plan_id: int, db: Session = Depends(get_db), cu: CurrentUser = Depends(get_current_user)):
     plan = db.get(PlanVersion, plan_id)
@@ -92,6 +169,7 @@ def add_event(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     payload = dict(body.payload)
     if body.employee_external_id:
         payload["employee_external_id"] = body.employee_external_id
@@ -123,6 +201,7 @@ def indexation(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     if body.index_percent is None and body.index_fixed is None:
         raise HTTPException(400, "Укажите index_percent или index_fixed для индексации")
     payload = {
@@ -157,6 +236,7 @@ def salary_review(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     payload = {
         "employee_external_id": body.employee_external_id,
         "specialization": body.specialization,
@@ -193,6 +273,7 @@ async def import_emp(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     content = (await file.read()).decode("utf-8-sig")
     hist = import_employees(db, plan, content, cu.user.username)
     return {"ok": hist.rows_ok, "errors": hist.errors}
@@ -259,6 +340,7 @@ def delete_event(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     ev = db.get(PlannedEvent, event_id)
     if not ev or ev.plan_version_id != plan_id:
         raise HTTPException(404)
@@ -287,6 +369,7 @@ def target_salary(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     payload = {
         "position_external_id": body.position_external_id,
         "employee_external_id": body.employee_external_id,
@@ -317,6 +400,7 @@ def manual_override(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     new_amounts: dict[str, float] = {}
     if body.base_amount is not None:
         new_amounts["BASE"] = body.base_amount
@@ -431,6 +515,7 @@ def terminate_employee(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     emp = db.query(Employee).filter(Employee.external_id == body.employee_external_id).first()
     source_assignment = None
     source_position_external = body.position_external_id
@@ -542,6 +627,7 @@ def close_position(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     order = db.query(func.max(PlannedEvent.created_order)).filter(PlannedEvent.plan_version_id == plan_id).scalar() or 0
     ev = PlannedEvent(
         plan_version_id=plan_id,
@@ -570,6 +656,7 @@ def classification_change(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
     pos = db.query(Position).filter(Position.external_id == body.position_external_id).first()
     if not pos:
         raise HTTPException(404)
@@ -604,6 +691,7 @@ def transfer_employee(
     plan = db.get(PlanVersion, plan_id)
     if not plan:
         raise HTTPException(404)
+    require_plan_draft_for_edit(plan)
 
     employee = db.query(Employee).filter(Employee.external_id == body.employee_external_id).first()
     if not employee:

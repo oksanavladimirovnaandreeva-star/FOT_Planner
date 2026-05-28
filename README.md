@@ -2,12 +2,15 @@
 
 Веб-система годового планирования ФОТ и план-факт (MVP).
 
+**Передача в новый чат:** [`docs/HANDOFF.md`](docs/HANDOFF.md)  
+**Вся текущая работа:** [`mvp/frontend/`](mvp/frontend/) → http://127.0.0.1:5174/ (локально, без БД)
+
 ## Структура
 
-- `apps/api` — FastAPI + SQLAlchemy
-- `apps/web` — React + Vite
-- `packages/domain` — расчётный движок
-- `docs/` — mapping Excel, шаблоны CSV
+- `mvp/frontend/` — **единственный актуальный UI** (React, данные в браузере)
+- `docs/HANDOFF.md` — handoff для нового чата
+- `docs/design/...` — референс Figma
+- `apps/`, `packages/` — не в фокусе текущей итерации
 
 ## Запуск
 

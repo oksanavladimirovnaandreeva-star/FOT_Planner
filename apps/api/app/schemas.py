@@ -18,6 +18,7 @@ class PlanOut(BaseModel):
     plan_year: int
     label: str
     status: str
+    parent_version_id: int | None = None
     created_at: datetime
 
     @field_validator("status", mode="before")

@@ -1,23 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
-import { Calculator, Filter, Plus, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { Calculator, Plus, Search, Trash2 } from "lucide-react";
 import {
   annualTotal,
   applyEvents,
+  decToDec,
   departmentOptions,
-  getLimitStatus,
+  defaultLimitFlagForSlotType,
+  formatGrowthDelta,
+  formatGrowthPct,
   getMonthlyCR,
-  initialPositions,
-  limitUsagePercent,
+  growthTone,
+  hasCarryoverEvent,
+  LIMIT_FLAG_LABELS,
   monthLabel,
   normalizeOrgPath,
+  POSITION_STATUS_LABELS,
   removeEvent,
   teamOptions,
   unitOptions,
   upsertEvent,
 } from "../data/planningData";
+import { useMvpApp } from "../context/MvpAppContext";
+import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
 import { PositionDrawer } from "../components/PositionDrawer";
 import { MONTHS } from "../types";
-import type { PlannedEvent, PositionRecord } from "../types";
+import type { PlannedEvent, PositionRecord, SalaryRangeBand } from "../types";
 
 interface IndexationBatchLog {
   id: string;
@@ -26,6 +34,18 @@ interface IndexationBatchLog {
   affectedCount: number;
   createdAt: string;
 }
+type VacancyOption = {
+  positionId: string;
+  role: string;
+  department: string;
+  unit: string;
+  team: string;
+};
+type EmployeeOption = {
+  employeeId: string;
+  employeeName: string;
+  positionId: string;
+};
 
 function nextPositionId(positions: PositionRecord[]): string {
   const maxNumeric = positions.reduce((max, position) => {
@@ -36,41 +56,117 @@ function nextPositionId(positions: PositionRecord[]): string {
   return `P${String(maxNumeric + 1).padStart(3, "0")}`;
 }
 
-function avgCR(record: PositionRecord): number {
+function nextEmployeeId(positions: PositionRecord[]): string {
+  const collectIds = (value: string | null | undefined) => {
+    if (!value) return;
+    const match = value.match(/^E(\d+)$/i);
+    if (match) return Number(match[1]);
+    return undefined;
+  };
+  let maxNumeric = 0;
+  for (const position of positions) {
+    const fromPosition = collectIds(position.employeeId);
+    if (fromPosition) maxNumeric = Math.max(maxNumeric, fromPosition);
+    for (const event of position.events) {
+      const fromPayload = collectIds(event.payload.employeeId);
+      if (fromPayload) maxNumeric = Math.max(maxNumeric, fromPayload);
+    }
+  }
+  return `E${String(maxNumeric + 1).padStart(3, "0")}`;
+}
+
+function avgCR(record: PositionRecord, bands: SalaryRangeBand[]): number {
   const crValues = record.monthlyBase.map((base, index) =>
-    getMonthlyCR(base, record.monthlySpec[index], record.monthlyLevel[index]),
+    getMonthlyCR(base, record.monthlySpec[index], record.monthlyLevel[index], bands),
   );
   const valid = crValues.filter((value) => value > 0);
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
 }
 
-function transferFromLabel(record: PositionRecord): string | null {
-  const latest = [...record.events]
-    .filter((event) => event.type === "PLANNED_HIRE" && event.payload.transferFromPositionId)
+function isTemporaryReplacementVacancy(record: PositionRecord): boolean {
+  return record.status === "Vacancy" && record.role.includes("(временная замена");
+}
+
+function crTone(value: number): "warn" | "ok" | "danger" {
+  if (value < 0.8) return "warn";
+  if (value > 1.2) return "danger";
+  return "ok";
+}
+
+function needsCarryoverEvent(record: PositionRecord): boolean {
+  return record.status === "Vacancy" && record.slotType === "carryover" && !hasCarryoverEvent(record);
+}
+
+function pluralVacancy(count: number): string {
+  const abs = Math.abs(count) % 100;
+  const mod = abs % 10;
+  if (abs > 10 && abs < 20) return "вакансий";
+  if (mod === 1) return "вакансия";
+  if (mod >= 2 && mod <= 4) return "вакансии";
+  return "вакансий";
+}
+function employeeCellLabel(record: PositionRecord): string {
+  const maternityEvent = [...record.events]
+    .filter((event) => event.type === "MANUAL_OVERRIDE" && event.payload.maternityMode === "SHARED_POSITION")
     .sort((a, b) => b.createdOrder - a.createdOrder)[0];
-  if (!latest) return null;
-  return `${latest.payload.transferFromPositionId} -> ${monthLabel(latest.payload.month)}`;
+  if (!maternityEvent) {
+    return record.employeeName ? `${record.employeeName} (${record.employeeId ?? "-"})` : "-";
+  }
+  const primaryName = maternityEvent.payload.maternityPrimaryEmployeeName || record.employeeName || "Сотрудник";
+  const primaryId = maternityEvent.payload.maternityPrimaryEmployeeId || record.employeeId || "—";
+  const replacementName = maternityEvent.payload.employeeName || "Замещение";
+  const replacementId = maternityEvent.payload.employeeId || "—";
+  return `${primaryName} (${primaryId}) [декрет] + ${replacementName} (${replacementId}) [замещение]`;
 }
 
 export function PlanningPage() {
-  const [positions, setPositions] = useState<PositionRecord[]>(() => initialPositions().map(applyEvents));
+  const { positions, setPositions, activePlan, viewMode, salaryBands } = useMvpApp();
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("All");
   const [unit, setUnit] = useState("All");
   const [team, setTeam] = useState("All");
+  const [limitFilter, setLimitFilter] = useState<"All" | "IN_LIMIT" | "OVER_LIMIT">("All");
+  const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy">("All");
   const [active, setActive] = useState<PositionRecord | null>(null);
   const [idxPercent, setIdxPercent] = useState(5);
   const [idxMonth, setIdxMonth] = useState(8);
   const [recentlyIndexedIds, setRecentlyIndexedIds] = useState<string[]>([]);
   const [bulkFeedback, setBulkFeedback] = useState<{ tone: "success" | "warning"; text: string } | null>(null);
+  const bulkFeedbackTimer = useRef<number | null>(null);
+
+  const showBulkFeedback = (tone: "success" | "warning", text: string) => {
+    if (bulkFeedbackTimer.current !== null) {
+      window.clearTimeout(bulkFeedbackTimer.current);
+    }
+    setBulkFeedback({ tone, text });
+    bulkFeedbackTimer.current = window.setTimeout(() => {
+      setBulkFeedback(null);
+      bulkFeedbackTimer.current = null;
+    }, 5000);
+  };
+
+  useEffect(
+    () => () => {
+      if (bulkFeedbackTimer.current !== null) {
+        window.clearTimeout(bulkFeedbackTimer.current);
+      }
+    },
+    [],
+  );
   const [indexationBatches, setIndexationBatches] = useState<IndexationBatchLog[]>([]);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!active) return;
-    const keyId = activeSourceId ?? active.positionId;
-    const refreshed = positions.find((position) => position.positionId === keyId) ?? null;
+    const refreshedByActive = positions.find((position) => position.positionId === active.positionId) ?? null;
+    const refreshedBySource =
+      activeSourceId && activeSourceId !== active.positionId
+        ? positions.find((position) => position.positionId === activeSourceId) ?? null
+        : null;
+    const refreshed = refreshedByActive ?? refreshedBySource;
     if (!refreshed) {
+      const isDraftRecord = !positions.some((position) => position.positionId === active.positionId);
+      if (isDraftRecord) return;
       setActive(null);
       setActiveSourceId(null);
       return;
@@ -86,29 +182,38 @@ export function PlanningPage() {
       const departmentMatch = department === "All" || position.department === department;
       const unitMatch = unit === "All" || position.unit === unit;
       const teamMatch = team === "All" || position.team === team;
+      const limitMatch = limitFilter === "All" || position.limitFlag === limitFilter;
+      const occupancyMatch = occupancyFilter === "All" || position.status === occupancyFilter;
       const queryText = `${position.positionId} ${position.role} ${position.employeeName ?? ""} ${position.unit} ${position.team}`.toLowerCase();
-      return departmentMatch && unitMatch && teamMatch && queryText.includes(query.toLowerCase());
+      return departmentMatch && unitMatch && teamMatch && limitMatch && occupancyMatch && queryText.includes(query.toLowerCase());
     });
-  }, [positions, query, department, unit, team]);
+  }, [positions, query, department, unit, team, limitFilter, occupancyFilter]);
 
-  const occupied = filtered.filter((position) => position.status === "Occupied");
-  const vacancies = filtered.filter((position) => position.status === "Vacancy");
+  const tableCounts = useMemo(
+    () => ({
+      total: filtered.length,
+      occupied: filtered.filter((position) => position.status === "Occupied").length,
+      vacancy: filtered.filter((position) => position.status === "Vacancy").length,
+    }),
+    [filtered],
+  );
 
-  const kpi = useMemo(() => {
-    const total = filtered.reduce((sum, position) => sum + annualTotal(position), 0);
-    const occupiedCount = filtered.filter((position) => position.status === "Occupied").length;
-    const vacancyCount = filtered.filter((position) => position.status === "Vacancy").length;
-    const overLimitCount = filtered.filter((position) => getLimitStatus(position).label === "Over Limit").length;
-    const avg = filtered.length
-      ? filtered.reduce((sum, position) => sum + avgCR(position), 0) / filtered.length
-      : 0;
-    return { total, occupiedCount, vacancyCount, avgCr: avg, overLimitCount };
-  }, [filtered]);
+
+  const carryoverPendingCount = useMemo(
+    () =>
+      filtered.filter(
+        (position) =>
+          position.status === "Vacancy" &&
+          position.slotType === "carryover" &&
+          !hasCarryoverEvent(position),
+      ).length,
+    [filtered],
+  );
 
   const applyIndexationToFiltered = () => {
     const targetIds = filtered.filter((item) => item.status !== "Closed").map((item) => item.positionId);
     if (targetIds.length === 0) {
-      setBulkFeedback({ tone: "warning", text: "Нет активных позиций для индексации по текущему фильтру." });
+      showBulkFeedback("warning", "Нет активных позиций для индексации по текущему фильтру.");
       return;
     }
     const confirmed = window.confirm(
@@ -145,13 +250,51 @@ export function PlanningPage() {
       ...prev,
     ]);
     setRecentlyIndexedIds(targetIds);
-    setBulkFeedback({
-      tone: "success",
-      text: `Индексация +${idxPercent}% с ${monthLabel(idxMonth)} применена к ${targetIds.length} позициям.`,
-    });
+    showBulkFeedback(
+      "success",
+      `Индексация +${idxPercent}% с ${monthLabel(idxMonth)} применена к ${targetIds.length} позициям.`,
+    );
     window.setTimeout(() => {
       setRecentlyIndexedIds([]);
     }, 4000);
+  };
+
+  const applyCarryoverBatch = () => {
+    const targets = filtered.filter(
+      (position) =>
+        position.status === "Vacancy" &&
+        position.slotType === "carryover" &&
+        !hasCarryoverEvent(position),
+    );
+    if (targets.length === 0) {
+      showBulkFeedback(
+        "warning",
+        "Нет вакансий переноса без события в текущем фильтре. Сбросьте фильтры или откройте строку вакансии в drawer.",
+      );
+      return;
+    }
+    const ids = targets.map((item) => item.positionId).join(", ");
+    const confirmed = window.confirm(
+      `Зафиксировать перенос бюджета с января для ${targets.length} ${pluralVacancy(targets.length)} (${ids})?\n\nОклад вакансии не обнуляется — в плане остаётся бюджет прошлого года.`,
+    );
+    if (!confirmed) return;
+    setPositions((prev) =>
+      prev.map((position) => {
+        if (!targets.some((item) => item.positionId === position.positionId)) return position;
+        const event: PlannedEvent = {
+          id: crypto.randomUUID(),
+          type: "POSITION_CARRYOVER",
+          createdAt: new Date().toISOString(),
+          createdOrder: position.events.length + 1,
+          payload: { month: 0 },
+        };
+        return upsertEvent(position, event);
+      }),
+    );
+    showBulkFeedback(
+      "success",
+      `Перенос бюджета зафиксирован: ${targets.length} ${pluralVacancy(targets.length)} (${ids}). Кнопка станет неактивной — повторять не нужно.`,
+    );
   };
 
   const deleteIndexationBatch = (batchId: string) => {
@@ -168,29 +311,125 @@ export function PlanningPage() {
       }),
     );
     setIndexationBatches((prev) => prev.filter((item) => item.id !== batchId));
-    setBulkFeedback({ tone: "success", text: "Факт индексации удален. Значения пересчитаны." });
+    showBulkFeedback("success", "Факт индексации удален. Значения пересчитаны.");
+  };
+
+  const applyExistingIndexationBatches = (record: PositionRecord): PositionRecord => {
+    if (indexationBatches.length === 0) return record;
+    const existingBatchIds = new Set(
+      record.events
+        .filter((event) => event.type === "INDEXATION" && typeof event.payload.indexationBatchId === "string")
+        .map((event) => event.payload.indexationBatchId as string),
+    );
+    const missingBatches = [...indexationBatches]
+      .filter((batch) => !existingBatchIds.has(batch.id))
+      .sort((a, b) => a.month - b.month || a.createdAt.localeCompare(b.createdAt));
+    if (missingBatches.length === 0) return record;
+    const extraEvents: PlannedEvent[] = missingBatches.map((batch, index) => ({
+      id: crypto.randomUUID(),
+      type: "INDEXATION",
+      createdAt: batch.createdAt,
+      createdOrder: record.events.length + index + 1,
+      payload: {
+        month: batch.month,
+        percent: batch.percent,
+        indexationBatchId: batch.id,
+      },
+    }));
+    return applyEvents({ ...record, events: [...record.events, ...extraEvents] });
   };
 
   const saveDraftPosition = (updated: PositionRecord, sourcePositionId?: string, forceCreate = false) => {
     const sourceId = sourcePositionId ?? updated.positionId;
     const recalculated = applyEvents(updated);
+    const withIndexation = forceCreate ? applyExistingIndexationBatches(recalculated) : recalculated;
     setPositions((prev) => {
       const existsBySource = prev.some((position) => position.positionId === sourceId);
       if (existsBySource) {
         return prev.map((position) => (position.positionId === sourceId ? recalculated : position));
       }
       if (forceCreate) {
-        return [...prev, recalculated];
+        return [...prev, withIndexation];
       }
       return prev;
     });
-    setActive(recalculated);
-    setActiveSourceId(recalculated.positionId);
+    setActive(withIndexation);
+    setActiveSourceId(withIndexation.positionId);
   };
 
   const addEvent = (positionId: string, event: PlannedEvent) => {
     setPositions((prev) => {
       let next = prev.map((position) => (position.positionId === positionId ? upsertEvent(position, event) : position));
+      const createInterDepartmentTarget = () => {
+        const source = prev.find((position) => position.positionId === positionId);
+        if (!source) return;
+        const targetDepartment = event.payload.targetDepartment;
+        if (!targetDepartment) return;
+        const targetUnitCandidates = unitOptions(targetDepartment);
+        const targetUnit = event.payload.targetUnit && targetUnitCandidates.includes(event.payload.targetUnit)
+          ? event.payload.targetUnit
+          : targetUnitCandidates[0] || "";
+        const targetTeamCandidates = teamOptions(targetDepartment, targetUnit);
+        const targetTeam = event.payload.targetTeam && targetTeamCandidates.includes(event.payload.targetTeam)
+          ? event.payload.targetTeam
+          : targetTeamCandidates[0] || "";
+        const transferMonth = Math.max(0, Math.min(11, event.payload.month));
+        const base = typeof event.payload.base === "number" ? event.payload.base : source.monthlyBase[transferMonth] || 0;
+        const bonus = typeof event.payload.bonus === "number" ? event.payload.bonus : source.monthlyBonus[transferMonth] || 0;
+        const specialization = event.payload.specialization || source.monthlySpec[transferMonth] || source.seedMonthlySpec[transferMonth];
+        const level = event.payload.level || source.monthlyLevel[transferMonth] || source.seedMonthlyLevel[transferMonth];
+        const seedBase = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? 0 : base));
+        const seedBonus = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? 0 : bonus));
+        const seedSpec = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? source.seedMonthlySpec[idx] : specialization));
+        const seedLevel = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? source.seedMonthlyLevel[idx] : level));
+        const newPositionId = nextPositionId(next);
+        const targetPosition: PositionRecord = {
+          positionId: newPositionId,
+          role: source.role,
+          department: targetDepartment,
+          unit: targetUnit,
+          team: targetTeam,
+          slotType: "new",
+          activeFromMonth: transferMonth,
+          vacancySinceMonth: transferMonth,
+          limitFlag: defaultLimitFlagForSlotType("new"),
+          previousDecemberBase: 0,
+          employeeName: null,
+          employeeId: null,
+          status: "Vacancy",
+          seedEmployeeName: null,
+          seedEmployeeId: null,
+          seedStatus: "Vacancy",
+          seedVacancySinceMonth: transferMonth,
+          monthlySpec: [...seedSpec],
+          monthlyLevel: [...seedLevel],
+          monthlyBase: [...seedBase],
+          monthlyBonus: [...seedBonus],
+          seedMonthlySpec: seedSpec,
+          seedMonthlyLevel: seedLevel,
+          seedMonthlyBase: seedBase,
+          seedMonthlyBonus: seedBonus,
+          events: [],
+        };
+        const targetWithIndexation = applyExistingIndexationBatches(targetPosition);
+        const hireEvent: PlannedEvent = {
+          id: crypto.randomUUID(),
+          type: "PLANNED_HIRE",
+          createdAt: new Date().toISOString(),
+          createdOrder: targetWithIndexation.events.length + 1,
+          payload: {
+            month: transferMonth,
+            employeeName: event.payload.employeeName ?? "Transferred Employee",
+            employeeId: event.payload.employeeId ?? "E-TRANSFER",
+            transferFromPositionId: positionId,
+            base,
+            bonus,
+            specialization,
+            level,
+          },
+        };
+        next = [...next, upsertEvent(targetWithIndexation, hireEvent)];
+      };
 
       if (event.type === "TRANSFER" && event.payload.transferToPositionId) {
         next = next.map((position) => {
@@ -205,12 +444,18 @@ export function PlanningPage() {
                 employeeName: event.payload.employeeName ?? "Transferred Employee",
                 employeeId: event.payload.employeeId ?? "E-TRANSFER",
                 transferFromPositionId: positionId,
+                base: event.payload.base,
+                bonus: event.payload.bonus,
+                specialization: event.payload.specialization,
+                level: event.payload.level,
               },
             };
             return upsertEvent(position, hireEvent);
           }
           return position;
         });
+      } else if (event.type === "TRANSFER" && event.payload.transferKind === "INTER_DEPARTMENT") {
+        createInterDepartmentTarget();
       }
 
       return next;
@@ -222,6 +467,35 @@ export function PlanningPage() {
       prev.map((position) => (position.positionId === positionId ? removeEvent(position, eventId) : position)),
     );
   };
+  const deleteVacancy = (positionId: string) => {
+    const isPersistedVacancy = positions.some((position) => position.positionId === positionId && position.status === "Vacancy");
+    const confirmText = isPersistedVacancy
+      ? `Удалить вакансию ${positionId} из плана? Это действие нельзя отменить.`
+      : "Удалить черновик вакансии?";
+    const confirmed = window.confirm(confirmText);
+    if (!confirmed) return;
+    setPositions((prev) => prev.filter((position) => position.positionId !== positionId));
+    setActive(null);
+    setActiveSourceId(null);
+    showBulkFeedback("success", isPersistedVacancy ? `Вакансия ${positionId} удалена.` : "Черновик вакансии удален.");
+  };
+  const vacancyOptions: VacancyOption[] = positions
+    .filter((item) => item.status === "Vacancy")
+    .map((item) => ({
+      positionId: item.positionId,
+      role: item.role,
+      department: item.department,
+      unit: item.unit,
+      team: item.team,
+    }));
+  const employeeOptions: EmployeeOption[] = positions
+    .filter((item) => item.status === "Occupied" && item.employeeId && item.employeeName)
+    .map((item) => ({
+      employeeId: item.employeeId as string,
+      employeeName: item.employeeName as string,
+      positionId: item.positionId,
+    }))
+    .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "ru"));
 
   const startAddVacancy = () => {
     const newId = nextPositionId(positions);
@@ -231,16 +505,16 @@ export function PlanningPage() {
       unit === "All" ? "" : unit,
       team === "All" ? "" : team,
     );
-    const vacancy: PositionRecord = {
+    const vacancy: PositionRecord = applyExistingIndexationBatches({
       positionId: newId,
       role: "Новая вакансия",
       department: org.department,
       unit: org.unit,
       team: org.team,
       slotType: "new",
+      limitFlag: defaultLimitFlagForSlotType("new"),
       activeFromMonth,
       vacancySinceMonth: activeFromMonth,
-      annualLimit: 2_000_000,
       previousDecemberBase: 0,
       employeeName: null,
       employeeId: null,
@@ -258,54 +532,49 @@ export function PlanningPage() {
       seedMonthlyBase: Array.from({ length: 12 }, () => 150_000),
       seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
       events: [],
-    };
+    });
     setActive(vacancy);
     setActiveSourceId(vacancy.positionId);
   };
 
   return (
-    <div className="planning-page">
+    <div className="content-page planning-page">
       <header className="page-header">
         <div>
-          <h1>Planning & Headcount</h1>
-          <p>Годовое планирование ФОТ по позициям (занято + вакансия)</p>
+          <h1>Планирование и численность</h1>
+          <p>
+            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} поз. (
+            {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии)
+          </p>
         </div>
-        <button className="primary-btn" onClick={startAddVacancy}>
-          <Plus size={14} /> Добавить вакансию
-        </button>
+        <div className="page-header__actions">
+          <Link className="secondary-btn" to="/salary-ranges">
+            Диапазоны
+          </Link>
+          <button className="primary-btn" onClick={startAddVacancy}>
+            <Plus size={14} /> Добавить вакансию
+          </button>
+        </div>
       </header>
 
-      <section className="kpi-grid">
-        <article className="kpi-card">
-          <span>Total Planned Budget</span>
-          <strong>{kpi.total.toLocaleString("ru-RU")} ₽</strong>
-        </article>
-        <article className="kpi-card">
-          <span>Headcount</span>
-          <strong>{kpi.occupiedCount}</strong>
-        </article>
-        <article className="kpi-card">
-          <span>Vacancies</span>
-          <strong>{kpi.vacancyCount}</strong>
-        </article>
-        <article className="kpi-card">
-          <span>Average CR</span>
-          <strong>{kpi.avgCr.toFixed(2)}</strong>
-        </article>
-        <article className="kpi-card">
-          <span>Over Limit</span>
-          <strong>{kpi.overLimitCount}</strong>
-        </article>
-      </section>
+      <AnalyticsSummaryStrip
+        positions={filtered}
+        viewMode={viewMode}
+        salaryBands={salaryBands}
+        showYtd={false}
+        showFactYtd={false}
+        showAvgCr={false}
+        singleRow
+      />
 
-      <section className="toolbar-grid">
-        <div className="toolbar-main">
+      <section className="card filters-card">
+        <div className="filters-grid filters-grid--toolbar">
           <label className="search-field">
             <Search size={14} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по позиции/сотруднику" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Роль, позиция или сотрудник…" />
           </label>
           <label>
-            <Filter size={14} />
+            Департамент
             <select
               value={department}
               onChange={(event) => {
@@ -327,13 +596,16 @@ export function PlanningPage() {
                 }
               }}
             >
-              <option value="All">All Departments</option>
+              <option value="All">Все</option>
               {departmentOptions.map((item) => (
-                <option key={item} value={item}>{item}</option>
+                <option key={item} value={item}>
+                  {item}
+                </option>
               ))}
             </select>
           </label>
           <label>
+            Юнит
             <select
               value={unit}
               onChange={(event) => {
@@ -346,41 +618,94 @@ export function PlanningPage() {
                 const teams = teamOptions(department, nextUnit);
                 setTeam(teams.includes(team) ? team : "All");
               }}
+              disabled={department === "All"}
             >
-              <option value="All">All Units</option>
+              <option value="All">Все</option>
               {department !== "All" &&
                 unitOptions(department).map((item) => (
-                  <option key={item} value={item}>{item}</option>
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
                 ))}
             </select>
           </label>
           <label>
-            <select value={team} onChange={(event) => setTeam(event.target.value)}>
-              <option value="All">All Teams</option>
-              {department !== "All" && unit !== "All" &&
+            Команда
+            <select value={team} onChange={(event) => setTeam(event.target.value)} disabled={department === "All" || unit === "All"}>
+              <option value="All">Все</option>
+              {department !== "All" &&
+                unit !== "All" &&
                 teamOptions(department, unit).map((item) => (
-                  <option key={item} value={item}>{item}</option>
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
                 ))}
+            </select>
+          </label>
+          <label>
+            Лимит
+            <select value={limitFilter} onChange={(event) => setLimitFilter(event.target.value as "All" | "IN_LIMIT" | "OVER_LIMIT")}>
+              <option value="All">Все</option>
+              <option value="IN_LIMIT">{LIMIT_FLAG_LABELS.IN_LIMIT}</option>
+              <option value="OVER_LIMIT">{LIMIT_FLAG_LABELS.OVER_LIMIT}</option>
+            </select>
+          </label>
+          <label>
+            Статус
+            <select value={occupancyFilter} onChange={(event) => setOccupancyFilter(event.target.value as "All" | "Occupied" | "Vacancy")}>
+              <option value="All">Все</option>
+              <option value="Occupied">Позиция</option>
+              <option value="Vacancy">Вакансия</option>
             </select>
           </label>
         </div>
-        <div className="toolbar-indexation">
-          <h3><Calculator size={14} /> Массовая индексация</h3>
-          <label>
-            Increase %
-            <input type="number" value={idxPercent} onChange={(event) => setIdxPercent(Number(event.target.value))} />
-          </label>
-          <label>
-            From month
-            <select value={idxMonth} onChange={(event) => setIdxMonth(Number(event.target.value))}>
-              {MONTHS.map((month, monthIndex) => (
-                <option key={month} value={monthIndex}>
-                  {month}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="primary-btn" onClick={applyIndexationToFiltered}>Apply</button>
+      </section>
+
+      <section className="card mass-ops-card">
+        <h2 className="section-title">
+          <Calculator size={16} /> Массовые операции
+        </h2>
+        <div className="mass-ops-grid">
+          <article className="mass-ops-panel mass-ops-panel--carryover">
+            <h3 className="subsection-title">Перенос бюджета вакансий</h3>
+            <p className="muted-line">
+              Для вакансий «перенос с прошлого года» — зафиксировать событие, чтобы оклад не обнулился в плане.
+            </p>
+            {carryoverPendingCount > 0 ? (
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={applyCarryoverBatch}
+                title="Для вакансий «перенос с прошлого года» без события"
+              >
+                Зафиксировать ({carryoverPendingCount})
+              </button>
+            ) : (
+              <p className="mass-ops-panel__ok">В текущем фильтре все вакансии переноса уже обработаны.</p>
+            )}
+          </article>
+          <article className="mass-ops-panel mass-ops-panel--indexation">
+            <h3 className="subsection-title">Индексация по фильтру</h3>
+            <div className="mass-ops-indexation">
+              <label>
+                Процент
+                <input type="number" value={idxPercent} onChange={(event) => setIdxPercent(Number(event.target.value))} />
+              </label>
+              <label>
+                С месяца
+                <select value={idxMonth} onChange={(event) => setIdxMonth(Number(event.target.value))}>
+                  {MONTHS.map((month, monthIndex) => (
+                    <option key={month} value={monthIndex}>
+                      {month}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="primary-btn" onClick={applyIndexationToFiltered}>
+                Применить индексацию
+              </button>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -391,16 +716,16 @@ export function PlanningPage() {
       )}
 
       {indexationBatches.length > 0 && (
-        <section className="table-section">
-          <h2>Факты массовой индексации</h2>
-          <table>
+        <section className="card">
+          <h2 className="section-title">Факты массовой индексации</h2>
+          <table className="simple-table">
             <thead>
               <tr>
                 <th>Когда</th>
                 <th>Месяц</th>
                 <th>Процент</th>
                 <th>Позиции</th>
-                <th>Действие</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -411,7 +736,7 @@ export function PlanningPage() {
                   <td>+{batch.percent}%</td>
                   <td>{batch.affectedCount}</td>
                   <td>
-                    <button className="icon-btn danger" onClick={() => deleteIndexationBatch(batch.id)}>
+                    <button type="button" className="icon-btn danger" onClick={() => deleteIndexationBatch(batch.id)}>
                       <Trash2 size={14} />
                     </button>
                   </td>
@@ -422,126 +747,79 @@ export function PlanningPage() {
         </section>
       )}
 
-      <section className="table-section">
-        <h2>Объединенный обзор стула</h2>
-        <table>
+      <section className="card">
+        <h2 className="section-title">Позиции · {tableCounts.total}</h2>
+        <table className="simple-table positions-table positions-table--compact">
           <thead>
             <tr>
-              <th>Position ID</th>
-              <th>Role</th>
-              <th>Employee</th>
-              <th>Status</th>
-              <th>Org</th>
-              <th>С месяца</th>
-              <th>Limit</th>
-              <th>Annual Total</th>
-              <th>Avg CR</th>
+              <th>Роль / ID</th>
+              <th>Сотрудник / орг.</th>
+              <th>Спец. и уровень</th>
+              <th>Дек → дек</th>
+              <th>ФОТ год</th>
+              <th>CR</th>
+              <th>Лимит</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((position) => (
-              <tr
-                key={position.positionId}
-                onClick={() => {
-                  setActive(position);
-                  setActiveSourceId(position.positionId);
-                }}
-                className={recentlyIndexedIds.includes(position.positionId) ? "row-updated" : undefined}
-              >
-                <td>{position.positionId}</td>
-                <td>{position.role}</td>
-                <td>{position.employeeName ? `${position.employeeName} (${position.employeeId ?? "-"})` : "-"}</td>
-                <td>{position.status}</td>
-                <td>{position.department} / {position.unit} / {position.team}</td>
-                <td>{monthLabel(position.activeFromMonth)}</td>
-                <td>
-                  <span className={`limit-badge limit-badge--${getLimitStatus(position).tone}`}>
-                    {getLimitStatus(position).label} ({limitUsagePercent(position).toFixed(1)}%)
-                  </span>
-                </td>
-                <td>{annualTotal(position).toLocaleString("ru-RU")} ₽</td>
-                <td>{avgCR(position).toFixed(2)}</td>
-              </tr>
-            ))}
+            {filtered.map((position) => {
+              const cr = avgCR(position, salaryBands);
+              const decDelta = position.monthlyBase[11] - position.previousDecemberBase;
+              const decPct = decToDec(position.previousDecemberBase, position.monthlyBase[11]);
+              return (
+                <tr
+                  key={position.positionId}
+                  onClick={() => {
+                    setActive(position);
+                    setActiveSourceId(position.positionId);
+                  }}
+                  className={`positions-table__row${recentlyIndexedIds.includes(position.positionId) ? " row-updated" : ""}`}
+                >
+                  <td>
+                    <div className="positions-table__role">{position.role}</div>
+                    <div className="muted-line">
+                      {position.positionId} · с {monthLabel(position.activeFromMonth)} ·{" "}
+                      {POSITION_STATUS_LABELS[position.status]}
+                    </div>
+                    {isTemporaryReplacementVacancy(position) && <span className="scenario-badge">Временная замена</span>}
+                    {needsCarryoverEvent(position) && (
+                      <span className="scenario-badge scenario-badge--warn">Нет события переноса</span>
+                    )}
+                  </td>
+                  <td>
+                    <div>{employeeCellLabel(position)}</div>
+                    <div className="muted-line">
+                      {position.department} / {position.unit} / {position.team}
+                    </div>
+                  </td>
+                  <td>
+                    {position.monthlySpec[11]}
+                    <div className="muted-line">{position.monthlyLevel[11]}</div>
+                  </td>
+                  <td className={`dec-cell--${growthTone(decDelta)}`}>
+                    <div className="positions-table__dec-range">
+                      {position.previousDecemberBase.toLocaleString("ru-RU")} →{" "}
+                      {position.monthlyBase[11].toLocaleString("ru-RU")} ₽
+                    </div>
+                    <div>
+                      {formatGrowthDelta(decDelta)} · {formatGrowthPct(decPct)}
+                    </div>
+                  </td>
+                  <td>{annualTotal(position).toLocaleString("ru-RU")} ₽</td>
+                  <td>
+                    <span className={`cr-value cr-value--${crTone(cr)}`}>{cr > 0 ? cr.toFixed(2) : "—"}</span>
+                  </td>
+                  <td>
+                    <span className={`limit-flag-badge limit-flag-badge--${position.limitFlag}`}>
+                      {LIMIT_FLAG_LABELS[position.limitFlag]}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </section>
-
-      <section className="table-split">
-        <article className="table-section">
-          <h2>Занятые позиции</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Position</th>
-                <th>Employee</th>
-                <th>Кто пришел (transfer)</th>
-                <th>Org</th>
-                <th>Limit</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {occupied.map((position) => (
-                <tr
-                  key={`occupied-${position.positionId}`}
-                  onClick={() => {
-                    setActive(position);
-                    setActiveSourceId(position.positionId);
-                  }}
-                >
-                  <td>{position.positionId}</td>
-                  <td>{position.employeeName ? `${position.employeeName} (${position.employeeId ?? "-"})` : "-"}</td>
-                  <td>{transferFromLabel(position) ?? "—"}</td>
-                  <td>{position.department} / {position.unit} / {position.team}</td>
-                  <td>
-                    <span className={`limit-badge limit-badge--${getLimitStatus(position).tone}`}>
-                      {getLimitStatus(position).label}
-                    </span>
-                  </td>
-                  <td>{annualTotal(position).toLocaleString("ru-RU")} ₽</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </article>
-        <article className="table-section">
-          <h2>Вакансии</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Position</th>
-                <th>Role</th>
-                <th>Вакантна с</th>
-                <th>Org</th>
-                <th>Limit</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vacancies.map((position) => (
-                <tr
-                  key={`vacancy-${position.positionId}`}
-                  onClick={() => {
-                    setActive(position);
-                    setActiveSourceId(position.positionId);
-                  }}
-                >
-                  <td>{position.positionId}</td>
-                  <td>{position.role}</td>
-                  <td>{position.vacancySinceMonth === null ? "—" : monthLabel(position.vacancySinceMonth)}</td>
-                  <td>{position.department} / {position.unit} / {position.team}</td>
-                  <td>
-                    <span className={`limit-badge limit-badge--${getLimitStatus(position).tone}`}>
-                      {getLimitStatus(position).label}
-                    </span>
-                  </td>
-                  <td>{annualTotal(position).toLocaleString("ru-RU")} ₽</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </article>
+        {filtered.length === 0 && <p className="muted-line">Нет позиций по текущим фильтрам.</p>}
       </section>
 
       <PositionDrawer
@@ -554,7 +832,10 @@ export function PlanningPage() {
         onSaveDraft={saveDraftPosition}
         onAddEvent={addEvent}
         onDeleteEvent={deleteEvent}
-        vacancyPositionOptions={positions.filter((item) => item.status === "Vacancy").map((item) => item.positionId)}
+        onDeletePosition={deleteVacancy}
+        vacancyOptions={vacancyOptions}
+        employeeOptions={employeeOptions}
+        suggestedNewEmployeeId={nextEmployeeId(positions)}
         isPersisted={Boolean(active && positions.some((item) => item.positionId === active.positionId))}
         departmentOptions={departmentOptions}
         unitOptionsForDepartment={unitOptions}
