@@ -1,5 +1,6 @@
 import { annualTotal, decToDec, getMonthlyCR } from "./planningData";
 import { initialSalaryBands } from "./salaryRangeData";
+import { hasFactData, monthFactAmountFromStore } from "./factStore";
 import { MONTHS } from "../types";
 import type { LimitFlagKey, PositionRecord, SalaryRangeBand } from "../types";
 
@@ -93,9 +94,8 @@ export function monthAmountForPosition(position: PositionRecord, month: number, 
   return pickFotAmount(position.monthlyBase[month], position.monthlyBonus[month], viewMode);
 }
 
-/** Факт в MVP пока не загружен — всегда 0, флаг hasFactData = false. */
-export function monthFactAmount(_position: PositionRecord, _month: number, _viewMode: ViewMode): number {
-  return 0;
+export function monthFactAmount(position: PositionRecord, month: number, viewMode: ViewMode): number {
+  return monthFactAmountFromStore(position, month, viewMode);
 }
 
 export function monthlyPlanFactSeries(positions: PositionRecord[], viewMode: ViewMode) {
@@ -166,7 +166,7 @@ export function sliceAnalytics(positions: PositionRecord[], viewMode: ViewMode) 
   }
 
   return {
-    hasFactData: false,
+    hasFactData: hasFactData(),
     decPrev,
     decPlan,
     decPct,

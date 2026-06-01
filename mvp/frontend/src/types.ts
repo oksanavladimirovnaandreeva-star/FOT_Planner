@@ -47,6 +47,10 @@ export interface EventPayload {
   employeeId?: string;
   transferFromPositionId?: string;
   indexationBatchId?: string;
+  /** Связка TRANSFER ↔ PLANNED_HIRE для атомарного отката. */
+  transferPairId?: string;
+  /** Полный комментарий к событию (в UI — карточка; в тултипе — краткая выжимка). */
+  comment?: string;
 }
 
 export interface PlannedEvent {

@@ -1,33 +1,35 @@
 # Карта контекста — ничего не обнулялось
 
-Если кажется, что «весь контекст пропал» — это **сжатие истории в окне чата Cursor**, а не удаление проекта.
+| Что | Где | Статус |
+|-----|-----|--------|
+| **Код MVP** | `mvp/frontend/src/` | На диске |
+| **Handoff** | `docs/HANDOFF.md` | 2026-05-29 |
+| **Промпт переезда** | `docs/NEW-CHAT-PROMPT.md` | **Копировать в новый чат** |
+| **Сессия 2026-05-29** | `docs/SESSION-2026-05-29.md` | Версии, факт, drawer, prod |
+| **Сессия 2026-05-28** | `docs/SESSION-2026-05-28.md` | Import, KPI, drawer baseline |
+| **Prod roadmap** | `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` | Не сокращать |
+| **Правила drawer/движок** | `docs/ROOT-PROMPT.md` | |
+| **PG / 1С / BI** | `docs/DATA-INTEGRATION-postgresql-excel-bi.md` | После UI |
+| **Дизайн** | `docs/design/annual-budget-planning-app/source/` | |
 
-| Что | Где лежит | Статус |
-|-----|-----------|--------|
-| **Код MVP** | `mvp/frontend/src/` | На диске, все фичи сессии |
-| **Краткий handoff** | `docs/HANDOFF.md` | Baseline 2026-05-28 |
-| **Полная сессия (этот чат)** | `docs/SESSION-2026-05-28.md` | Решения, что сделали, что бесило, очередь |
-| **Длинный roadmap + ТЗ** | `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` (~460 строк) | Не трогали, весь prod-контекст |
-| **Продуктовые правила** | `docs/ROOT-PROMPT.md` | Drawer, dec→dec, индексация |
-| **Drawer UX** | `docs/DRAWER-UX.md` → HANDOFF | |
-| **Промпт нового чата** | `docs/NEW-CHAT-PROMPT.md` | Фазы A и B |
-| **Откат drawer** | `mvp/frontend/src/components/PositionDrawer.baseline.tsx` | = текущий drawer |
-| **История переписки** | Cursor → Projects → agent transcript `05bd1680-eb23-432b-94fb-89620fb284be` | Полный лог чата |
-| **Старый длинный baseline** | `git log -- mvp/docs/baseline-current-state.md` | До 2026-05-28 файл сжали до ссылки |
-
-## Что читать агенту в новом чате (по порядку)
+## Что читать агенту
 
 1. `docs/HANDOFF.md`
-2. `docs/SESSION-2026-05-28.md`
-3. `docs/ROOT-PROMPT.md` (если правки drawer/событий)
-4. `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` — только если нужна модель `apps/*` или долгий roadmap
+2. `docs/SESSION-2026-05-29.md`
+3. `docs/NEW-CHAT-PROMPT.md` (задача на старт)
+4. `docs/ROOT-PROMPT.md` — при правках drawer/событий
 
-## Решение сессии, которое нельзя потерять
+## Порядок этапов (актуально)
 
-- Путь **A**: сначала JSON import/export во frontend, потом API/Postgres.
-- Рабочая папка: **только** `mvp/frontend/`.
-- Порядок работ: **фаза A (шаги 1–4) → фаза B (шаги 5–6)**. Без «если останется время».
+```
+MVP UI (frontend JSON)
+  → drawer + версии (дожать)
+  → шаги 5–6 (applyEvents, прогноз)
+  → API + PostgreSQL + ИБ (prod)
+```
+
+Path A: сначала браузер и согласованная модель, потом `apps/api` и PG.
 
 ---
 
-*При обновлении baseline дописывай `SESSION-2026-05-28.md` или создай `SESSION-YYYY-MM-DD.md`, не удаляй `ПЛАН-ПРОДОЛЖЕНИЯ.md`.*
+*При новой сессии: дописать `SESSION-YYYY-MM-DD.md`, обновить `HANDOFF.md` и блок в `NEW-CHAT-PROMPT.md`.*

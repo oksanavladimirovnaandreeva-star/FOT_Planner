@@ -19,6 +19,7 @@ export function AnalyticsSummaryStrip({
   showFactYtd = true,
   showAvgCr = true,
   singleRow = false,
+  planningLayout = false,
 }: {
   positions: PositionRecord[];
   viewMode: ViewMode;
@@ -27,6 +28,8 @@ export function AnalyticsSummaryStrip({
   showFactYtd?: boolean;
   showAvgCr?: boolean;
   singleRow?: boolean;
+  /** Планирование: 1-я строка — ФОТ/дек, 2-я — позиции и вакансии */
+  planningLayout?: boolean;
 }) {
   const a = sliceAnalytics(positions, viewMode);
   const active = positions.filter((position) => position.status !== "Closed");
@@ -126,8 +129,16 @@ export function AnalyticsSummaryStrip({
   const totalVacancyCount = active.filter((position) => position.status === "Vacancy").length;
   const totalVacancyAmount = vacancyAmountByLimit.IN_LIMIT + vacancyAmountByLimit.OVER_LIMIT;
 
-  return (
-    <div className={`analytics-strip${singleRow ? " analytics-strip--single-row" : ""}`}>
+  const stripClass = [
+    "analytics-strip",
+    singleRow && !planningLayout ? "analytics-strip--single-row" : "",
+    planningLayout ? "analytics-strip--planning" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const fotCards = (
+    <>
       <div className="analytics-strip__item">
         <span>Итого ФОТ год</span>
         <strong>{formatMoney(a.yearPlan, true)}</strong>
@@ -187,6 +198,11 @@ export function AnalyticsSummaryStrip({
           ))}
         </div>
       </div>
+    </>
+  );
+
+  const headcountCards = (
+    <>
       <div className="analytics-strip__item">
         <span>Позиции</span>
         <strong>
@@ -219,6 +235,11 @@ export function AnalyticsSummaryStrip({
           ))}
         </div>
       </div>
+    </>
+  );
+
+  const extraCards = (
+    <>
       {showAvgCr ? (
         <div className="analytics-strip__item">
           <span>Средний CR</span>
@@ -267,6 +288,23 @@ export function AnalyticsSummaryStrip({
           ) : null}
         </>
       ) : null}
+    </>
+  );
+
+  if (planningLayout) {
+    return (
+      <div className={stripClass}>
+        <div className="analytics-strip__row-group analytics-strip__row-group--fot">{fotCards}</div>
+        <div className="analytics-strip__row-group analytics-strip__row-group--hc">{headcountCards}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={stripClass}>
+      {fotCards}
+      {headcountCards}
+      {extraCards}
     </div>
   );
 }

@@ -1,9 +1,13 @@
 import { annualTotal, monthLabel } from "./planningData";
 import { monthAmountForPosition, monthFactAmount } from "./dashboardMetrics";
+import { hasFactData } from "./factStore";
+import { mapPositionsWithAppliedEvents } from "./planOperations";
 import type { ViewMode } from "./dashboardMetrics";
 import type { LimitFlagKey, PositionRecord } from "../types";
 
-export const HAS_FACT_DATA = false;
+export function hasPlanFactData(): boolean {
+  return hasFactData();
+}
 
 export type PlanFactRow = {
   id: string;
@@ -20,10 +24,11 @@ function ytdMonthIndex(): number {
 }
 
 export function planFactTotals(positions: PositionRecord[], viewMode: ViewMode) {
+  const applied = mapPositionsWithAppliedEvents(positions);
   const ytd = ytdMonthIndex();
   let plan = 0;
   let fact = 0;
-  for (const position of positions) {
+  for (const position of applied) {
     if (position.status === "Closed") continue;
     for (let month = 0; month <= ytd; month += 1) {
       plan += monthAmountForPosition(position, month, viewMode);
@@ -41,9 +46,10 @@ export function planFactTotals(positions: PositionRecord[], viewMode: ViewMode) 
 }
 
 export function planFactByDepartment(positions: PositionRecord[], viewMode: ViewMode): PlanFactRow[] {
+  const applied = mapPositionsWithAppliedEvents(positions);
   const ytd = ytdMonthIndex();
   const acc = new Map<string, { plan: number; fact: number }>();
-  for (const position of positions) {
+  for (const position of applied) {
     if (position.status === "Closed") continue;
     const key = position.department;
     const cell = acc.get(key) ?? { plan: 0, fact: 0 };
@@ -70,13 +76,14 @@ export function planFactByDepartment(positions: PositionRecord[], viewMode: View
 }
 
 export function planFactByLimit(positions: PositionRecord[], viewMode: ViewMode): PlanFactRow[] {
+  const applied = mapPositionsWithAppliedEvents(positions);
   const ytd = ytdMonthIndex();
   const acc: Record<LimitFlagKey, { plan: number; fact: number }> = {
     IN_LIMIT: { plan: 0, fact: 0 },
     OVER_LIMIT: { plan: 0, fact: 0 },
     UNLIMITED: { plan: 0, fact: 0 },
   };
-  for (const position of positions) {
+  for (const position of applied) {
     if (position.status === "Closed") continue;
     for (let month = 0; month <= ytd; month += 1) {
       acc[position.limitFlag].plan += monthAmountForPosition(position, month, viewMode);

@@ -4,6 +4,8 @@ import { Calculator, Plus, Search, Trash2 } from "lucide-react";
 import {
   annualTotal,
   applyEvents,
+  applyExistingIndexationBatches,
+  collectIndexationBatchesFromPositions,
   decToDec,
   departmentOptions,
   defaultLimitFlagForSlotType,
@@ -16,31 +18,28 @@ import {
   monthLabel,
   normalizeOrgPath,
   POSITION_STATUS_LABELS,
-  removeEvent,
   teamOptions,
   unitOptions,
   upsertEvent,
 } from "../data/planningData";
+import {
+  formatEventChangeLine,
+  positionTableRowClass,
+  summarizeLatestPositionEvent,
+} from "../data/eventJournal";
+import {
+  applyPlanTransferFromDrawerEvent,
+  applyTerminationToVacancy,
+  mapPositionsWithAppliedEvents,
+  mergePlanPositionsWithDraft,
+  removePlanEvent,
+} from "../data/planOperations";
 import { useMvpApp } from "../context/MvpAppContext";
 import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
 import { PositionDrawer } from "../components/PositionDrawer";
 import { MONTHS } from "../types";
 import type { PlannedEvent, PositionRecord, SalaryRangeBand } from "../types";
 
-interface IndexationBatchLog {
-  id: string;
-  month: number;
-  percent: number;
-  affectedCount: number;
-  createdAt: string;
-}
-type VacancyOption = {
-  positionId: string;
-  role: string;
-  department: string;
-  unit: string;
-  team: string;
-};
 type EmployeeOption = {
   employeeId: string;
   employeeName: string;
@@ -97,14 +96,6 @@ function needsCarryoverEvent(record: PositionRecord): boolean {
   return record.status === "Vacancy" && record.slotType === "carryover" && !hasCarryoverEvent(record);
 }
 
-function pluralVacancy(count: number): string {
-  const abs = Math.abs(count) % 100;
-  const mod = abs % 10;
-  if (abs > 10 && abs < 20) return "вакансий";
-  if (mod === 1) return "вакансия";
-  if (mod >= 2 && mod <= 4) return "вакансии";
-  return "вакансий";
-}
 function employeeCellLabel(record: PositionRecord): string {
   const maternityEvent = [...record.events]
     .filter((event) => event.type === "MANUAL_OVERRIDE" && event.payload.maternityMode === "SHARED_POSITION")
@@ -120,13 +111,17 @@ function employeeCellLabel(record: PositionRecord): string {
 }
 
 export function PlanningPage() {
-  const { positions, setPositions, activePlan, viewMode, salaryBands } = useMvpApp();
+  const { positions, setPositions, activePlan, viewMode, salaryBands, canEditPlan, workingDraft } = useMvpApp();
+
+  const blockEdit = () => {
+    window.alert("Правки только в рабочем черновике. Создайте черновик на странице «Версии».");
+  };
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("All");
   const [unit, setUnit] = useState("All");
   const [team, setTeam] = useState("All");
   const [limitFilter, setLimitFilter] = useState<"All" | "IN_LIMIT" | "OVER_LIMIT">("All");
-  const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy">("All");
+  const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy" | "Closed">("All");
   const [active, setActive] = useState<PositionRecord | null>(null);
   const [idxPercent, setIdxPercent] = useState(5);
   const [idxMonth, setIdxMonth] = useState(8);
@@ -153,8 +148,14 @@ export function PlanningPage() {
     },
     [],
   );
-  const [indexationBatches, setIndexationBatches] = useState<IndexationBatchLog[]>([]);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+
+  const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(positions), [positions]);
+  const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
+  const planPositionsForDrawer = useMemo(
+    () => mergePlanPositionsWithDraft(positions, active),
+    [positions, active],
+  );
 
   useEffect(() => {
     if (!active) return;
@@ -178,7 +179,7 @@ export function PlanningPage() {
   }, [positions, active, activeSourceId]);
 
   const filtered = useMemo(() => {
-    return positions.filter((position) => {
+    return appliedPositions.filter((position) => {
       const departmentMatch = department === "All" || position.department === department;
       const unitMatch = unit === "All" || position.unit === unit;
       const teamMatch = team === "All" || position.team === team;
@@ -187,7 +188,7 @@ export function PlanningPage() {
       const queryText = `${position.positionId} ${position.role} ${position.employeeName ?? ""} ${position.unit} ${position.team}`.toLowerCase();
       return departmentMatch && unitMatch && teamMatch && limitMatch && occupancyMatch && queryText.includes(query.toLowerCase());
     });
-  }, [positions, query, department, unit, team, limitFilter, occupancyFilter]);
+  }, [appliedPositions, query, department, unit, team, limitFilter, occupancyFilter]);
 
   const tableCounts = useMemo(
     () => ({
@@ -199,18 +200,11 @@ export function PlanningPage() {
   );
 
 
-  const carryoverPendingCount = useMemo(
-    () =>
-      filtered.filter(
-        (position) =>
-          position.status === "Vacancy" &&
-          position.slotType === "carryover" &&
-          !hasCarryoverEvent(position),
-      ).length,
-    [filtered],
-  );
-
   const applyIndexationToFiltered = () => {
+    if (!canEditPlan) {
+      blockEdit();
+      return;
+    }
     const targetIds = filtered.filter((item) => item.status !== "Closed").map((item) => item.positionId);
     if (targetIds.length === 0) {
       showBulkFeedback("warning", "Нет активных позиций для индексации по текущему фильтру.");
@@ -239,16 +233,6 @@ export function PlanningPage() {
         return upsertEvent(position, event);
       }),
     );
-    setIndexationBatches((prev) => [
-      {
-        id: batchId,
-        month: idxMonth,
-        percent: idxPercent,
-        affectedCount: targetIds.length,
-        createdAt: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
     setRecentlyIndexedIds(targetIds);
     showBulkFeedback(
       "success",
@@ -259,45 +243,11 @@ export function PlanningPage() {
     }, 4000);
   };
 
-  const applyCarryoverBatch = () => {
-    const targets = filtered.filter(
-      (position) =>
-        position.status === "Vacancy" &&
-        position.slotType === "carryover" &&
-        !hasCarryoverEvent(position),
-    );
-    if (targets.length === 0) {
-      showBulkFeedback(
-        "warning",
-        "Нет вакансий переноса без события в текущем фильтре. Сбросьте фильтры или откройте строку вакансии в drawer.",
-      );
+  const deleteIndexationBatch = (batchId: string) => {
+    if (!canEditPlan) {
+      blockEdit();
       return;
     }
-    const ids = targets.map((item) => item.positionId).join(", ");
-    const confirmed = window.confirm(
-      `Зафиксировать перенос бюджета с января для ${targets.length} ${pluralVacancy(targets.length)} (${ids})?\n\nОклад вакансии не обнуляется — в плане остаётся бюджет прошлого года.`,
-    );
-    if (!confirmed) return;
-    setPositions((prev) =>
-      prev.map((position) => {
-        if (!targets.some((item) => item.positionId === position.positionId)) return position;
-        const event: PlannedEvent = {
-          id: crypto.randomUUID(),
-          type: "POSITION_CARRYOVER",
-          createdAt: new Date().toISOString(),
-          createdOrder: position.events.length + 1,
-          payload: { month: 0 },
-        };
-        return upsertEvent(position, event);
-      }),
-    );
-    showBulkFeedback(
-      "success",
-      `Перенос бюджета зафиксирован: ${targets.length} ${pluralVacancy(targets.length)} (${ids}). Кнопка станет неактивной — повторять не нужно.`,
-    );
-  };
-
-  const deleteIndexationBatch = (batchId: string) => {
     const confirmed = window.confirm("Удалить этот факт индексации и пересчитать значения?");
     if (!confirmed) return;
 
@@ -310,39 +260,17 @@ export function PlanningPage() {
         return applyEvents({ ...position, events: filteredEvents });
       }),
     );
-    setIndexationBatches((prev) => prev.filter((item) => item.id !== batchId));
     showBulkFeedback("success", "Факт индексации удален. Значения пересчитаны.");
   };
 
-  const applyExistingIndexationBatches = (record: PositionRecord): PositionRecord => {
-    if (indexationBatches.length === 0) return record;
-    const existingBatchIds = new Set(
-      record.events
-        .filter((event) => event.type === "INDEXATION" && typeof event.payload.indexationBatchId === "string")
-        .map((event) => event.payload.indexationBatchId as string),
-    );
-    const missingBatches = [...indexationBatches]
-      .filter((batch) => !existingBatchIds.has(batch.id))
-      .sort((a, b) => a.month - b.month || a.createdAt.localeCompare(b.createdAt));
-    if (missingBatches.length === 0) return record;
-    const extraEvents: PlannedEvent[] = missingBatches.map((batch, index) => ({
-      id: crypto.randomUUID(),
-      type: "INDEXATION",
-      createdAt: batch.createdAt,
-      createdOrder: record.events.length + index + 1,
-      payload: {
-        month: batch.month,
-        percent: batch.percent,
-        indexationBatchId: batch.id,
-      },
-    }));
-    return applyEvents({ ...record, events: [...record.events, ...extraEvents] });
-  };
-
   const saveDraftPosition = (updated: PositionRecord, sourcePositionId?: string, forceCreate = false) => {
+    if (!canEditPlan) {
+      blockEdit();
+      return;
+    }
     const sourceId = sourcePositionId ?? updated.positionId;
     const recalculated = applyEvents(updated);
-    const withIndexation = forceCreate ? applyExistingIndexationBatches(recalculated) : recalculated;
+    const withIndexation = forceCreate ? applyExistingIndexationBatches(recalculated, positions) : recalculated;
     setPositions((prev) => {
       const existsBySource = prev.some((position) => position.positionId === sourceId);
       if (existsBySource) {
@@ -358,116 +286,48 @@ export function PlanningPage() {
   };
 
   const addEvent = (positionId: string, event: PlannedEvent) => {
-    setPositions((prev) => {
-      let next = prev.map((position) => (position.positionId === positionId ? upsertEvent(position, event) : position));
-      const createInterDepartmentTarget = () => {
-        const source = prev.find((position) => position.positionId === positionId);
-        if (!source) return;
-        const targetDepartment = event.payload.targetDepartment;
-        if (!targetDepartment) return;
-        const targetUnitCandidates = unitOptions(targetDepartment);
-        const targetUnit = event.payload.targetUnit && targetUnitCandidates.includes(event.payload.targetUnit)
-          ? event.payload.targetUnit
-          : targetUnitCandidates[0] || "";
-        const targetTeamCandidates = teamOptions(targetDepartment, targetUnit);
-        const targetTeam = event.payload.targetTeam && targetTeamCandidates.includes(event.payload.targetTeam)
-          ? event.payload.targetTeam
-          : targetTeamCandidates[0] || "";
-        const transferMonth = Math.max(0, Math.min(11, event.payload.month));
-        const base = typeof event.payload.base === "number" ? event.payload.base : source.monthlyBase[transferMonth] || 0;
-        const bonus = typeof event.payload.bonus === "number" ? event.payload.bonus : source.monthlyBonus[transferMonth] || 0;
-        const specialization = event.payload.specialization || source.monthlySpec[transferMonth] || source.seedMonthlySpec[transferMonth];
-        const level = event.payload.level || source.monthlyLevel[transferMonth] || source.seedMonthlyLevel[transferMonth];
-        const seedBase = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? 0 : base));
-        const seedBonus = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? 0 : bonus));
-        const seedSpec = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? source.seedMonthlySpec[idx] : specialization));
-        const seedLevel = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? source.seedMonthlyLevel[idx] : level));
-        const newPositionId = nextPositionId(next);
-        const targetPosition: PositionRecord = {
-          positionId: newPositionId,
-          role: source.role,
-          department: targetDepartment,
-          unit: targetUnit,
-          team: targetTeam,
-          slotType: "new",
-          activeFromMonth: transferMonth,
-          vacancySinceMonth: transferMonth,
-          limitFlag: defaultLimitFlagForSlotType("new"),
-          previousDecemberBase: 0,
-          employeeName: null,
-          employeeId: null,
-          status: "Vacancy",
-          seedEmployeeName: null,
-          seedEmployeeId: null,
-          seedStatus: "Vacancy",
-          seedVacancySinceMonth: transferMonth,
-          monthlySpec: [...seedSpec],
-          monthlyLevel: [...seedLevel],
-          monthlyBase: [...seedBase],
-          monthlyBonus: [...seedBonus],
-          seedMonthlySpec: seedSpec,
-          seedMonthlyLevel: seedLevel,
-          seedMonthlyBase: seedBase,
-          seedMonthlyBonus: seedBonus,
-          events: [],
-        };
-        const targetWithIndexation = applyExistingIndexationBatches(targetPosition);
-        const hireEvent: PlannedEvent = {
-          id: crypto.randomUUID(),
-          type: "PLANNED_HIRE",
-          createdAt: new Date().toISOString(),
-          createdOrder: targetWithIndexation.events.length + 1,
-          payload: {
-            month: transferMonth,
-            employeeName: event.payload.employeeName ?? "Transferred Employee",
-            employeeId: event.payload.employeeId ?? "E-TRANSFER",
-            transferFromPositionId: positionId,
-            base,
-            bonus,
-            specialization,
-            level,
-          },
-        };
-        next = [...next, upsertEvent(targetWithIndexation, hireEvent)];
-      };
-
-      if (event.type === "TRANSFER" && event.payload.transferToPositionId) {
-        next = next.map((position) => {
-          if (position.positionId === event.payload.transferToPositionId) {
-            const hireEvent: PlannedEvent = {
-              id: crypto.randomUUID(),
-              type: "PLANNED_HIRE",
-              createdAt: new Date().toISOString(),
-              createdOrder: position.events.length + 1,
-              payload: {
-                month: event.payload.month,
-                employeeName: event.payload.employeeName ?? "Transferred Employee",
-                employeeId: event.payload.employeeId ?? "E-TRANSFER",
-                transferFromPositionId: positionId,
-                base: event.payload.base,
-                bonus: event.payload.bonus,
-                specialization: event.payload.specialization,
-                level: event.payload.level,
-              },
-            };
-            return upsertEvent(position, hireEvent);
-          }
-          return position;
-        });
-      } else if (event.type === "TRANSFER" && event.payload.transferKind === "INTER_DEPARTMENT") {
-        createInterDepartmentTarget();
+    if (!canEditPlan) {
+      blockEdit();
+      return;
+    }
+    if (event.type === "TERMINATION_TO_VACANCY") {
+      const result = applyTerminationToVacancy(positions, positionId, event.payload.month);
+      if (!result.ok) {
+        window.alert(result.error);
+        return;
       }
-
-      return next;
-    });
+      setPositions(result.positions);
+      return;
+    }
+    if (event.type === "TRANSFER") {
+      const result = applyPlanTransferFromDrawerEvent(positions, positionId, event, {
+        nextPositionId: (list) => nextPositionId(list),
+        applyIndexationBatches: (record, all) => applyExistingIndexationBatches(record, all),
+      });
+      if (!result.ok) {
+        window.alert(result.error);
+        return;
+      }
+      setPositions(result.positions);
+      return;
+    }
+    setPositions((prev) =>
+      prev.map((position) => (position.positionId === positionId ? upsertEvent(position, event) : position)),
+    );
   };
 
   const deleteEvent = (positionId: string, eventId: string) => {
-    setPositions((prev) =>
-      prev.map((position) => (position.positionId === positionId ? removeEvent(position, eventId) : position)),
-    );
+    if (!canEditPlan) {
+      blockEdit();
+      return;
+    }
+    setPositions((prev) => removePlanEvent(prev, positionId, eventId));
   };
   const deleteVacancy = (positionId: string) => {
+    if (!canEditPlan) {
+      blockEdit();
+      return;
+    }
     const isPersistedVacancy = positions.some((position) => position.positionId === positionId && position.status === "Vacancy");
     const confirmText = isPersistedVacancy
       ? `Удалить вакансию ${positionId} из плана? Это действие нельзя отменить.`
@@ -479,16 +339,7 @@ export function PlanningPage() {
     setActiveSourceId(null);
     showBulkFeedback("success", isPersistedVacancy ? `Вакансия ${positionId} удалена.` : "Черновик вакансии удален.");
   };
-  const vacancyOptions: VacancyOption[] = positions
-    .filter((item) => item.status === "Vacancy")
-    .map((item) => ({
-      positionId: item.positionId,
-      role: item.role,
-      department: item.department,
-      unit: item.unit,
-      team: item.team,
-    }));
-  const employeeOptions: EmployeeOption[] = positions
+  const employeeOptions: EmployeeOption[] = appliedPositions
     .filter((item) => item.status === "Occupied" && item.employeeId && item.employeeName)
     .map((item) => ({
       employeeId: item.employeeId as string,
@@ -498,6 +349,10 @@ export function PlanningPage() {
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "ru"));
 
   const startAddVacancy = () => {
+    if (!canEditPlan) {
+      blockEdit();
+      return;
+    }
     const newId = nextPositionId(positions);
     const activeFromMonth = new Date().getMonth();
     const org = normalizeOrgPath(
@@ -505,7 +360,8 @@ export function PlanningPage() {
       unit === "All" ? "" : unit,
       team === "All" ? "" : team,
     );
-    const vacancy: PositionRecord = applyExistingIndexationBatches({
+    const vacancy: PositionRecord = applyExistingIndexationBatches(
+      {
       positionId: newId,
       role: "Новая вакансия",
       department: org.department,
@@ -532,7 +388,9 @@ export function PlanningPage() {
       seedMonthlyBase: Array.from({ length: 12 }, () => 150_000),
       seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
       events: [],
-    });
+    },
+      positions,
+    );
     setActive(vacancy);
     setActiveSourceId(vacancy.positionId);
   };
@@ -547,15 +405,64 @@ export function PlanningPage() {
             {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии)
           </p>
         </div>
-        <div className="page-header__actions">
-          <Link className="secondary-btn" to="/salary-ranges">
-            Диапазоны
-          </Link>
-          <button className="primary-btn" onClick={startAddVacancy}>
-            <Plus size={14} /> Добавить вакансию
-          </button>
+        <div className="page-header__actions planning-toolbar">
+          <div className="planning-indexation-compact" title="По позициям текущего фильтра таблицы">
+            <Calculator size={14} strokeWidth={2} aria-hidden />
+            <span className="planning-indexation-compact__label">Индексация</span>
+            <div className="planning-indexation-compact__percent">
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={idxPercent}
+                onChange={(event) => setIdxPercent(Number(event.target.value))}
+                aria-label="Процент"
+              />
+              <span>%</span>
+            </div>
+            <select
+              className="planning-indexation-compact__month"
+              value={idxMonth}
+              onChange={(event) => setIdxMonth(Number(event.target.value))}
+              aria-label="С месяца"
+            >
+              {MONTHS.map((month, monthIndex) => (
+                <option key={month} value={monthIndex}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="primary-btn planning-indexation-compact__btn"
+              onClick={applyIndexationToFiltered}
+              disabled={!canEditPlan}
+            >
+              Применить
+            </button>
+          </div>
+          <div className="planning-toolbar__actions">
+            <Link className="secondary-btn" to="/salary-ranges">
+              Диапазоны
+            </Link>
+            <button type="button" className="primary-btn" onClick={startAddVacancy} disabled={!canEditPlan}>
+              <Plus size={14} /> Добавить вакансию
+            </button>
+          </div>
         </div>
       </header>
+
+      {!canEditPlan ? (
+        <div className="planning-readonly-banner" role="status">
+          Эта версия только для просмотра. Правки:{" "}
+          <Link to="/versions">{workingDraft ? "квартальный черновик" : "создайте черновик на «Версии»"}</Link>
+          {activePlan.versionNumber === 1 && activePlan.status === "DRAFT" ? null : "."}
+        </div>
+      ) : activePlan.versionNumber === 1 && activePlan.status === "DRAFT" ? (
+        <div className="planning-readonly-banner planning-readonly-banner--edit" role="status">
+          Бюджет v1 ещё не утверждён — можно править здесь. Затем «Утвердить» на <Link to="/versions">Версии</Link>.
+        </div>
+      ) : null}
 
       <AnalyticsSummaryStrip
         positions={filtered}
@@ -564,7 +471,7 @@ export function PlanningPage() {
         showYtd={false}
         showFactYtd={false}
         showAvgCr={false}
-        singleRow
+        planningLayout
       />
 
       <section className="card filters-card">
@@ -652,60 +559,18 @@ export function PlanningPage() {
           </label>
           <label>
             Статус
-            <select value={occupancyFilter} onChange={(event) => setOccupancyFilter(event.target.value as "All" | "Occupied" | "Vacancy")}>
+            <select
+              value={occupancyFilter}
+              onChange={(event) =>
+                setOccupancyFilter(event.target.value as "All" | "Occupied" | "Vacancy" | "Closed")
+              }
+            >
               <option value="All">Все</option>
               <option value="Occupied">Позиция</option>
               <option value="Vacancy">Вакансия</option>
+              <option value="Closed">Закрыта</option>
             </select>
           </label>
-        </div>
-      </section>
-
-      <section className="card mass-ops-card">
-        <h2 className="section-title">
-          <Calculator size={16} /> Массовые операции
-        </h2>
-        <div className="mass-ops-grid">
-          <article className="mass-ops-panel mass-ops-panel--carryover">
-            <h3 className="subsection-title">Перенос бюджета вакансий</h3>
-            <p className="muted-line">
-              Для вакансий «перенос с прошлого года» — зафиксировать событие, чтобы оклад не обнулился в плане.
-            </p>
-            {carryoverPendingCount > 0 ? (
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={applyCarryoverBatch}
-                title="Для вакансий «перенос с прошлого года» без события"
-              >
-                Зафиксировать ({carryoverPendingCount})
-              </button>
-            ) : (
-              <p className="mass-ops-panel__ok">В текущем фильтре все вакансии переноса уже обработаны.</p>
-            )}
-          </article>
-          <article className="mass-ops-panel mass-ops-panel--indexation">
-            <h3 className="subsection-title">Индексация по фильтру</h3>
-            <div className="mass-ops-indexation">
-              <label>
-                Процент
-                <input type="number" value={idxPercent} onChange={(event) => setIdxPercent(Number(event.target.value))} />
-              </label>
-              <label>
-                С месяца
-                <select value={idxMonth} onChange={(event) => setIdxMonth(Number(event.target.value))}>
-                  {MONTHS.map((month, monthIndex) => (
-                    <option key={month} value={monthIndex}>
-                      {month}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" className="primary-btn" onClick={applyIndexationToFiltered}>
-                Применить индексацию
-              </button>
-            </div>
-          </article>
         </div>
       </section>
 
@@ -718,6 +583,7 @@ export function PlanningPage() {
       {indexationBatches.length > 0 && (
         <section className="card">
           <h2 className="section-title">Факты массовой индексации</h2>
+          <p className="muted-line">По событиям текущей версии · {indexationBatches.length} факт(ов)</p>
           <table className="simple-table">
             <thead>
               <tr>
@@ -736,7 +602,13 @@ export function PlanningPage() {
                   <td>+{batch.percent}%</td>
                   <td>{batch.affectedCount}</td>
                   <td>
-                    <button type="button" className="icon-btn danger" onClick={() => deleteIndexationBatch(batch.id)}>
+                    <button
+                      type="button"
+                      className="icon-btn danger"
+                      disabled={!canEditPlan}
+                      title={canEditPlan ? "Удалить факт индексации" : "Только в режиме редактирования"}
+                      onClick={() => deleteIndexationBatch(batch.id)}
+                    >
                       <Trash2 size={14} />
                     </button>
                   </td>
@@ -749,11 +621,13 @@ export function PlanningPage() {
 
       <section className="card">
         <h2 className="section-title">Позиции · {tableCounts.total}</h2>
+        <div className="table-scroll">
         <table className="simple-table positions-table positions-table--compact">
           <thead>
             <tr>
-              <th>Роль / ID</th>
+              <th className="positions-table__sticky-col">Роль / ID</th>
               <th>Сотрудник / орг.</th>
+              <th>Последнее событие</th>
               <th>Спец. и уровень</th>
               <th>Дек → дек</th>
               <th>ФОТ год</th>
@@ -762,56 +636,79 @@ export function PlanningPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((position) => {
-              const cr = avgCR(position, salaryBands);
-              const decDelta = position.monthlyBase[11] - position.previousDecemberBase;
-              const decPct = decToDec(position.previousDecemberBase, position.monthlyBase[11]);
+            {filtered.map((row) => {
+              const cr = avgCR(row, salaryBands);
+              const decDelta = row.monthlyBase[11] - row.previousDecemberBase;
+              const decPct = decToDec(row.previousDecemberBase, row.monthlyBase[11]);
+              const latestEvent = summarizeLatestPositionEvent(
+                positions.find((item) => item.positionId === row.positionId) ?? row,
+              );
+              const rowExtra = recentlyIndexedIds.includes(row.positionId) ? "row-updated" : undefined;
               return (
                 <tr
-                  key={position.positionId}
+                  key={row.positionId}
                   onClick={() => {
-                    setActive(position);
-                    setActiveSourceId(position.positionId);
+                    setActive(row);
+                    setActiveSourceId(row.positionId);
                   }}
-                  className={`positions-table__row${recentlyIndexedIds.includes(position.positionId) ? " row-updated" : ""}`}
+                  className={positionTableRowClass(row.status, rowExtra)}
+                  title={latestEvent?.commentTooltip ?? undefined}
                 >
                   <td>
-                    <div className="positions-table__role">{position.role}</div>
+                    <div className="positions-table__role">{row.role}</div>
                     <div className="muted-line">
-                      {position.positionId} · с {monthLabel(position.activeFromMonth)} ·{" "}
-                      {POSITION_STATUS_LABELS[position.status]}
+                      {row.positionId} · с {monthLabel(row.activeFromMonth)} ·{" "}
+                      {POSITION_STATUS_LABELS[row.status]}
+                      {active?.positionId === row.positionId && !positions.some((p) => p.positionId === row.positionId) ? (
+                        <span className="position-state-badge position-state-badge--draft"> · черновик</span>
+                      ) : null}
                     </div>
-                    {isTemporaryReplacementVacancy(position) && <span className="scenario-badge">Временная замена</span>}
-                    {needsCarryoverEvent(position) && (
+                    {isTemporaryReplacementVacancy(row) && <span className="scenario-badge">Временная замена</span>}
+                    {needsCarryoverEvent(row) && (
                       <span className="scenario-badge scenario-badge--warn">Нет события переноса</span>
                     )}
                   </td>
                   <td>
-                    <div>{employeeCellLabel(position)}</div>
+                    <div>{employeeCellLabel(row)}</div>
                     <div className="muted-line">
-                      {position.department} / {position.unit} / {position.team}
+                      {row.department} / {row.unit} / {row.team}
                     </div>
                   </td>
+                  <td className="positions-table__events">
+                    {latestEvent ? (
+                      <>
+                        <div className="positions-table__event-type">{latestEvent.typeLabel}</div>
+                        {latestEvent.employeeLine ? (
+                          <div className="positions-table__event-employee">{latestEvent.employeeLine}</div>
+                        ) : null}
+                        <div className="muted-line positions-table__event-change">
+                          {formatEventChangeLine(latestEvent.change)}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="muted-line">—</span>
+                    )}
+                  </td>
                   <td>
-                    {position.monthlySpec[11]}
-                    <div className="muted-line">{position.monthlyLevel[11]}</div>
+                    {row.monthlySpec[11]}
+                    <div className="muted-line">{row.monthlyLevel[11]}</div>
                   </td>
                   <td className={`dec-cell--${growthTone(decDelta)}`}>
                     <div className="positions-table__dec-range">
-                      {position.previousDecemberBase.toLocaleString("ru-RU")} →{" "}
-                      {position.monthlyBase[11].toLocaleString("ru-RU")} ₽
+                      {row.previousDecemberBase.toLocaleString("ru-RU")} →{" "}
+                      {row.monthlyBase[11].toLocaleString("ru-RU")} ₽
                     </div>
                     <div>
                       {formatGrowthDelta(decDelta)} · {formatGrowthPct(decPct)}
                     </div>
                   </td>
-                  <td>{annualTotal(position).toLocaleString("ru-RU")} ₽</td>
+                  <td>{annualTotal(row).toLocaleString("ru-RU")} ₽</td>
                   <td>
                     <span className={`cr-value cr-value--${crTone(cr)}`}>{cr > 0 ? cr.toFixed(2) : "—"}</span>
                   </td>
                   <td>
-                    <span className={`limit-flag-badge limit-flag-badge--${position.limitFlag}`}>
-                      {LIMIT_FLAG_LABELS[position.limitFlag]}
+                    <span className={`limit-flag-badge limit-flag-badge--${row.limitFlag}`}>
+                      {LIMIT_FLAG_LABELS[row.limitFlag]}
                     </span>
                   </td>
                 </tr>
@@ -819,6 +716,7 @@ export function PlanningPage() {
             })}
           </tbody>
         </table>
+        </div>
         {filtered.length === 0 && <p className="muted-line">Нет позиций по текущим фильтрам.</p>}
       </section>
 
@@ -833,7 +731,8 @@ export function PlanningPage() {
         onAddEvent={addEvent}
         onDeleteEvent={deleteEvent}
         onDeletePosition={deleteVacancy}
-        vacancyOptions={vacancyOptions}
+        readOnly={!canEditPlan}
+        planPositions={planPositionsForDrawer}
         employeeOptions={employeeOptions}
         suggestedNewEmployeeId={nextEmployeeId(positions)}
         isPersisted={Boolean(active && positions.some((item) => item.positionId === active.positionId))}

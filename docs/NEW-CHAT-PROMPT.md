@@ -1,77 +1,86 @@
-# Промпт для нового чата — ФОТ MVP
+# Промпт для нового чата (переезд)
 
+**Обновлено:** 2026-06-01  
 Скопируй блок ниже целиком в новый чат Cursor.
 
 ---
 
-## Текст промпта
-
 ```
-Продолжаем ФОТ-планировщик MVP. Репозиторий:
-c:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
+ФОТ-планировщик MVP
 
-Работай ТОЛЬКО в fot-planner/mvp/frontend/ (React, in-memory, без API/Postgres).
-Не трогай fot-planner/apps/, backend, Excel, БД — пока не попрошу явно.
-
-Перед кодом ОБЯЗАТЕЛЬНО прочитай (контекст не только в этом сообщении):
-- docs/HANDOFF.md
-- docs/SESSION-2026-05-28.md
-- docs/CONTEXT-MAP.md
-При необходимости: docs/ROOT-PROMPT.md, docs/ПЛАН-ПРОДОЛЖЕНИЯ.md
+Репозиторий: c:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
+Scope: ТОЛЬКО fot-planner/mvp/frontend/ (React, in-memory).
+НЕ трогать: apps/, mvp/backend, PostgreSQL, Excel, apps/api до явной просьбе.
 
 Запуск:
-cd fot-planner/mvp/frontend
+cd c:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner\mvp\frontend
 npm run dev -- --host 127.0.0.1 --port 5174
+npm run build
+→ http://127.0.0.1:5174/
 
-### Уже сделано (не откатывать без причины)
+---
 
-- Safe import JSON: preview (inspectSnapshot), replace/merge, валидация schema v1, backup в localStorage (fot_mvp_pre_import_backup), откат last export / pre-import backup. UI в AppLayout → «Данные».
-- KPI-лента AnalyticsSummaryStrip: на Planning — одна строка, без YTD/avg CR; на Dashboard — полная. Dec→dec: шапка %·сумма, разбивка сумма·%. Лимиты IN_LIMIT/OVER_LIMIT в UI (без UNLIMITED).
-- Planning: компактные фильтры в одну строку (поиск, орг, лимит, статус); массовая индексация по фильтру; carryover-панель.
-- Drawer: черновик вакансии forceCreate, наследование индексации, удаление вакансии, baseline = PositionDrawer.baseline.tsx.
-- recharts не использовать; limit_flag только с позиции; факт — заглушка.
+ЧИТАТЬ ПЕРЕД КОДОМ (по порядку):
+1. docs/HANDOFF.md
+2. docs/SESSION-2026-06-01.md
+3. docs/SESSION-2026-05-29.md
+4. docs/SESSION-2026-05-28.md (UI baseline)
+5. docs/ROOT-PROMPT.md
+6. docs/ПЛАН-ПРОДОЛЖЕНИЯ.md §5, §16 — applyEvents / сценарии
+7. docs/DATA-INTEGRATION-postgresql-excel-bi.md — PG позже
+Дизайн: docs/design/annual-budget-planning-app/source/
 
-### Задача в этом чате — по порядку
+---
 
-**Шаг 1. Завершение safe import**
-- Довести контур: предупреждения (не блокирующие) в preview, явный post-import report (сколько позиций добавлено/обновлено/пропущено при merge).
-- Проверить edge cases: пустой файл, неверная schemaVersion, частично битые позиции, дубликаты positionId.
-- Не ломать replace/merge и существующие кнопки отката.
+СДЕЛАНО — НЕ ОТКАТЫВАТЬ
 
-**Шаг 2. История операций**
-- Локальный журнал последних ~5 импортов/откатов (дата, режим replace/merge, краткий итог, кнопка «откатить к этой точке» если feasible).
-- Хранение в localStorage отдельным ключом; UI в панели «Данные» рядом с импортом.
+Фаза A: import, KPI, индексация compact, carryover в «Данные».
 
-**Шаг 3. UX черновика вакансии**
-- Один понятный путь сохранения (без дублирующих «применить/сохранить»).
-- Бейджи «Черновик» / «Сохранено» в drawer и/или таблице.
-- События к черновику применяются предсказуемо; после сохранения — обычная позиция.
+Фаза C: версии v1/v+1, черновик, compare, repair; сайдбар + dev reset v1.
 
-**Шаг 4. Подготовка к API (без подключения бэкенда)**
-- Вынести чтение/запись снимка в adapter (например snapshotAdapter.ts): loadSnapshot, saveSnapshot, validate — сейчас localStorage + context, позже swap на fetch.
-- Типы MvpPlanSnapshot не размножать; контекст тонкий.
+Drawer (UI готов):
+- Одна колонка; indigo блок слот/орг/парам; green блок события
+- ФИО в шапке; удаление событий в черновике
+- baseline: mvp/frontend/src/components/PositionDrawer.baseline.tsx
 
-**Важно:** шаги 1–4 — обязательная фаза A. Не переходить к фазе B, пока фаза A не закрыта (build зелёный, поведение проверено).
+Фаза B (начато):
+- planOperations.ts: applyPlanTransfer, applyTerminationToVacancy, removePlanEvent (transferPairId)
+- collectIndexationBatchesFromPositions — история индексаций в черновике
+- isVacantForTransferAtMonth + подсказка intraTransferVacancyHint
+- PlanningPage: withAppliedEvents в таблице
 
-### Фаза B — сразу после закрытия шагов 1–4 (обязательная очередь, не «по остаточному»)
+Факт/прогноз: factStore employee_id; /forecast без событий плана.
 
-**Шаг 5. Position / Vacancy**
-- Статусы и переходы: занята / вакансия / закрыта — по продуктовым правилам.
-- Согласовать drawer, таблицу, события и фильтр «Статус»; без противоречий в UI.
+---
 
-**Шаг 6. Plan / Fact / Forecast**
-- Страницы `/plan-vs-actual`, `/deviation`, блоки факта на обзоре — убрать заглушку, когда появится источник факта (сначала модель данных + UI; подключение внешнего источника — отдельно, если не дали API).
+ПРОДУКТ
 
-### Ограничения
+- Версии: v(N+1), diff база↔черновик
+- Перевод intra: тот же dept+unit, вакансия в месяц M, «Сохранить в план»
+- Увольнение: TERMINATION_TO_VACANCY, ФОТ не обнулять
+- Прогноз (цель): факт + события до EOY
+- dec→dec: prev>0; 0→X=100%; limit_flag с поля позиции
 
-- Коммиты только по моей просьбе.
-- npm run build должен проходить после изменений.
-- Минимальный diff, без рефакторинга «заодно».
-- Порядок работ: A (1→2→3→4), затем B (5→6). Не перескакивать.
+---
 
-Начни с Шага 1: кратко перечисли, что уже есть в коде по safe import, и предложи план доработок на 1–2 итерации, затем реализуй. После шага 4 — переходи к шагу 5 без паузы на «другие идеи».
+ПЕРВАЯ ЗАДАЧА НОВОГО ЧАТА
+
+1. Приёмка фазы B (чеклист §16 ПЛАН-ПРОДОЛЖЕНИЯ):
+   - перевод intra/inter, увольнение→вакансия, каскадное удаление transferPairId
+2. При необходимости: seed sync, черновик вакансии в planPositions до сохранения
+3. Шаг 6: полный прогноз + факт на обзоре/план-факт
+4. Согласования rule-based — после 6
+
+---
+
+ПРАВИЛА
+
+- Коммиты только по просьбе
+- recharts нет
+- npm run build после изменений
+- Неясности → спросить, потом код
 ```
 
 ---
 
-*Файл-подсказка; источник правды — `docs/HANDOFF.md`.*
+*Актуальный handoff — [`HANDOFF.md`](HANDOFF.md).*

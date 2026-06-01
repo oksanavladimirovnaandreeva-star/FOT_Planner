@@ -80,6 +80,85 @@ const EVENT_PRIORITY: Record<string, number> = {
   POSITION_CARRYOVER: 3,
 };
 
+export function sortEventsForApply(events: PositionRecord["events"]): PositionRecord["events"] {
+  return [...events].sort((a, b) => {
+    if (a.payload.month !== b.payload.month) return a.payload.month - b.payload.month;
+    const priorityDiff = (EVENT_PRIORITY[a.type] ?? 99) - (EVENT_PRIORITY[b.type] ?? 99);
+    if (priorityDiff !== 0) return priorityDiff;
+    return a.createdOrder - b.createdOrder;
+  });
+}
+
+/** Вакантна ли позиция в месяц перевода (с учётом событий до этого месяца). */
+export function isVacantForTransferAtMonth(record: PositionRecord, transferMonth: number): boolean {
+  if (transferMonth < record.activeFromMonth) return false;
+
+  let status: PositionRecord["status"] = record.seedStatus;
+
+  for (const event of sortEventsForApply(record.events)) {
+    const month = Math.max(0, Math.min(11, event.payload.month));
+    if (month > transferMonth) continue;
+
+    switch (event.type) {
+      case "TERMINATION":
+      case "TERMINATION_TO_VACANCY":
+        status = "Vacancy";
+        break;
+      case "CLOSE_POSITION":
+      case "CANCEL_VACANCY":
+        status = "Closed";
+        break;
+      case "PLANNED_HIRE":
+        status = "Occupied";
+        break;
+      default:
+        break;
+    }
+  }
+
+  return status === "Vacancy";
+}
+
+/** Подсказка, почему нет целевых вакансий для перевода внутри юнита. */
+export function intraTransferVacancyHint(
+  planPositions: PositionRecord[],
+  source: PositionRecord,
+  transferMonth: number,
+): string | null {
+  const norm = (value: string) => value.trim();
+  const sameUnit = planPositions.filter(
+    (position) =>
+      position.positionId !== source.positionId &&
+      norm(position.department) === norm(source.department) &&
+      norm(position.unit) === norm(source.unit),
+  );
+  const vacantNow = sameUnit.filter((position) => isVacantForTransferAtMonth(position, transferMonth));
+  if (vacantNow.length > 0) return null;
+
+  if (sameUnit.length === 0) {
+    const vacantElsewhere = planPositions.filter(
+      (position) =>
+        position.positionId !== source.positionId &&
+        norm(position.department) === norm(source.department) &&
+        norm(position.unit) !== norm(source.unit) &&
+        isVacantForTransferAtMonth(position, transferMonth),
+    );
+    if (vacantElsewhere.length > 0) {
+      const units = [...new Set(vacantElsewhere.map((position) => position.unit))];
+      return `В юните «${source.unit}» нет слотов. Свободные вакансии в ${source.department}: ${units.join(", ")} — смените юнит у вакансии или используйте перевод в другой департамент.`;
+    }
+    return `В юните «${source.unit}» (${source.department}) нет вакансий на ${monthLabel(transferMonth)}. Создайте вакансию с тем же юнитом и «Сохранить в план».`;
+  }
+
+  const blocked = sameUnit.map((position) => {
+    if (transferMonth < position.activeFromMonth) {
+      return `${position.positionId} (с ${monthLabel(position.activeFromMonth)})`;
+    }
+    return `${position.positionId} (занят)`;
+  });
+  return `На ${monthLabel(transferMonth)} в юните «${source.unit}» недоступно: ${blocked.join(", ")}. Сдвиньте месяц перевода или «С месяца» у вакансии.`;
+}
+
 export function initialPositions(): PositionRecord[] {
   return [
     {
@@ -171,6 +250,34 @@ export function initialPositions(): PositionRecord[] {
       seedMonthlySpec: twelve("Product"),
       seedMonthlyLevel: twelve("Senior"),
       seedMonthlyBase: twelve(220_000),
+      seedMonthlyBonus: twelve(0),
+      events: [],
+    },
+    {
+      positionId: "P004",
+      role: "Frontend Engineer (вакансия)",
+      department: "Engineering",
+      unit: "ProductDev",
+      team: "Frontend Web",
+      slotType: "new",
+      limitFlag: "OVER_LIMIT",
+      activeFromMonth: 0,
+      vacancySinceMonth: 0,
+      previousDecemberBase: 0,
+      employeeName: null,
+      employeeId: null,
+      status: "Vacancy",
+      seedEmployeeName: null,
+      seedEmployeeId: null,
+      seedStatus: "Vacancy",
+      seedVacancySinceMonth: 0,
+      monthlySpec: twelve("Engineering"),
+      monthlyLevel: twelve("Middle"),
+      monthlyBase: twelve(160_000),
+      monthlyBonus: twelve(0),
+      seedMonthlySpec: twelve("Engineering"),
+      seedMonthlyLevel: twelve("Middle"),
+      seedMonthlyBase: twelve(160_000),
       seedMonthlyBonus: twelve(0),
       events: [],
     },
@@ -301,6 +408,19 @@ export function growthTone(delta: number): "up" | "down" | "flat" {
   return "flat";
 }
 
+/** Состояние позиции после применения событий до eventId (не включая или включая). */
+export function applyEventsUntil(
+  record: PositionRecord,
+  untilEventId: string,
+  inclusive: boolean,
+): PositionRecord {
+  const sorted = sortEventsForApply(record.events);
+  const index = sorted.findIndex((event) => event.id === untilEventId);
+  if (index < 0) return applyEvents({ ...record, events: [] });
+  const events = sorted.slice(0, inclusive ? index + 1 : index);
+  return applyEvents({ ...record, events });
+}
+
 export function applyEvents(base: PositionRecord): PositionRecord {
   const next: PositionRecord = {
     ...base,
@@ -319,12 +439,7 @@ export function applyEvents(base: PositionRecord): PositionRecord {
     next.monthlyBonus[index] = 0;
   }
 
-  const sorted = [...base.events].sort((a, b) => {
-    if (a.payload.month !== b.payload.month) return a.payload.month - b.payload.month;
-    const priorityDiff = (EVENT_PRIORITY[a.type] ?? 99) - (EVENT_PRIORITY[b.type] ?? 99);
-    if (priorityDiff !== 0) return priorityDiff;
-    return a.createdOrder - b.createdOrder;
-  });
+  const sorted = sortEventsForApply(base.events);
 
   for (const event of sorted) {
     const month = Math.max(0, Math.min(11, event.payload.month));
@@ -433,6 +548,81 @@ export function upsertEvent(record: PositionRecord, event: PlannedEvent): Positi
 export function removeEvent(record: PositionRecord, eventId: string): PositionRecord {
   const events = record.events.filter((event) => event.id !== eventId);
   return applyEvents({ ...record, events });
+}
+
+export type IndexationBatchLog = {
+  id: string;
+  month: number;
+  percent: number;
+  affectedCount: number;
+  createdAt: string;
+};
+
+/** Собирает факты массовой индексации из событий позиций (переживает смену версии / черновик). */
+export function collectIndexationBatchesFromPositions(positions: PositionRecord[]): IndexationBatchLog[] {
+  const batchMap = new Map<
+    string,
+    { month: number; percent: number; createdAt: string; positionIds: Set<string> }
+  >();
+
+  for (const position of positions) {
+    for (const event of position.events) {
+      if (event.type !== "INDEXATION") continue;
+      const batchId = event.payload.indexationBatchId;
+      const month = event.payload.month;
+      const percent = event.payload.percent;
+      if (!batchId || typeof month !== "number" || typeof percent !== "number") continue;
+
+      let entry = batchMap.get(batchId);
+      if (!entry) {
+        entry = { month, percent, createdAt: event.createdAt, positionIds: new Set() };
+        batchMap.set(batchId, entry);
+      }
+      entry.positionIds.add(position.positionId);
+      if (event.createdAt < entry.createdAt) {
+        entry.createdAt = event.createdAt;
+      }
+    }
+  }
+
+  return [...batchMap.entries()]
+    .map(([id, entry]) => ({
+      id,
+      month: entry.month,
+      percent: entry.percent,
+      affectedCount: entry.positionIds.size,
+      createdAt: entry.createdAt,
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function applyExistingIndexationBatches(
+  record: PositionRecord,
+  allPositions: PositionRecord[],
+): PositionRecord {
+  const batches = collectIndexationBatchesFromPositions(allPositions);
+  if (batches.length === 0) return record;
+  const existingBatchIds = new Set(
+    record.events
+      .filter((event) => event.type === "INDEXATION" && typeof event.payload.indexationBatchId === "string")
+      .map((event) => event.payload.indexationBatchId as string),
+  );
+  const missingBatches = batches
+    .filter((batch) => !existingBatchIds.has(batch.id))
+    .sort((a, b) => a.month - b.month || a.createdAt.localeCompare(b.createdAt));
+  if (missingBatches.length === 0) return record;
+  const extraEvents: PlannedEvent[] = missingBatches.map((batch, index) => ({
+    id: crypto.randomUUID(),
+    type: "INDEXATION",
+    createdAt: batch.createdAt,
+    createdOrder: record.events.length + index + 1,
+    payload: {
+      month: batch.month,
+      percent: batch.percent,
+      indexationBatchId: batch.id,
+    },
+  }));
+  return applyEvents({ ...record, events: [...record.events, ...extraEvents] });
 }
 
 export function monthLabel(index: number): string {

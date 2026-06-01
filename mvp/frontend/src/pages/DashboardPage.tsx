@@ -12,6 +12,7 @@ import {
   type DashboardFilters,
 } from "../data/dashboardMetrics";
 import { PlanByLimitDonut, PlanFactMonthlyChart } from "../components/PlanLimitCharts";
+import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import { departmentOptions, LIMIT_FLAG_LABELS, teamOptions, unitOptions } from "../data/planningData";
 import type { LimitFlagKey } from "../types";
 const DISPLAY_LIMIT_FLAGS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT"];
@@ -23,7 +24,11 @@ export function DashboardPage() {
   const { positions, viewMode, activePlan, planVersionId, salaryBands } = useMvpApp();
   const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_DASHBOARD_FILTERS);
 
-  const filtered = useMemo(() => filterPositionsForDashboard(positions, filters), [positions, filters]);
+  const displayPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
+  const filtered = useMemo(
+    () => filterPositionsForDashboard(displayPositions, filters),
+    [displayPositions, filters],
+  );
   const analytics = useMemo(() => sliceAnalytics(filtered, viewMode), [filtered, viewMode]);
   const monthlyPf = useMemo(() => monthlyPlanFactSeries(filtered, viewMode), [filtered, viewMode]);
   const monthlyByLimit = useMemo(() => monthlyPlanFactByLimit(filtered, viewMode), [filtered, viewMode]);

@@ -1,24 +1,55 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   BarChart3,
   Bell,
   CalendarRange,
   LayoutDashboard,
+  GitBranch,
   Scale,
-  Search,
   Settings,
+  LineChart,
+  ListTree,
   TrendingUp,
 } from "lucide-react";
-import { useMvpApp } from "../context/MvpAppContext";
+import { formatImportReport, useMvpApp } from "../context/MvpAppContext";
+import type { ImportReport } from "../data/snapshotImport";
+import { inspectFactImport, parseFactPayload } from "../data/factImport";
+import {
+  clearFactStore,
+  factStoreStats,
+  hasFactData,
+  importEmployeeFacts,
+  migrateLegacyFactByPosition,
+  seedDemoFactFromPlan,
+  type FactImportMode,
+} from "../data/factStore";
+import { hasCarryoverEvent, upsertEvent } from "../data/planningData";
+import type { PlannedEvent } from "../types";
 
 const NAV = [
   { to: "/", label: "Обзор и итого", icon: LayoutDashboard, end: true },
   { to: "/planning", label: "Планирование", icon: CalendarRange },
+  { to: "/changes", label: "Журнал изменений", icon: ListTree },
+  { to: "/versions", label: "Версии", icon: GitBranch },
   { to: "/salary-ranges", label: "Диапазоны", icon: Scale },
   { to: "/plan-vs-actual", label: "План и факт", icon: TrendingUp },
   { to: "/deviation", label: "Отклонения", icon: BarChart3 },
+  { to: "/forecast", label: "Прогноз", icon: LineChart },
 ] as const;
+
+function formatHistoryDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const {
@@ -26,24 +57,67 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     planVersionId,
     setPlanVersionId,
     activePlan,
+    canEditPlan,
+    workingDraft,
+    openVersion,
+    primaryBudget,
     viewMode,
     setViewMode,
+    positions,
+    setPositions,
     exportCurrentSnapshot,
     inspectSnapshot,
-    backupBeforeImport,
     importCurrentSnapshot,
     restoreFromLastExport,
     restoreFromPreImportBackup,
+    restoreFromHistoryEntry,
+    operationHistory,
+    refreshOperationHistory,
+    resetDevPlanToDraft,
   } = useMvpApp();
   const [isDataDialogOpen, setIsDataDialogOpen] = useState(false);
   const [dataMessage, setDataMessage] = useState<string | null>(null);
+  const [lastImportReport, setLastImportReport] = useState<ImportReport | null>(null);
+  const [previewWarnings, setPreviewWarnings] = useState<string[]>([]);
+  const [previewSkipNotes, setPreviewSkipNotes] = useState<string[]>([]);
+  const [factLoaded, setFactLoaded] = useState(() => hasFactData());
+  const [factStats, setFactStats] = useState(() => factStoreStats());
+  const [factImportMode, setFactImportMode] = useState<FactImportMode>("replace");
+  const [pendingFactImport, setPendingFactImport] = useState<{
+    payload: unknown;
+    fileName: string;
+    employeeCount: number;
+  } | null>(null);
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+
+  const carryoverPendingAll = positions.filter(
+    (position) =>
+      position.status === "Vacancy" && position.slotType === "carryover" && !hasCarryoverEvent(position),
+  );
   const [pendingImport, setPendingImport] = useState<{
     payload: unknown;
     fileName: string;
-    preview: { planVersionId: string; salaryBandCount: number; positionCount: number; eventCount: number };
+    preview: {
+      planVersionId: string;
+      salaryBandCount: number;
+      positionCount: number;
+      validPositionCount: number;
+      skippedPositionCount: number;
+      eventCount: number;
+    };
   } | null>(null);
   const [importMode, setImportMode] = useState<"replace" | "merge">("replace");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const factFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const migrated = migrateLegacyFactByPosition(positions);
+    if (migrated > 0) {
+      setFactLoaded(true);
+      setFactStats(factStoreStats());
+      setDataMessage(`Мигрирован факт для ${migrated} сотрудников (старый формат по positionId).`);
+    }
+  }, [positions]);
 
   const handleExport = () => {
     const snapshot = exportCurrentSnapshot();
@@ -66,12 +140,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const trimmed = (await file.text()).trim();
+    if (!trimmed) {
+      setPendingImport(null);
+      setPreviewWarnings([]);
+      setPreviewSkipNotes([]);
+      setDataMessage("Файл пуст.");
+      event.target.value = "";
+      return;
+    }
     try {
-      const text = await file.text();
-      const payload = JSON.parse(text) as unknown;
+      const payload = JSON.parse(trimmed) as unknown;
       const inspected = inspectSnapshot(payload);
       if (!inspected.ok) {
         setPendingImport(null);
+        setPreviewWarnings([]);
+        setPreviewSkipNotes([]);
         setDataMessage(`Ошибка валидации: ${inspected.errors.join(" ")}`);
         return;
       }
@@ -80,9 +164,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         fileName: file.name,
         preview: inspected.preview,
       });
+      setPreviewWarnings(inspected.warnings);
+      setPreviewSkipNotes(inspected.positionSkipNotes);
       setDataMessage(null);
+      setLastImportReport(null);
     } catch {
       setPendingImport(null);
+      setPreviewWarnings([]);
+      setPreviewSkipNotes([]);
       setDataMessage("Файл не удалось прочитать как корректный JSON.");
     } finally {
       event.target.value = "";
@@ -91,30 +180,163 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const handleApplyImport = () => {
     if (!pendingImport) return;
-    backupBeforeImport();
     const result = importCurrentSnapshot(pendingImport.payload, importMode);
-    setDataMessage(
-      result.ok
-        ? `Импорт (${importMode === "replace" ? "перезапись" : "добавление"}) завершен: ${result.report.nextPositionCount} позиций в плане (из файла: новых ${result.report.addedCount}, обновлено ${result.report.updatedCount}), событий ${result.report.importedEventCount}.`
-        : result.error,
-    );
-    if (result.ok) setPendingImport(null);
+    if (result.ok) {
+      setLastImportReport(result.report);
+      setDataMessage(formatImportReport(result.report));
+      setPendingImport(null);
+      setPreviewWarnings([]);
+      setPreviewSkipNotes([]);
+      refreshOperationHistory();
+    } else {
+      setDataMessage(result.error);
+    }
   };
 
   const handleRestore = () => {
     const result = restoreFromLastExport();
     setDataMessage(result.ok ? `Откат выполнен. Восстановлено позиций: ${result.importedCount}.` : result.error);
-    if (result.ok) setPendingImport(null);
+    if (result.ok) {
+      setPendingImport(null);
+      setLastImportReport(null);
+      refreshOperationHistory();
+    }
   };
 
   const handleRestorePreImport = () => {
     const result = restoreFromPreImportBackup();
     setDataMessage(
       result.ok
-        ? `Откат до состояния до импорта выполнен: ${result.report.importedCount} позиций восстановлено.`
+        ? `Откат до состояния до импорта: ${result.report.nextPositionCount} поз.`
         : result.error,
     );
-    if (result.ok) setPendingImport(null);
+    if (result.ok) {
+      setPendingImport(null);
+      setLastImportReport(null);
+      refreshOperationHistory();
+    }
+  };
+
+  const handleRestoreHistory = (entryId: string) => {
+    const result = restoreFromHistoryEntry(entryId);
+    setDataMessage(
+      result.ok ? `Восстановлено из журнала: ${result.report.nextPositionCount} поз.` : result.error,
+    );
+    if (result.ok) {
+      setPendingImport(null);
+      setLastImportReport(null);
+      refreshOperationHistory();
+    }
+  };
+
+  const handleFactImportClick = () => {
+    factFileInputRef.current?.click();
+  };
+
+  const handleFactImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const trimmed = (await file.text()).trim();
+    if (!trimmed) {
+      setPendingFactImport(null);
+      setDataMessage("Файл факта пуст.");
+      event.target.value = "";
+      return;
+    }
+    try {
+      const payload = JSON.parse(trimmed) as unknown;
+      const inspected = inspectFactImport(payload);
+      if (!inspected.ok) {
+        setPendingFactImport(null);
+        setDataMessage(`Факт: ${inspected.errors.join(" ")}`);
+        return;
+      }
+      setPendingFactImport({
+        payload,
+        fileName: file.name,
+        employeeCount: inspected.preview.employeeCount,
+      });
+      setDataMessage(null);
+    } catch {
+      setPendingFactImport(null);
+      setDataMessage("Файл факта не удалось прочитать как JSON.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleApplyFactImport = () => {
+    if (!pendingFactImport) return;
+    const parsed = parseFactPayload(pendingFactImport.payload);
+    if (!parsed.ok) {
+      setDataMessage(parsed.errors.join(" "));
+      return;
+    }
+    const result = importEmployeeFacts(parsed.employees, factImportMode);
+    setFactLoaded(true);
+    setFactStats(factStoreStats());
+    setPendingFactImport(null);
+    setDataMessage(
+      `Факт загружен: ${result.importedEmployees} сотрудников` +
+        (factImportMode === "merge" && result.mergedEmployees > 0
+          ? ` (обновлено ${result.mergedEmployees})`
+          : "") +
+        ". Ключ — employee_id.",
+    );
+  };
+
+  const handleSeedDemoFact = () => {
+    const count = seedDemoFactFromPlan(positions);
+    setFactLoaded(true);
+    setFactStats(factStoreStats());
+    setDataMessage(`Демо-факт (только UI): ${count} сотрудников, 95% плана.`);
+  };
+
+  const handleClearFact = () => {
+    clearFactStore();
+    setFactLoaded(false);
+    setFactStats(factStoreStats());
+    setPendingFactImport(null);
+    setDataMessage("Данные факта очищены.");
+  };
+
+  const handleCarryoverBatch = () => {
+    if (carryoverPendingAll.length === 0) {
+      setAdminMessage("Нет вакансий переноса без события POSITION_CARRYOVER.");
+      return;
+    }
+    const ids = carryoverPendingAll.map((item) => item.positionId).join(", ");
+    const confirmed = window.confirm(
+      `Зафиксировать перенос бюджета с января для ${carryoverPendingAll.length} вакансий (${ids})?`,
+    );
+    if (!confirmed) return;
+    setPositions((prev) =>
+      prev.map((position) => {
+        if (!carryoverPendingAll.some((item) => item.positionId === position.positionId)) return position;
+        const event: PlannedEvent = {
+          id: crypto.randomUUID(),
+          type: "POSITION_CARRYOVER",
+          createdAt: new Date().toISOString(),
+          createdOrder: position.events.length + 1,
+          payload: { month: 0 },
+        };
+        return upsertEvent(position, event);
+      }),
+    );
+    setAdminMessage(`Перенос зафиксирован для ${carryoverPendingAll.length} вакансий.`);
+  };
+
+  const handleDevResetV1 = () => {
+    const confirmed = window.confirm(
+      "Сбросить версии к v1 (DRAFT)? Будут удалены черновики и архивные версии. Данные v1 сохранятся.",
+    );
+    if (!confirmed) return;
+    const result = resetDevPlanToDraft();
+    if (!result.ok) {
+      setDataMessage(result.error);
+      return;
+    }
+    setDataMessage("v1 сброшен в DRAFT. Черновики и архив удалены.");
   };
 
   return (
@@ -134,11 +356,39 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <select value={planVersionId} onChange={(e) => setPlanVersionId(e.target.value)}>
               {planVersions.map((version) => (
                 <option key={version.id} value={version.id}>
-                  {version.label} · {version.status}
+                  {version.label}
+                  {version.kind === "WORKING_DRAFT" ? " · черновик" : version.status === "ARCHIVED" ? " · архив" : ""}
                 </option>
               ))}
             </select>
           </label>
+          {workingDraft && planVersionId !== workingDraft.id ? (
+            <button
+              type="button"
+              className="app-btn app-btn--ghost app-btn--sm app-sidebar__draft-link"
+              onClick={() => {
+                const result = openVersion(workingDraft.id);
+                if (!result.ok) window.alert(result.error);
+              }}
+            >
+              Открыть черновик
+            </button>
+          ) : null}
+          {workingDraft && planVersionId !== workingDraft.id && primaryBudget?.status === "APPROVED" ? (
+            <p className="app-sidebar__hint app-sidebar__hint--warn">Утверждённый бюджет — правки в черновике</p>
+          ) : null}
+          {activePlan.status === "ARCHIVED" ? (
+            <p className="app-sidebar__hint app-sidebar__hint--warn">Архивная версия — только просмотр</p>
+          ) : null}
+          {activePlan.status === "IN_APPROVAL" ? (
+            <p className="app-sidebar__hint app-sidebar__hint--warn">На согласовании — правки недоступны</p>
+          ) : null}
+          {primaryBudget && primaryBudget.status === "DRAFT" ? (
+            <p className="app-sidebar__hint app-sidebar__hint--ok">v1 не утверждён — можно править</p>
+          ) : null}
+          {!canEditPlan && activePlan.status !== "ARCHIVED" && activePlan.status !== "IN_APPROVAL" ? (
+            <p className="app-sidebar__hint app-sidebar__hint--warn">Только просмотр · правки в черновике</p>
+          ) : null}
           <label className="app-field">
             <span>Режим просмотра</span>
             <select value={viewMode} onChange={(e) => setViewMode(e.target.value as "base" | "total")}>
@@ -164,71 +414,151 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
+        <div className="app-sidebar__actions">
+          <button type="button" className="app-sidebar__action-btn" aria-label="Уведомления">
+            <Bell size={18} />
+          </button>
+          <button
+            type="button"
+            className={`app-sidebar__action-btn${isDataDialogOpen ? " app-sidebar__action-btn--active" : ""}`}
+            aria-label="Данные и настройки"
+            onClick={() => {
+              setIsDataDialogOpen((value) => !value);
+              refreshOperationHistory();
+            }}
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+
         <p className="app-sidebar__foot">
           Лимит: IN_LIMIT / OVER_LIMIT из поля позиции, не из % годового ФОТ.
         </p>
       </aside>
 
       <div className="app-main">
-        <header className="app-topbar">
-          <div className="app-search">
-            <Search className="app-search__icon" size={16} aria-hidden />
-            <input
-              type="search"
-              className="app-search__input"
-              placeholder="Поиск по позициям, подразделениям, сотрудникам…"
-              disabled
-              aria-label="Поиск"
-            />
-          </div>
-          <div className="app-topbar__actions">
-            <button type="button" className="app-icon-btn" aria-label="Уведомления">
-              <Bell size={20} />
-            </button>
-            <button
-              type="button"
-              className={`app-icon-btn${isDataDialogOpen ? " app-icon-btn--active" : ""}`}
-              aria-label="Данные"
-              onClick={() => {
-                setDataMessage(null);
-                setIsDataDialogOpen((value) => !value);
-              }}
-            >
-              <Settings size={20} />
-            </button>
-          </div>
-        </header>
-
         {isDataDialogOpen ? (
           <section className="app-data-panel" aria-label="Импорт и экспорт данных">
             <div>
               <h3>Данные (MVP)</h3>
-              <p>Импорт заменяет данные текущей версии плана в памяти браузера.</p>
+              <p>План — JSON текущей версии. Факт — JSON по <strong>employee_id</strong> (как staging 1С).</p>
             </div>
-            <div className="app-data-panel__actions">
-              <button type="button" className="app-btn app-btn--ghost" onClick={handleExport}>
-                Экспорт JSON
-              </button>
-              <button type="button" className="app-btn app-btn--primary" onClick={handleImportClick}>
-                Импорт JSON
-              </button>
-              <button type="button" className="app-btn app-btn--ghost" onClick={handleRestore}>
-                Откат к последнему экспорту
-              </button>
-              <button type="button" className="app-btn app-btn--ghost" onClick={handleRestorePreImport}>
-                Откат до импорта
-              </button>
-              <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
+
+            <div className="app-data-panel__block">
+              <strong>План</strong>
+              <div className="app-data-panel__actions">
+                <button type="button" className="app-btn app-btn--ghost" onClick={handleExport}>
+                  Экспорт плана
+                </button>
+                <button type="button" className="app-btn app-btn--primary" onClick={handleImportClick}>
+                  Импорт плана
+                </button>
+                <button type="button" className="app-btn app-btn--ghost" onClick={handleRestore}>
+                  Откат к экспорту
+                </button>
+                <button type="button" className="app-btn app-btn--ghost" onClick={handleRestorePreImport}>
+                  Откат до импорта
+                </button>
+                <input ref={fileInputRef} type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
+              </div>
             </div>
+
+            <div className="app-data-panel__block">
+              <strong>Факт</strong>
+              {factLoaded ? (
+                <p className="muted-line">
+                  Загружено: {factStats.employeeCount} сотр. · месяцев с данными: {factStats.monthsWithAnyAmount}
+                </p>
+              ) : (
+                <p className="muted-line">Факт не загружен — на обзоре и план-факте колонки «—».</p>
+              )}
+              <div className="app-data-panel__actions">
+                <button type="button" className="app-btn app-btn--primary" onClick={handleFactImportClick}>
+                  Импорт факта JSON
+                </button>
+                {factLoaded ? (
+                  <button type="button" className="app-btn app-btn--ghost" onClick={handleClearFact}>
+                    Очистить факт
+                  </button>
+                ) : null}
+                <input
+                  ref={factFileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={handleFactImportFile}
+                />
+              </div>
+              {pendingFactImport ? (
+                <div className="app-data-panel__preview">
+                  <p>
+                    Факт: <strong>{pendingFactImport.fileName}</strong> · {pendingFactImport.employeeCount} сотрудников
+                  </p>
+                  <div className="app-data-panel__mode">
+                    <label>
+                      <input
+                        type="radio"
+                        name="fact-import-mode"
+                        checked={factImportMode === "replace"}
+                        onChange={() => setFactImportMode("replace")}
+                      />{" "}
+                      Заменить весь факт
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="fact-import-mode"
+                        checked={factImportMode === "merge"}
+                        onChange={() => setFactImportMode("merge")}
+                      />{" "}
+                      Дополнить / обновить (merge)
+                    </label>
+                  </div>
+                  <div className="app-data-panel__actions">
+                    <button type="button" className="app-btn app-btn--primary" onClick={handleApplyFactImport}>
+                      Подтвердить факт
+                    </button>
+                    <button type="button" className="app-btn app-btn--ghost" onClick={() => setPendingFactImport(null)}>
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <details className="app-data-panel__demo">
+                <summary>Демо-факт 95% (только проверка UI)</summary>
+                <button type="button" className="app-btn app-btn--ghost app-btn--sm" onClick={handleSeedDemoFact}>
+                  Заполнить демо
+                </button>
+              </details>
+            </div>
+
             {pendingImport ? (
               <div className="app-data-panel__preview">
                 <p>
                   Файл: <strong>{pendingImport.fileName}</strong>
                 </p>
                 <p>
-                  Версия: {pendingImport.preview.planVersionId} · позиций: {pendingImport.preview.positionCount} · событий:{" "}
-                  {pendingImport.preview.eventCount} · диапазонов: {pendingImport.preview.salaryBandCount}
+                  Версия: {pendingImport.preview.planVersionId} · в файле {pendingImport.preview.positionCount} поз. (
+                  к импорту {pendingImport.preview.validPositionCount}
+                  {pendingImport.preview.skippedPositionCount > 0
+                    ? `, пропуск ${pendingImport.preview.skippedPositionCount}`
+                    : ""}
+                  ) · событий {pendingImport.preview.eventCount} · диапазонов {pendingImport.preview.salaryBandCount}
                 </p>
+                {previewWarnings.length > 0 ? (
+                  <ul className="app-data-panel__warnings">
+                    {previewWarnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {previewSkipNotes.length > 0 ? (
+                  <ul className="app-data-panel__warnings app-data-panel__warnings--muted">
+                    {previewSkipNotes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                ) : null}
                 <div className="app-data-panel__mode">
                   <label>
                     <input
@@ -259,6 +589,60 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             ) : null}
+
+            {lastImportReport ? (
+              <div className="app-data-panel__report" role="status">
+                <strong>Отчёт импорта</strong>
+                <p>{formatImportReport(lastImportReport)}</p>
+              </div>
+            ) : null}
+
+            <div className="app-data-panel__admin">
+              <strong>Администрирование</strong>
+              <p className="muted-line">
+                Перенос бюджета вакансий carryover — разовая операция по всему плану (не по фильтру таблицы).
+              </p>
+              {carryoverPendingAll.length > 0 ? (
+                <button type="button" className="app-btn app-btn--ghost" onClick={handleCarryoverBatch}>
+                  Зафиксировать перенос ({carryoverPendingAll.length})
+                </button>
+              ) : (
+                <p className="app-data-panel__admin-ok">Все вакансии переноса уже обработаны.</p>
+              )}
+              {adminMessage ? <p className="app-data-panel__message">{adminMessage}</p> : null}
+            </div>
+
+            <details className="app-data-panel__demo">
+              <summary>Dev / отладка</summary>
+              <p className="muted-line">Сброс localStorage-версий к одному v1 в статусе DRAFT (данные v1 сохраняются).</p>
+              <button type="button" className="app-btn app-btn--ghost app-btn--sm" onClick={handleDevResetV1}>
+                Сбросить v1 к черновику
+              </button>
+            </details>
+
+            {operationHistory.length > 0 ? (
+              <div className="app-data-panel__history">
+                <strong>Журнал операций</strong>
+                <ul>
+                  {operationHistory.map((entry) => (
+                    <li key={entry.id}>
+                      <span className="app-data-panel__history-meta">
+                        {formatHistoryDate(entry.at)} · {entry.label}
+                      </span>
+                      <span className="app-data-panel__history-summary">{entry.summary}</span>
+                      <button
+                        type="button"
+                        className="app-btn app-btn--ghost app-btn--compact"
+                        onClick={() => handleRestoreHistory(entry.id)}
+                      >
+                        Откатить к этой точке
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {dataMessage ? <p className="app-data-panel__message">{dataMessage}</p> : null}
           </section>
         ) : null}

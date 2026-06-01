@@ -3,20 +3,22 @@ import { Search } from "lucide-react";
 import { useMvpApp } from "../context/MvpAppContext";
 import {
   formatMoney,
-  HAS_FACT_DATA,
+  hasPlanFactData,
   planFactByDepartment,
   planFactTotals,
   varianceTone,
 } from "../data/planFactMetrics";
+import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import { departmentOptions } from "../data/planningData";
 
 export function PlanVsActualPage() {
   const { positions, viewMode, activePlan } = useMvpApp();
   const [department, setDepartment] = useState("All");
   const [search, setSearch] = useState("");
+  const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
 
   const filtered = useMemo(() => {
-    return positions.filter((position) => {
+    return appliedPositions.filter((position) => {
       if (department !== "All" && position.department !== department) return false;
       if (search) {
         const q = search.toLowerCase();
@@ -24,8 +26,9 @@ export function PlanVsActualPage() {
       }
       return position.status !== "Closed";
     });
-  }, [positions, department, search]);
+  }, [appliedPositions, department, search]);
 
+  const factReady = hasPlanFactData();
   const totals = useMemo(() => planFactTotals(filtered, viewMode), [filtered, viewMode]);
   const rows = useMemo(() => planFactByDepartment(filtered, viewMode), [filtered, viewMode]);
 
@@ -36,7 +39,7 @@ export function PlanVsActualPage() {
           <h1>План и факт</h1>
           <p>
             {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {totals.ytdLabel}
-            {!HAS_FACT_DATA && " · факт ожидает импорт Excel"}
+            {!factReady && " · загрузите демо-факт в панели «Данные» или внешний источник"}
           </p>
         </div>
       </header>
@@ -48,18 +51,18 @@ export function PlanVsActualPage() {
         </article>
         <article className="kpi-card">
           <span>Факт YTD</span>
-          <strong className="text-muted-strong">{HAS_FACT_DATA ? formatMoney(totals.fact, true) : "—"}</strong>
+          <strong className="text-muted-strong">{factReady ? formatMoney(totals.fact, true) : "—"}</strong>
         </article>
         <article className="kpi-card">
           <span>Отклонение</span>
           <strong className={`variance-value variance-value--${varianceTone(totals.variance)}`}>
-            {HAS_FACT_DATA ? formatMoney(totals.variance, true) : "—"}
+            {factReady ? formatMoney(totals.variance, true) : "—"}
           </strong>
         </article>
         <article className="kpi-card">
           <span>% отклонения</span>
           <strong className={`variance-value variance-value--${varianceTone(totals.variance)}`}>
-            {HAS_FACT_DATA ? `${totals.variancePct.toFixed(1)}%` : "—"}
+            {factReady ? `${totals.variancePct.toFixed(1)}%` : "—"}
           </strong>
         </article>
       </section>
@@ -103,12 +106,12 @@ export function PlanVsActualPage() {
                 <tr key={row.id}>
                   <td>{row.label}</td>
                   <td>{formatMoney(row.plan)}</td>
-                  <td className="text-muted-strong">{HAS_FACT_DATA ? formatMoney(row.fact) : "—"}</td>
+                  <td className="text-muted-strong">{factReady ? formatMoney(row.fact) : "—"}</td>
                   <td className={`variance-value variance-value--${varianceTone(row.variance)}`}>
-                    {HAS_FACT_DATA ? formatMoney(row.variance) : "—"}
+                    {factReady ? formatMoney(row.variance) : "—"}
                   </td>
                   <td className={`variance-value variance-value--${varianceTone(row.variance)}`}>
-                    {HAS_FACT_DATA ? `${row.variancePct.toFixed(1)}%` : "—"}
+                    {factReady ? `${row.variancePct.toFixed(1)}%` : "—"}
                   </td>
                 </tr>
               ))}

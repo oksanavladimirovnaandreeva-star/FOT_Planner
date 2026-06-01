@@ -39,6 +39,12 @@ export function formatEventHuman(event: PlannedEvent): string {
   return `${month ? month.charAt(0).toUpperCase() + month.slice(1) : "Год"}: ${body}`;
 }
 
+export function formatEventCommentPreview(comment: string, maxLength = 120): string {
+  const trimmed = comment.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength - 1)}…`;
+}
+
 export function eventTypeLabel(type: string): string {
   return EVENT_TYPE_LABEL[type] ?? type;
 }

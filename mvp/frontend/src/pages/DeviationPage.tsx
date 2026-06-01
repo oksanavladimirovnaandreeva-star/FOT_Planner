@@ -4,7 +4,7 @@ import { useMvpApp } from "../context/MvpAppContext";
 import {
   deviationDrivers,
   formatMoney,
-  HAS_FACT_DATA,
+  hasPlanFactData,
   planFactByLimit,
   planFactTotals,
   varianceTone,
@@ -13,6 +13,7 @@ import {
 export function DeviationPage() {
   const { positions, viewMode, activePlan } = useMvpApp();
 
+  const factReady = hasPlanFactData();
   const active = useMemo(() => positions.filter((position) => position.status !== "Closed"), [positions]);
   const totals = useMemo(() => planFactTotals(active, viewMode), [active, viewMode]);
   const byLimit = useMemo(() => planFactByLimit(active, viewMode), [active, viewMode]);
@@ -36,7 +37,7 @@ export function DeviationPage() {
           <h1>Отклонения</h1>
           <p>
             {activePlan.label} · анализ драйверов бюджета · {totals.ytdLabel}
-            {!HAS_FACT_DATA && " · факт пока не загружен, блоки ниже по плану"}
+            {!factReady && " · факт пока не загружен, блоки ниже по плану"}
           </p>
         </div>
       </header>
@@ -56,7 +57,7 @@ export function DeviationPage() {
                   <span>{row.label}</span>
                   <span className="variance-value variance-value--over">
                     <ArrowUpRight size={14} />
-                    {HAS_FACT_DATA ? formatMoney(Math.abs(row.variance)) : "ожидает факт"}
+                    {factReady ? formatMoney(Math.abs(row.variance)) : "ожидает факт"}
                   </span>
                 </li>
               ))}
