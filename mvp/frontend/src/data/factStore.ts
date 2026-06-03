@@ -5,6 +5,8 @@ import type { ViewMode } from "./dashboardMetrics";
 export type EmployeeFactSlice = {
   monthlyFactBase: number[];
   monthlyFactBonus: number[];
+  /** Тарифный оклад из импорта (режим «оклад» в сверке). */
+  monthlyTariffSalary?: number[];
 };
 
 const FACT_BY_EMPLOYEE_KEY = "fot_mvp_fact_by_employee";
@@ -22,6 +24,7 @@ function emptySlice(): EmployeeFactSlice {
   return {
     monthlyFactBase: Array.from({ length: 12 }, () => 0),
     monthlyFactBonus: Array.from({ length: 12 }, () => 0),
+    monthlyTariffSalary: Array.from({ length: 12 }, () => 0),
   };
 }
 
@@ -44,11 +47,16 @@ function writeEmployeeStore(store: Record<string, EmployeeFactSlice>): void {
 function isValidSlice(slice: unknown): slice is EmployeeFactSlice {
   if (!slice || typeof slice !== "object") return false;
   const candidate = slice as EmployeeFactSlice;
-  return (
+  const baseOk =
     Array.isArray(candidate.monthlyFactBase) &&
     candidate.monthlyFactBase.length === 12 &&
     Array.isArray(candidate.monthlyFactBonus) &&
-    candidate.monthlyFactBonus.length === 12
+    candidate.monthlyFactBonus.length === 12;
+  if (!baseOk) return false;
+  if (candidate.monthlyTariffSalary === undefined) return true;
+  return (
+    Array.isArray(candidate.monthlyTariffSalary) &&
+    candidate.monthlyTariffSalary.length === 12
   );
 }
 
@@ -168,6 +176,7 @@ export function importEmployeeFacts(
     next[employeeId] = {
       monthlyFactBase: [...slice.monthlyFactBase],
       monthlyFactBonus: [...slice.monthlyFactBonus],
+      monthlyTariffSalary: slice.monthlyTariffSalary ? [...slice.monthlyTariffSalary] : undefined,
     };
   }
   writeEmployeeStore(next);
@@ -187,7 +196,9 @@ function employeeFactAmount(employeeId: string, month: number, viewMode: ViewMod
   if (!slice) return 0;
   const base = slice.monthlyFactBase[month] ?? 0;
   const bonus = slice.monthlyFactBonus[month] ?? 0;
-  return viewMode === "total" ? base + bonus : base;
+  if (viewMode === "total") return base + bonus;
+  const tariff = slice.monthlyTariffSalary?.[month] ?? 0;
+  return tariff > 0 ? tariff : base;
 }
 
 /** Сумма факта по всем сотрудникам на слоте в месяце. */

@@ -1,3 +1,8 @@
+import {
+  isPlanEventMonthAllowed,
+  planEventMonthBlockedMessage,
+  type CorrectionWindowInfo,
+} from "../../data/planCorrectionWindow";
 import { levelOptionsForSpecialization } from "../../data/planningData";
 import type { PlannedEvent, PositionRecord } from "../../types";
 import type { ScenarioFormState, ScenarioType } from "./scenarioTypes";
@@ -13,6 +18,7 @@ export function applyDrawerScenario(params: {
   replacementEmployeeOptions: EmployeeOption[];
   createEvent: (type: PlannedEvent["type"], payload: PlannedEvent["payload"]) => PlannedEvent;
   onAddEvent: (positionId: string, event: PlannedEvent) => void;
+  correctionWindow?: CorrectionWindowInfo;
 }): { ok: true } | { ok: false; message: string } {
   const {
     selected,
@@ -25,6 +31,9 @@ export function applyDrawerScenario(params: {
   } = params;
 
   const month = scenarioForm.month;
+  if (params.correctionWindow && !isPlanEventMonthAllowed(month, params.correctionWindow)) {
+    return { ok: false, message: planEventMonthBlockedMessage(params.correctionWindow) };
+  }
   const base = Number(scenarioForm.base);
   const bonus = Number(scenarioForm.bonus);
   const specialization = scenarioForm.specialization;

@@ -1759,6 +1759,57 @@ tbody tr.row-updated {
   margin-bottom: 12px;
 }
 
+.plan-policy-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg, 10px);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.plan-policy-banner strong {
+  font-weight: 600;
+}
+
+.plan-policy-banner--quarter {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+}
+
+.plan-policy-banner--indexation {
+  background: var(--indigo-50, #eef2ff);
+  border: 1px solid var(--indigo-100, #e0e7ff);
+  color: var(--indigo-700, #4338ca);
+}
+
+.fact-import-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 8px 0;
+}
+
+.fact-import-preview-table th,
+.fact-import-preview-table td {
+  border: 1px solid var(--gray-200, #e2e8f0);
+  padding: 4px 6px;
+  text-align: left;
+}
+
+.fact-import-preview-table th {
+  background: var(--gray-50, #f8fafc);
+  font-weight: 600;
+  color: var(--gray-600, #475569);
+}
+
+.fact-import-preview-table code {
+  font-size: 10px;
+}
+
 .plan-matrix-panel__legend {
   margin: 0 0 10px;
   font-size: 13px;

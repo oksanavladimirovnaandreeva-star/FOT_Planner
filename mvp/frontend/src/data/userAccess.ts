@@ -37,6 +37,11 @@ export function roleCanEdit(role: UserRole): boolean {
   return role !== "viewer";
 }
 
+/** Массовая индексация C&B — не для тимлида и viewer. */
+export function roleCanApplyMassIndexation(role: UserRole): boolean {
+  return role === "admin" || role === "unit_lead";
+}
+
 export function roleScopeDescription(role: UserRole): string {
   switch (role) {
     case "admin":

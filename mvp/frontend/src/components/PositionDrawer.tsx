@@ -23,10 +23,20 @@ import { MONTHS } from "../types";
 import type { PlannedEvent, PositionRecord } from "../types";
 import { eventEmployeeLine } from "../data/eventJournal";
 import { eventTypeLabel, formatEventHuman } from "./drawer/formatEventHistory";
+import {
+  scenarioHelpText,
+  SCENARIO_CARDS,
+  type ScenarioType,
+} from "./drawer/scenarioTypes";
 import { OccupancyTimelineStrip } from "./OccupancyTimelineStrip";
 import { collectOccupancyMismatches, mismatchesForPosition } from "../data/occupancyReconciliation";
 import { formatOccupancyMonthLabel, planOccupancyAtMonth, planOccupancyTimeline } from "../data/occupancyTimeline";
 import { hasFactData } from "../data/factStore";
+import {
+  isPlanEventMonthAllowed,
+  planEventMonthBlockedMessage,
+  type CorrectionWindowInfo,
+} from "../data/planCorrectionWindow";
 
 interface PositionDrawerProps {
   open: boolean;
@@ -44,15 +54,9 @@ interface PositionDrawerProps {
   unitOptionsForDepartment: (department: string) => string[];
   teamOptionsForUnit: (department: string, unit: string) => string[];
   readOnly?: boolean;
+  correctionWindow?: CorrectionWindowInfo;
 }
 
-type ScenarioType =
-  | "REVIEW"
-  | "TRANSFER_INTRA"
-  | "TRANSFER_INTER"
-  | "TERMINATION"
-  | "REDUCTION"
-  | "MATERNITY";
 type ScenarioFormState = {
   scenario: ScenarioType;
   month: number;
@@ -68,44 +72,22 @@ type ScenarioFormState = {
   targetTeam: string;
   comment: string;
 };
-const SCENARIO_LABEL: Record<ScenarioType, string> = {
-  REVIEW: "РџРµСЂРµСЃРјРѕС‚СЂ Р¤РћРў (Р·Р°РЅСЏС‚РѕСЃС‚СЊ Р±РµР· РёР·РјРµРЅРµРЅРёР№)",
-  TRANSFER_INTRA: "РЎРѕС‚СЂСѓРґРЅРёРє в†’ РґСЂСѓРіРѕР№ СЃР»РѕС‚ (РІ СЋРЅРёС‚Рµ)",
-  TRANSFER_INTER: "РЎРѕС‚СЂСѓРґРЅРёРє в†’ РґСЂСѓРіРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚",
-  TERMINATION: "РћСЃРІРѕР±РѕРґРёС‚СЊ СЃР»РѕС‚ в†’ РІР°РєР°РЅСЃРёСЏ",
-  REDUCTION: "Р—Р°РєСЂС‹С‚СЊ СЃР»РѕС‚",
-  MATERNITY: "Р”РµРєСЂРµС‚: РѕСЃРЅРѕРІРЅРѕР№ + Р·Р°РјРµС‰РµРЅРёРµ",
-};
+
+const SCENARIO_LABEL = Object.fromEntries(SCENARIO_CARDS.map((c) => [c.id, c.title])) as Record<
+  ScenarioType,
+  string
+>;
 
 const SCENARIO_GROUPS: { label: string; scenarios: ScenarioType[] }[] = [
   {
-    label: "Р—Р°РЅСЏС‚РѕСЃС‚СЊ СЃР»РѕС‚Р°",
+    label: "Занятость слота",
     scenarios: ["TRANSFER_INTRA", "TRANSFER_INTER", "TERMINATION", "REDUCTION", "MATERNITY"],
   },
   {
-    label: "Р¤РћРў Р±РµР· СЃРјРµРЅС‹ Р·Р°РЅСЏС‚РѕСЃС‚Рё",
+    label: "ФОТ без смены занятости",
     scenarios: ["REVIEW"],
   },
 ];
-
-function scenarioHelpText(scenario: ScenarioType): string {
-  switch (scenario) {
-    case "REVIEW":
-      return "РњРµРЅСЏРµС‚СЃСЏ С‚РѕР»СЊРєРѕ РѕРєР»Р°Рґ/РїСЂРµРјРёСЏ/РіСЂРµР№Рґ. РљС‚Рѕ СЃРёРґРёС‚ РЅР° СЃР»РѕС‚Рµ вЂ” РЅРµ РјРµРЅСЏРµС‚СЃСЏ.";
-    case "TRANSFER_INTRA":
-      return "РўРµРєСѓС‰РёР№ СЃРѕС‚СЂСѓРґРЅРёРє РїРµСЂРµРµР·Р¶Р°РµС‚ РЅР° РґСЂСѓРіСѓСЋ РІР°РєР°РЅСЃРёСЋ РІ С‚РѕРј Р¶Рµ dept Рё СЋРЅРёС‚Рµ.";
-    case "TRANSFER_INTER":
-      return "РЎРѕС‚СЂСѓРґРЅРёРє РїРµСЂРµРµР·Р¶Р°РµС‚ РІ РґСЂСѓРіРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚; С†РµР»РµРІСѓСЋ РІР°РєР°РЅСЃРёСЋ РјРѕР¶РЅРѕ РЅРµ РІС‹Р±РёСЂР°С‚СЊ.";
-    case "TERMINATION":
-      return "РЎРѕС‚СЂСѓРґРЅРёРє СѓС…РѕРґРёС‚, СЃР»РѕС‚ РѕСЃС‚Р°С‘С‚СЃСЏ РІР°РєР°РЅСЃРёРµР№ (Р±СЋРґР¶РµС‚ СЃР»РѕС‚Р° СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ).";
-    case "REDUCTION":
-      return "РЎР»РѕС‚ Р·Р°РєСЂС‹РІР°РµС‚СЃСЏ СЃ РІС‹Р±СЂР°РЅРЅРѕРіРѕ РјРµСЃСЏС†Р°.";
-    case "MATERNITY":
-      return "Сотрудник в декрете остаётся на слоте; замещение — существующий сотрудник или вакансия без ФИО.";
-    default:
-      return "";
-  }
-}
 
 function crTone(value: number): "warn" | "ok" | "danger" {
   if (value < 0.8) return "warn";
@@ -116,8 +98,8 @@ function crTone(value: number): "warn" | "ok" | "danger" {
 type DrawerTab = "slot" | "plan";
 
 const DRAWER_TAB_LABEL: Record<DrawerTab, string> = {
-  slot: "РЎР»РѕС‚ Рё Р·Р°РЅСЏС‚РѕСЃС‚СЊ",
-  plan: "РЎРѕР±С‹С‚РёСЏ Рё Р¤РћРў",
+  slot: "Слот и занятость",
+  plan: "События и ФОТ",
 };
 
 export function PositionDrawer({
@@ -136,6 +118,7 @@ export function PositionDrawer({
   unitOptionsForDepartment,
   teamOptionsForUnit,
   readOnly = false,
+  correctionWindow,
 }: PositionDrawerProps) {
   const { salaryBands, positions: planPositionsAll } = useMvpApp();
   const specOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
@@ -285,12 +268,16 @@ export function PositionDrawer({
   const applyScenario = () => {
     if (readOnly) return;
     const month = scenarioForm.month;
+    if (correctionWindow && !isPlanEventMonthAllowed(month, correctionWindow)) {
+      window.alert(planEventMonthBlockedMessage(correctionWindow));
+      return;
+    }
     const base = Number(scenarioForm.base);
     const bonus = Number(scenarioForm.bonus);
     const specialization = scenarioForm.specialization;
     const level = scenarioForm.level;
     if (selected.status !== "Occupied" && scenarioForm.scenario !== "REVIEW") {
-      window.alert("РћРїРµСЂР°С†РёСЏ РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РґР»СЏ Р·Р°РЅСЏС‚С‹С… СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ.");
+      window.alert("Операция доступна только для занятых сотрудников.");
       return;
     }
     switch (scenarioForm.scenario) {
@@ -308,16 +295,16 @@ export function PositionDrawer({
       case "TRANSFER_INTRA":
       case "TRANSFER_INTER": {
         if (!selected.employeeId || !selected.employeeName) {
-          window.alert("Р”Р»СЏ РїРµСЂРµРІРѕРґР° РЅСѓР¶РЅС‹ employeeId Рё Р¤РРћ СЃРѕС‚СЂСѓРґРЅРёРєР°.");
+          window.alert("Для перевода нужны employeeId и ФИО сотрудника.");
           return;
         }
         const target = transferOptions.find((item) => item.positionId === scenarioForm.transferToPositionId);
         if (scenarioForm.transferToPositionId && !target) {
-          window.alert("Р¦РµР»РµРІР°СЏ РІР°РєР°РЅСЃРёСЏ РЅРµ РїРѕРґС…РѕРґРёС‚ РґР»СЏ РІС‹Р±СЂР°РЅРЅРѕРіРѕ С‚РёРїР° РїРµСЂРµРІРѕРґР°.");
+          window.alert("Целевая вакансия не подходит для выбранного типа перевода.");
           return;
         }
         if (scenarioForm.scenario === "TRANSFER_INTER" && !scenarioForm.targetDepartment) {
-          window.alert("Р’С‹Р±РµСЂРёС‚Рµ С†РµР»РµРІРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚.");
+          window.alert("Выберите целевой департамент.");
           return;
         }
         applyEventToRecord(
@@ -346,7 +333,7 @@ export function PositionDrawer({
         break;
       case "MATERNITY": {
         if (base <= 0 && scenarioForm.replacementMode !== "VACANCY") {
-          window.alert("Р”Р»СЏ Р·Р°РјРµС‰РµРЅРёСЏ РІ РґРµРєСЂРµС‚Рµ СѓРєР°Р¶РёС‚Рµ РѕРєР»Р°Рґ > 0.");
+          window.alert("Для замещения в декрете укажите оклад > 0.");
           return;
         }
         const payload: PlannedEvent["payload"] = {
@@ -361,17 +348,17 @@ export function PositionDrawer({
         };
         if (scenarioForm.replacementMode === "VACANCY") {
           payload.maternityReplacementKind = "VACANCY";
-          payload.employeeName = "Р’Р°РєР°РЅСЃРёСЏ (Р·Р°РјРµС‰РµРЅРёРµ)";
+          payload.employeeName = "Вакансия (замещение)";
         } else if (scenarioForm.replacementMode === "FROM_LIST") {
           if (!scenarioForm.replacementEmployeeId) {
-            window.alert("Р’С‹Р±РµСЂРёС‚Рµ СЃРѕС‚СЂСѓРґРЅРёРєР° Р·Р°РјРµС‰РµРЅРёСЏ РёР· СЃРїРёСЃРєР°.");
+            window.alert("Выберите сотрудника замещения из списка.");
             return;
           }
           const replacement = replacementEmployeeOptions.find(
             (employee) => employee.employeeId === scenarioForm.replacementEmployeeId,
           );
           if (!replacement) {
-            window.alert("РЎРѕС‚СЂСѓРґРЅРёРє Р·Р°РјРµС‰РµРЅРёСЏ РЅРµ РЅР°Р№РґРµРЅ РІ СЃРїРёСЃРєРµ.");
+            window.alert("Сотрудник замещения не найден в списке.");
             return;
           }
           payload.maternityReplacementKind = "EMPLOYEE";
@@ -381,8 +368,8 @@ export function PositionDrawer({
         applyEventToRecord(createEvent("MANUAL_OVERRIDE", payload));
         window.alert(
           scenarioForm.replacementMode === "VACANCY"
-            ? "Р”РµРєСЂРµС‚: РѕСЃРЅРѕРІРЅРѕР№ СЃРѕС‚СЂСѓРґРЅРёРє + Р·Р°РјРµС‰РµРЅРёРµ РІР°РєР°РЅСЃРёРµР№."
-            : "Р”РµРєСЂРµС‚: РѕСЃРЅРѕРІРЅРѕР№ + СЃРѕС‚СЂСѓРґРЅРёРє Р·Р°РјРµС‰РµРЅРёСЏ.",
+            ? "Декрет: основной сотрудник + замещение вакансией."
+            : "Декрет: основной + сотрудник замещения.",
         );
         break;
       }
@@ -423,8 +410,8 @@ export function PositionDrawer({
 
   const headerTitle =
     selected.status === "Occupied" && selected.employeeName
-      ? `${selected.employeeName} В· СЃР»РѕС‚ ${selected.positionId}`
-      : `РЎР»РѕС‚ ${selected.positionId}`;
+      ? `${selected.employeeName} · слот ${selected.positionId}`
+      : `Слот ${selected.positionId}`;
   const headerEmployeeId =
     selected.status === "Occupied" && selected.employeeId ? selected.employeeId : null;
 
@@ -460,8 +447,8 @@ export function PositionDrawer({
               <span className={`limit-flag-badge limit-flag-badge--${selected.limitFlag}`}>
                 {LIMIT_FLAG_LABELS[selected.limitFlag]}
               </span>
-              <span className="drawer-header__stat">Р”РµРєв†’РґРµРє {growth.toFixed(1)}%</span>
-              <span className="drawer-header__stat">Р¤РћРў {annualTotal(selected).toLocaleString("ru-RU")} в‚Ѕ</span>
+              <span className="drawer-header__stat">Дек→дек {growth.toFixed(1)}%</span>
+              <span className="drawer-header__stat">ФОТ {annualTotal(selected).toLocaleString("ru-RU")} ₽</span>
             </div>
           </div>
           <div className="drawer-header-actions">
@@ -469,8 +456,8 @@ export function PositionDrawer({
               <button
                 type="button"
                 className="icon-btn danger"
-                aria-label="РЈРґР°Р»РёС‚СЊ СЃР»РѕС‚"
-                title="РЈРґР°Р»РёС‚СЊ СЃР»РѕС‚"
+                aria-label="Удалить слот"
+                title="Удалить слот"
                 onClick={() => onDeletePosition(selected.positionId)}
               >
                 <Trash2 size={18} />
@@ -478,10 +465,10 @@ export function PositionDrawer({
             )}
             {!isPersisted && selected.status === "Vacancy" && (
               <button type="button" className="primary-btn" onClick={persistVacancyToPlan}>
-                РЎРѕС…СЂР°РЅРёС‚СЊ СЃР»РѕС‚
+                Сохранить слот
               </button>
             )}
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="Р—Р°РєСЂС‹С‚СЊ">
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Закрыть">
               <X size={18} />
             </button>
           </div>
@@ -508,10 +495,10 @@ export function PositionDrawer({
           <>
           <section className="drawer-position-block">
             <div className="drawer-position-block__group">
-              <p className="drawer-position-block__label">РџСЂРѕС„РёР»СЊ СЃР»РѕС‚Р°</p>
+              <p className="drawer-position-block__label">Профиль слота</p>
               <div className="drawer-position-block__grid drawer-position-block__grid--slot">
                 <label>
-                  ID СЃР»РѕС‚Р°
+                  ID слота
                   <input
                     type="text"
                     value={selected.positionId}
@@ -533,7 +520,7 @@ export function PositionDrawer({
                   />
                 </label>
                 <label>
-                  РЎРїРµС†РёР°Р»РёР·Р°С†РёСЏ
+                  Специализация
                   <select
                     value={slotSpec}
                     disabled={readOnly}
@@ -547,7 +534,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  РЈСЂРѕРІРµРЅСЊ
+                  Уровень
                   <select
                     value={slotLevel}
                     disabled={readOnly}
@@ -563,10 +550,10 @@ export function PositionDrawer({
               </div>
             </div>
             <div className="drawer-position-block__group">
-              <p className="drawer-position-block__label">РћСЂРіСЃС‚СЂСѓРєС‚СѓСЂР°</p>
+              <p className="drawer-position-block__label">Оргструктура</p>
               <div className="drawer-position-block__grid drawer-position-block__grid--org">
                 <label>
-                  Р”РµРїР°СЂС‚Р°РјРµРЅС‚
+                  Департамент
                   <select
                     value={selected.department}
                     disabled={readOnly}
@@ -592,7 +579,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Р®РЅРёС‚
+                  Юнит
                   <select
                     value={selected.unit}
                     disabled={readOnly}
@@ -615,7 +602,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  РљРѕРјР°РЅРґР°
+                  Команда
                   <select
                     value={selected.team}
                     disabled={readOnly}
@@ -636,10 +623,10 @@ export function PositionDrawer({
               </div>
             </div>
             <div className="drawer-position-block__group">
-              <p className="drawer-position-block__label">РџР°СЂР°РјРµС‚СЂС‹ СЃР»РѕС‚Р°</p>
+              <p className="drawer-position-block__label">Параметры слота</p>
               <div className="drawer-position-block__grid drawer-position-block__grid--params">
                 <label>
-                  РђРєС‚РёРІРµРЅ СЃ
+                  Активен с
                   <select
                     value={selected.activeFromMonth}
                     disabled={readOnly}
@@ -663,7 +650,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  РўРёРї СЃР»РѕС‚Р°
+                  Тип слота
                   <select
                     value={selected.slotType}
                     disabled={readOnly}
@@ -680,12 +667,12 @@ export function PositionDrawer({
                       onSaveDraft(next, selected.positionId);
                     }}
                   >
-                    <option value="carryover">РџРµСЂРµРЅРѕСЃ</option>
-                    <option value="new">РќРѕРІС‹Р№</option>
+                    <option value="carryover">Перенос</option>
+                    <option value="new">Новый</option>
                   </select>
                 </label>
                 <label>
-                  Р›РёРјРёС‚
+                  Лимит
                   <select
                     value={selected.limitFlag}
                     disabled={readOnly || selected.slotType === "carryover"}
@@ -707,14 +694,14 @@ export function PositionDrawer({
               </div>
             </div>
             {selected.status === "Vacancy" && selected.slotType === "carryover" && !carryoverApplied ? (
-              <p className="drawer-position-block__hint">РџРµСЂРµРЅРѕСЃ Р±СЋРґР¶РµС‚Р° вЂ” РІ В«Р”Р°РЅРЅС‹РµВ» РёР»Рё РЅР° РїР»Р°РЅРёСЂРѕРІР°РЅРёРё.</p>
+              <p className="drawer-position-block__hint">Перенос бюджета — в «Данные» или на планировании.</p>
             ) : null}
           </section>
 
           <section className="drawer-position-block drawer-position-block--occupancy-tab">
-            <p className="drawer-position-block__label">Р—Р°РЅСЏС‚РѕСЃС‚СЊ РїРѕ РјРµСЃСЏС†Р°Рј (РїР»Р°РЅ)</p>
+            <p className="drawer-position-block__label">Занятость по месяцам (план)</p>
             <p className="drawer-position-block__hint">
-              РќР° РєРѕРЅРµС† РєР°Р¶РґРѕРіРѕ РјРµСЃСЏС†Р°. РЎРѕР±С‹С‚РёСЏ, РјРµРЅСЏСЋС‰РёРµ Р·Р°РЅСЏС‚РѕСЃС‚СЊ Рё Р¤РћРў вЂ” РЅР° РІРєР»Р°РґРєРµ В«РЎРѕР±С‹С‚РёСЏ Рё Р¤РћРўВ».
+              На конец каждого месяца. События, меняющие занятость и ФОТ — на вкладке «События и ФОТ».
             </p>
             <div className="drawer-occupancy-current">
               <span className="position-state-badge position-state-badge--status">
@@ -727,8 +714,8 @@ export function PositionDrawer({
               ) : (
                 <span className="muted-line">
                   {selected.status === "Vacancy"
-                    ? `Р’Р°РєР°РЅСЃРёСЏ СЃ ${MONTHS[selected.vacancySinceMonth ?? selected.activeFromMonth]}`
-                    : "вЂ”"}
+                    ? `Вакансия с ${MONTHS[selected.vacancySinceMonth ?? selected.activeFromMonth]}`
+                    : "—"}
                 </span>
               )}
             </div>
@@ -744,9 +731,9 @@ export function PositionDrawer({
                 ))}
               </ul>
             ) : hasFactData() ? (
-              <p className="muted-line drawer-position-block__hint">Р Р°СЃС…РѕР¶РґРµРЅРёР№ СЃ С„Р°РєС‚РѕРј РїРѕ СЌС‚РѕРјСѓ СЃР»РѕС‚Сѓ РЅРµС‚.</p>
+              <p className="muted-line drawer-position-block__hint">Расхождений с фактом по этому слоту нет.</p>
             ) : (
-              <p className="muted-line drawer-position-block__hint">Р—Р°РіСЂСѓР·РёС‚Рµ С„Р°РєС‚ РІ В«Р”Р°РЅРЅС‹РµВ», С‡С‚РѕР±С‹ СЃРІРµСЂСЏС‚СЊ Р·Р°РЅСЏС‚РѕСЃС‚СЊ.</p>
+              <p className="muted-line drawer-position-block__hint">Загрузите факт в «Данные», чтобы сверять занятость.</p>
             )}
           </section>
           </>
@@ -756,10 +743,10 @@ export function PositionDrawer({
           <>
           <section className="drawer-events-panel">
           <div className="drawer-events-panel__history">
-            <h3 className="drawer-events-panel__title">РСЃС‚РѕСЂРёСЏ РёР·РјРµРЅРµРЅРёР№ РїРѕ СЃР»РѕС‚Сѓ</h3>
+            <h3 className="drawer-events-panel__title">История изменений по слоту</h3>
             <ul className="drawer-history-list drawer-history-list--prominent">
               {selected.events.length === 0 && (
-                <li className="drawer-history-list__empty">РЎРѕР±С‹С‚РёР№ РїРѕРєР° РЅРµС‚ вЂ” РґРѕР±Р°РІСЊС‚Рµ СЃС†РµРЅР°СЂРёР№ РЅРёР¶Рµ</li>
+                <li className="drawer-history-list__empty">Событий пока нет — добавьте сценарий ниже</li>
               )}
               {[...selected.events]
                 .sort((a, b) => b.createdOrder - a.createdOrder)
@@ -772,7 +759,7 @@ export function PositionDrawer({
                         <button
                           type="button"
                           className="icon-btn danger"
-                          aria-label="РЈРґР°Р»РёС‚СЊ"
+                          aria-label="Удалить"
                           disabled={readOnly}
                           onClick={() => deleteEventFromRecord(event.id)}
                         >
@@ -793,11 +780,11 @@ export function PositionDrawer({
           </div>
 
           <div className="drawer-events-panel__composer">
-            <h3 className="drawer-events-panel__title">РџР»Р°РЅРѕРІРѕРµ РёР·РјРµРЅРµРЅРёРµ</h3>
+            <h3 className="drawer-events-panel__title">Плановое изменение</h3>
             <p className="drawer-events-panel__hint">{scenarioHelpText(scenarioForm.scenario)}</p>
           <div className="drawer-events-block__form event-grid event-grid--drawer">
             <label>
-              РўРёРї РёР·РјРµРЅРµРЅРёСЏ
+              Тип изменения
               <select
                 value={scenarioForm.scenario}
                 onChange={(event) =>
@@ -825,7 +812,7 @@ export function PositionDrawer({
               </select>
             </label>
             <label>
-              РЎ РєР°РєРѕРіРѕ РјРµСЃСЏС†Р°
+              С какого месяца
               <select
                 value={scenarioForm.month}
                 onChange={(event) => {
@@ -843,13 +830,20 @@ export function PositionDrawer({
                   }));
                 }}
               >
-                {MONTHS.map((month, index) => (
-                  <option key={month} value={index}>{month}</option>
-                ))}
+                {MONTHS.map((month, index) => {
+                  const blocked =
+                    correctionWindow != null && !isPlanEventMonthAllowed(index, correctionWindow);
+                  return (
+                    <option key={month} value={index} disabled={blocked}>
+                      {month}
+                      {blocked ? " (закрыт)" : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label>
-              РћРєР»Р°Рґ
+              Оклад
               <input
                 type="number"
                 value={scenarioForm.base}
@@ -858,7 +852,7 @@ export function PositionDrawer({
             </label>
             {!isMaternity && (
               <label>
-                РџСЂРµРјРёСЏ
+                Премия
                 <input
                   type="number"
                   value={scenarioForm.bonus}
@@ -869,7 +863,7 @@ export function PositionDrawer({
             {(isReview || isTransfer || isMaternity) && (
               <>
                 <label>
-                  РЎРїРµС†РёР°Р»РёР·Р°С†РёСЏ
+                  Специализация
                   <select
                     value={scenarioForm.specialization}
                     onChange={(event) => {
@@ -890,7 +884,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  РЈСЂРѕРІРµРЅСЊ
+                  Уровень
                   <select value={scenarioForm.level} onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}>
                     {monthLevels.map((level) => (
                       <option key={level} value={level}>
@@ -903,7 +897,7 @@ export function PositionDrawer({
             )}
             {isTransfer && (
               <label>
-                Р¦РµР»РµРІР°СЏ РІР°РєР°РЅСЃРёСЏ
+                Целевая вакансия
                 <select
                   value={scenarioForm.transferToPositionId}
                   onChange={(event) => setScenarioForm((prev) => ({ ...prev, transferToPositionId: event.target.value }))}
@@ -911,11 +905,11 @@ export function PositionDrawer({
                   <option value="">
                     {isInterTransfer
                       ? transferOptions.length
-                        ? "РќРµС‚ РїРѕРґС…РѕРґСЏС‰РµР№? РјРѕР¶РЅРѕ Р±РµР· РІР°РєР°РЅСЃРёРё"
-                        : "РЎРѕР·РґР°С‚СЊ РїРѕР·РёС†РёСЋ РІ С†РµР»РµРІРѕРј РґРµРїР°СЂС‚Р°РјРµРЅС‚Рµ"
+                        ? "Нет подходящей? можно без вакансии"
+                        : "Создать позицию в целевом департаменте"
                       : transferOptions.length
-                        ? "РР»Рё Р±РµР· РІС‹Р±РѕСЂР° вЂ” СЃРѕР·РґР°С‚СЊ РІР°РєР°РЅСЃРёСЋ РІ СЋРЅРёС‚Рµ"
-                        : "РЎРѕР·РґР°С‚СЊ РІР°РєР°РЅСЃРёСЋ РІ С‚РѕРј Р¶Рµ СЋРЅРёС‚Рµ"}
+                        ? "Или без выбора — создать вакансию в юните"
+                        : "Создать вакансию в том же юните"}
                   </option>
                   {transferOptions.map((option) => (
                     <option key={option.positionId} value={option.positionId}>
@@ -931,7 +925,7 @@ export function PositionDrawer({
             {isInterTransfer && (
               <>
                 <label>
-                  Р¦РµР»РµРІРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚
+                  Целевой департамент
                   <select
                     value={scenarioForm.targetDepartment}
                     onChange={(event) => {
@@ -959,7 +953,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Р¦РµР»РµРІРѕР№ СЋРЅРёС‚
+                  Целевой юнит
                   <select
                     value={scenarioForm.targetUnit}
                     onChange={(event) => {
@@ -982,7 +976,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Р¦РµР»РµРІР°СЏ РєРѕРјР°РЅРґР°
+                  Целевая команда
                   <select
                     value={scenarioForm.targetTeam}
                     onChange={(event) => setScenarioForm((prev) => ({ ...prev, targetTeam: event.target.value }))}
@@ -999,7 +993,7 @@ export function PositionDrawer({
             {isMaternity && (
               <>
                 <label>
-                  Р—Р°РјРµС‰РµРЅРёРµ
+                  Замещение
                   <select
                     value={scenarioForm.replacementMode}
                     onChange={(event) =>
@@ -1010,18 +1004,18 @@ export function PositionDrawer({
                       }))
                     }
                   >
-                    <option value="FROM_LIST">РЎСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ СЃРѕС‚СЂСѓРґРЅРёРє</option>
-                    <option value="VACANCY">Р’Р°РєР°РЅСЃРёСЏ (Р±РµР· Р¤РРћ Р·Р°РјРµС‰РµРЅРёСЏ)</option>                  </select>
+                    <option value="FROM_LIST">Существующий сотрудник</option>
+                    <option value="VACANCY">Вакансия (без ФИО замещения)</option>                  </select>
                 </label>
                 {scenarioForm.replacementMode === "FROM_LIST" ? (
                   <label>
-                    РЎРѕС‚СЂСѓРґРЅРёРє Р·Р°РјРµС‰РµРЅРёСЏ
+                    Сотрудник замещения
                     <select
                       value={scenarioForm.replacementEmployeeId}
                       onChange={(event) => setScenarioForm((prev) => ({ ...prev, replacementEmployeeId: event.target.value }))}
                     >
                       <option value="">
-                        {replacementEmployeeOptions.length ? "Р’С‹Р±РµСЂРёС‚Рµ СЃРѕС‚СЂСѓРґРЅРёРєР°" : "РќРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ"}
+                        {replacementEmployeeOptions.length ? "Выберите сотрудника" : "Нет доступных сотрудников"}
                       </option>
                       {replacementEmployeeOptions.map((employee) => (
                         <option key={employee.employeeId} value={employee.employeeId}>
@@ -1032,7 +1026,7 @@ export function PositionDrawer({
                   </label>
                 ) : (
                   <p className="drawer-events-block__hint">
-                    Р—Р°РјРµС‰РµРЅРёРµ РїР»Р°РЅРёСЂСѓРµС‚СЃСЏ РєР°Рє РІР°РєР°РЅСЃРёСЏ РЅР° СЃР»РѕС‚Рµ (Р±СЋРґР¶РµС‚ РјРѕР¶РЅРѕ Р·Р°РґР°С‚СЊ РѕРєР»Р°РґРѕРј РІС‹С€Рµ).
+                    Замещение планируется как вакансия на слоте (бюджет можно задать окладом выше).
                   </p>
                 )}
               </>
@@ -1044,12 +1038,12 @@ export function PositionDrawer({
             </p>
           )}
           <label className="drawer-comment-field">
-            <span className="drawer-comment-field__label">РљРѕРјРјРµРЅС‚Р°СЂРёР№ РґР»СЏ СЃРѕРіР»Р°СЃРѕРІР°РЅРёСЏ</span>
+            <span className="drawer-comment-field__label">Комментарий для согласования</span>
             <textarea
               rows={4}
               value={scenarioForm.comment}
               disabled={readOnly}
-              placeholder="Р—Р°С‡РµРј РјРµРЅСЏРµРј: РїРµСЂРµРІРѕРґ, СѓРІРѕР»СЊРЅРµРЅРёРµ, РёРЅРґРµРєСЃР°С†РёСЏвЂ¦"
+              placeholder="Зачем меняем: перевод, увольнение, индексация…"
               onChange={(event) => setScenarioForm((prev) => ({ ...prev, comment: event.target.value }))}
             />
           </label>
@@ -1060,24 +1054,24 @@ export function PositionDrawer({
               className="primary-btn"
               disabled={readOnly || (isTransfer && transferButtonDisabled)}
             >
-              РџСЂРёРјРµРЅРёС‚СЊ РёР·РјРµРЅРµРЅРёРµ
+              Применить изменение
             </button>
           </div>
           </div>
           </section>
 
           <section className="drawer-section monthly-table-wrap drawer-section--flush drawer-section--monthly-tab">
-              <h3 className="drawer-section__title">Р¤РћРў Рё Р·Р°РЅСЏС‚РѕСЃС‚СЊ РїРѕ РјРµСЃСЏС†Р°Рј</h3>
+              <h3 className="drawer-section__title">ФОТ и занятость по месяцам</h3>
               <table className="monthly-table monthly-table--drawer monthly-table--dense">
             <thead>
               <tr>
-                <th>РњРµСЃ</th>
-                <th>РќР° СЃР»РѕС‚Рµ</th>
+                <th>Мес</th>
+                <th>На слоте</th>
                 <th>Spec</th>
                 <th>Lvl</th>
                 <th>BASE</th>
                 <th>BON</th>
-                <th>ОЈ</th>
+                <th>Σ</th>
                 <th>CR</th>
                 <th />
               </tr>

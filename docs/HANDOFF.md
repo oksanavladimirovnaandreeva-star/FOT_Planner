@@ -55,6 +55,9 @@ npm test       # 17 тестов
 - **Декрет:** замещение `FROM_LIST` | `VACANCY` (`maternityReplacementKind`); **без** «Новый сотрудник»
 - Headcount: без `Closed`, отдельно «N закрыто»
 - **Сокращение (#3):** с M — `Closed`, ФОТ 0 в матрице; помесячно (`isPlanClosedAtMonth`); без Δ на закрытых ячейках
+- **Факт (#4):** `monthly_fact_lines` + `tariff_salary`, превью таблицы в «Данные»
+- **Квартал (#6):** `resolveCorrectionWindow` — события в черновике только с M<sub>open</sub>
+- **Индексация (#7):** баннер пакетов; массовая — admin/unit_lead, не team_lead
 - Факт: `employee_id`, reconciliation
 
 ---
@@ -72,7 +75,7 @@ npm test       # 17 тестов
 
 ## Следующий шаг
 
-**#4** в [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md) — импорт факта (превью `tariff_salary` + schema lines). Далее #6, #7.
+**Фаза 1 закрыта.** Далее **#8** в [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md) — RBAC (team-only, freeze директора, C&B admin).
 
 ---
 

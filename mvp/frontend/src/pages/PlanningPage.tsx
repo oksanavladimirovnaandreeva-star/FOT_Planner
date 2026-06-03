@@ -2,8 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Calculator, Plus, Search, Trash2 } from "lucide-react";
 import { PlanApprovalPanel } from "../components/planning/PlanApprovalPanel";
+import { PlanCorrectionWindowBanner } from "../components/planning/PlanCorrectionWindowBanner";
+import { PlanIndexationBanner } from "../components/planning/PlanIndexationBanner";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
+import {
+  isPlanEventMonthAllowed,
+  planEventMonthBlockedMessage,
+  resolveCorrectionWindow,
+} from "../data/planCorrectionWindow";
+import { roleCanApplyMassIndexation } from "../data/userAccess";
 import {
   annualTotal,
   applyEvents,
@@ -130,7 +138,15 @@ export function PlanningPage() {
     canEditPlan,
     workingDraft,
     roleScopeHint,
+    primaryBudget,
+    userRole,
   } = useMvpApp();
+
+  const correctionWindow = useMemo(
+    () => resolveCorrectionWindow(activePlan, primaryBudget),
+    [activePlan, primaryBudget],
+  );
+  const canMassIndexation = roleCanApplyMassIndexation(userRole);
 
   const blockEdit = () => {
     window.alert("Правки только в рабочем черновике. Создайте черновик на странице «Версии».");
@@ -275,6 +291,14 @@ export function PlanningPage() {
       blockEdit();
       return;
     }
+    if (!canMassIndexation) {
+      window.alert("Массовая индексация доступна только C&B (администратор) и юнит-лиду.");
+      return;
+    }
+    if (!isPlanEventMonthAllowed(idxMonth, correctionWindow)) {
+      window.alert(planEventMonthBlockedMessage(correctionWindow));
+      return;
+    }
     const targetIds = filtered.filter((item) => item.status !== "Closed").map((item) => item.positionId);
     if (targetIds.length === 0) {
       showBulkFeedback("warning", "Нет активных позиций для индексации по текущему фильтру.");
@@ -358,6 +382,11 @@ export function PlanningPage() {
   const addEvent = (positionId: string, event: PlannedEvent) => {
     if (!canEditPlan) {
       blockEdit();
+      return;
+    }
+    const eventMonth = event.payload.month;
+    if (typeof eventMonth === "number" && !isPlanEventMonthAllowed(eventMonth, correctionWindow)) {
+      window.alert(planEventMonthBlockedMessage(correctionWindow));
       return;
     }
     if (event.type === "TERMINATION_TO_VACANCY") {
@@ -496,41 +525,47 @@ export function PlanningPage() {
           <p className="muted-line">{roleScopeHint}</p>
         </div>
         <div className="page-header__actions planning-toolbar">
-          <div className="planning-indexation-compact" title="По позициям текущего фильтра таблицы">
-            <Calculator size={14} strokeWidth={2} aria-hidden />
-            <span className="planning-indexation-compact__label">Индексация</span>
-            <div className="planning-indexation-compact__percent">
-              <input
-                type="number"
-                min={0}
-                step={0.1}
-                value={idxPercent}
-                onChange={(event) => setIdxPercent(Number(event.target.value))}
-                aria-label="Процент"
-              />
-              <span>%</span>
+          {canMassIndexation ? (
+            <div className="planning-indexation-compact" title="По позициям текущего фильтра таблицы (C&B)">
+              <Calculator size={14} strokeWidth={2} aria-hidden />
+              <span className="planning-indexation-compact__label">Индексация</span>
+              <div className="planning-indexation-compact__percent">
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={idxPercent}
+                  onChange={(event) => setIdxPercent(Number(event.target.value))}
+                  aria-label="Процент"
+                />
+                <span>%</span>
+              </div>
+              <select
+                className="planning-indexation-compact__month"
+                value={idxMonth}
+                onChange={(event) => setIdxMonth(Number(event.target.value))}
+                aria-label="С месяца"
+              >
+                {MONTHS.map((month, monthIndex) => {
+                  const blocked = !isPlanEventMonthAllowed(monthIndex, correctionWindow);
+                  return (
+                    <option key={month} value={monthIndex} disabled={blocked}>
+                      {month}
+                      {blocked ? " (закрыт)" : ""}
+                    </option>
+                  );
+                })}
+              </select>
+              <button
+                type="button"
+                className="primary-btn planning-indexation-compact__btn"
+                onClick={applyIndexationToFiltered}
+                disabled={!canEditPlan}
+              >
+                Применить
+              </button>
             </div>
-            <select
-              className="planning-indexation-compact__month"
-              value={idxMonth}
-              onChange={(event) => setIdxMonth(Number(event.target.value))}
-              aria-label="С месяца"
-            >
-              {MONTHS.map((month, monthIndex) => (
-                <option key={month} value={monthIndex}>
-                  {month}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="primary-btn planning-indexation-compact__btn"
-              onClick={applyIndexationToFiltered}
-              disabled={!canEditPlan}
-            >
-              Применить
-            </button>
-          </div>
+          ) : null}
           <div className="planning-toolbar__actions">
             <Link className="secondary-btn" to="/salary-ranges">
               Диапазоны
@@ -607,6 +642,9 @@ export function PlanningPage() {
           Бюджет v1 ещё не утверждён — можно править здесь. Затем «Утвердить» на <Link to="/versions">Версии</Link>.
         </div>
       ) : null}
+
+      <PlanCorrectionWindowBanner window={correctionWindow} />
+      <PlanIndexationBanner batches={indexationBatches} />
 
       {workspaceTab === "positions" || workspaceTab === "matrix" ? (
         <>
@@ -968,6 +1006,7 @@ export function PlanningPage() {
         departmentOptions={departmentOptions}
         unitOptionsForDepartment={unitOptions}
         teamOptionsForUnit={teamOptions}
+        correctionWindow={correctionWindow}
       />
     </div>
   );

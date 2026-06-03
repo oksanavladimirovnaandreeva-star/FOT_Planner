@@ -15,7 +15,8 @@ import {
 import { formatImportReport, USER_ROLE_LABELS, useMvpApp } from "../context/MvpAppContext";
 import type { UserRole } from "../context/MvpAppContext";
 import type { ImportReport } from "../data/snapshotImport";
-import { inspectFactImport, parseFactPayload } from "../data/factImport";
+import { inspectFactImport, parseFactPayload, type FactImportPreview } from "../data/factImport";
+import { monthLabel } from "../data/planningData";
 import {
   clearFactStore,
   factStoreStats,
@@ -91,7 +92,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [pendingFactImport, setPendingFactImport] = useState<{
     payload: unknown;
     fileName: string;
-    employeeCount: number;
+    preview: FactImportPreview;
   } | null>(null);
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
 
@@ -259,7 +260,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       setPendingFactImport({
         payload,
         fileName: file.name,
-        employeeCount: inspected.preview.employeeCount,
+        preview: inspected.preview,
       });
       setDataMessage(null);
     } catch {
@@ -514,8 +515,46 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               {pendingFactImport ? (
                 <div className="app-data-panel__preview">
                   <p>
-                    Факт: <strong>{pendingFactImport.fileName}</strong> · {pendingFactImport.employeeCount} сотрудников
+                    Факт: <strong>{pendingFactImport.fileName}</strong> · схема{" "}
+                    <code>{pendingFactImport.preview.schema}</code> · {pendingFactImport.preview.employeeCount} сотр.
+                    {pendingFactImport.preview.lineCount > 0
+                      ? ` · ${pendingFactImport.preview.lineCount} строк`
+                      : ""}
+                    {pendingFactImport.preview.assignmentCount > 0
+                      ? ` · ${pendingFactImport.preview.assignmentCount} посадок`
+                      : ""}
+                    {pendingFactImport.preview.tariffSalaryLines > 0
+                      ? ` · tariff_salary: ${pendingFactImport.preview.tariffSalaryLines}`
+                      : ""}
                   </p>
+                  {pendingFactImport.preview.sampleLines.length > 0 ? (
+                    <table className="fact-import-preview-table">
+                      <thead>
+                        <tr>
+                          <th>employee_id</th>
+                          <th>position_id</th>
+                          <th>month</th>
+                          <th>fact_base</th>
+                          <th>fact_bonus</th>
+                          <th>tariff_salary</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingFactImport.preview.sampleLines.map((line, index) => (
+                          <tr key={`${line.employeeId}-${line.month}-${index}`}>
+                            <td>{line.employeeId}</td>
+                            <td>{line.positionId ?? "—"}</td>
+                            <td>{monthLabel(line.month)}</td>
+                            <td>{line.factBase.toLocaleString("ru-RU")}</td>
+                            <td>{line.factBonus.toLocaleString("ru-RU")}</td>
+                            <td>
+                              {line.tariffSalary != null ? line.tariffSalary.toLocaleString("ru-RU") : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : null}
                   <div className="app-data-panel__mode">
                     <label>
                       <input
