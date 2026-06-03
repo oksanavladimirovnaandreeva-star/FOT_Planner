@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { AlertCircle, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { PlanFactBaselineBanner } from "../components/PlanFactBaselineBanner";
 import { useMvpApp } from "../context/MvpAppContext";
+import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import {
   deviationDrivers,
   formatMoney,
@@ -11,10 +13,13 @@ import {
 } from "../data/planFactMetrics";
 
 export function DeviationPage() {
-  const { positions, viewMode, activePlan } = useMvpApp();
+  const { planFactBaseline: baseline, viewMode } = useMvpApp();
 
   const factReady = hasPlanFactData();
-  const active = useMemo(() => positions.filter((position) => position.status !== "Closed"), [positions]);
+  const active = useMemo(
+    () => mapPositionsWithAppliedEvents(baseline.positions).filter((position) => position.status !== "Closed"),
+    [baseline.positions],
+  );
   const totals = useMemo(() => planFactTotals(active, viewMode), [active, viewMode]);
   const byLimit = useMemo(() => planFactByLimit(active, viewMode), [active, viewMode]);
   const drivers = useMemo(() => deviationDrivers(byLimit), [byLimit]);
@@ -36,11 +41,13 @@ export function DeviationPage() {
         <div>
           <h1>Отклонения</h1>
           <p>
-            {activePlan.label} · анализ драйверов бюджета · {totals.ytdLabel}
-            {!factReady && " · факт пока не загружен, блоки ниже по плану"}
+            Анализ драйверов · {totals.ytdLabel}
+            {!factReady && " · факт не загружен"}
           </p>
         </div>
       </header>
+
+      <PlanFactBaselineBanner baseline={baseline} />
 
       <div className="deviation-alerts">
         <section className="card deviation-alert deviation-alert--over">

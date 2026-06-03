@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
+import { PlanFactBaselineBanner } from "../components/PlanFactBaselineBanner";
 import { useMvpApp } from "../context/MvpAppContext";
 import {
   formatMoney,
@@ -9,13 +11,23 @@ import {
   varianceTone,
 } from "../data/planFactMetrics";
 import { mapPositionsWithAppliedEvents } from "../data/planOperations";
+import {
+  collectOccupancyMismatches,
+  OCCUPANCY_MISMATCH_LABELS,
+  type OccupancyMismatchKind,
+} from "../data/occupancyReconciliation";
 import { departmentOptions } from "../data/planningData";
 
 export function PlanVsActualPage() {
-  const { positions, viewMode, activePlan } = useMvpApp();
+  const { planFactBaseline: baseline, viewMode } = useMvpApp();
   const [department, setDepartment] = useState("All");
   const [search, setSearch] = useState("");
-  const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
+  const [mismatchKind, setMismatchKind] = useState<OccupancyMismatchKind | "All">("All");
+
+  const appliedPositions = useMemo(
+    () => mapPositionsWithAppliedEvents(baseline.positions),
+    [baseline.positions],
+  );
 
   const filtered = useMemo(() => {
     return appliedPositions.filter((position) => {
@@ -32,17 +44,34 @@ export function PlanVsActualPage() {
   const totals = useMemo(() => planFactTotals(filtered, viewMode), [filtered, viewMode]);
   const rows = useMemo(() => planFactByDepartment(filtered, viewMode), [filtered, viewMode]);
 
+  const occupancyMismatches = useMemo(() => collectOccupancyMismatches(appliedPositions), [appliedPositions]);
+  const filteredMismatches = useMemo(() => {
+    return occupancyMismatches.filter((item) => {
+      if (mismatchKind !== "All" && item.kind !== mismatchKind) return false;
+      if (department !== "All" && item.department !== department && item.positionId !== "—") return false;
+      if (search && item.positionId !== "—") {
+        const q = search.toLowerCase();
+        if (!`${item.positionId} ${item.department} ${item.unit} ${item.team}`.toLowerCase().includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [occupancyMismatches, mismatchKind, department, search]);
+
   return (
     <div className="content-page plan-fact-page">
       <header className="page-header">
         <div>
           <h1>План и факт</h1>
           <p>
-            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {totals.ytdLabel}
-            {!factReady && " · загрузите демо-факт в панели «Данные» или внешний источник"}
+            {viewMode === "total" ? "Суммы: полный ФОТ" : "Суммы: тарифный оклад"} · {totals.ytdLabel}
+            {!factReady && " · загрузите факт в «Данные»"}
           </p>
         </div>
       </header>
+
+      <PlanFactBaselineBanner baseline={baseline} />
 
       <section className="kpi-grid kpi-grid--compact">
         <article className="kpi-card">
@@ -88,8 +117,84 @@ export function PlanVsActualPage() {
         </div>
       </section>
 
+      <section className="card plan-fact-occupancy">
+        <h2 className="section-title">Занятость: план ↔ факт</h2>
+        <p className="muted-line">
+          План — версия «{baseline.planVersion.label}». Только просмотр расхождений; план из факта не меняется. В импорте{" "}
+          <code>lines</code> — <code>position_id</code> для посадки на слот.
+        </p>
+        {!factReady ? (
+          <p className="muted-line">Загрузите факт, чтобы увидеть расхождения по занятости.</p>
+        ) : (
+          <>
+            <div className="filters-grid filters-grid--toolbar">
+              <label>
+                Тип расхождения
+                <select
+                  value={mismatchKind}
+                  onChange={(event) => setMismatchKind(event.target.value as OccupancyMismatchKind | "All")}
+                >
+                  <option value="All">Все</option>
+                  {(Object.keys(OCCUPANCY_MISMATCH_LABELS) as OccupancyMismatchKind[]).map((kind) => (
+                    <option key={kind} value={kind}>
+                      {OCCUPANCY_MISMATCH_LABELS[kind]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="table-scroll">
+              <table className="simple-table">
+                <thead>
+                  <tr>
+                    <th>Тип</th>
+                    <th>Слот</th>
+                    <th>Месяц</th>
+                    <th>План</th>
+                    <th>Факт</th>
+                    <th>Орг.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMismatches.map((item, index) => (
+                    <tr key={`${item.kind}-${item.positionId}-${item.month}-${index}`}>
+                      <td>{OCCUPANCY_MISMATCH_LABELS[item.kind]}</td>
+                      <td>
+                        {item.positionId !== "—" ? (
+                          <Link to={`/planning?position=${item.positionId}`}>{item.positionId}</Link>
+                        ) : (
+                          "—"
+                        )}
+                        {item.role !== "—" ? <div className="muted-line">{item.role}</div> : null}
+                      </td>
+                      <td>{item.monthLabel}</td>
+                      <td>
+                        {item.planEmployeeId
+                          ? `${item.planEmployeeName ?? item.planEmployeeId} (${item.planEmployeeId})`
+                          : "вакансия"}
+                      </td>
+                      <td>{item.factEmployeeId ?? "—"}</td>
+                      <td className="muted-line">
+                        {item.department} / {item.unit} / {item.team}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredMismatches.length === 0 ? (
+              <p className="muted-line">Расхождений по занятости нет (или не попали в фильтр).</p>
+            ) : (
+              <p className="muted-line">Найдено расхождений: {filteredMismatches.length}</p>
+            )}
+          </>
+        )}
+      </section>
+
       <section className="card">
-        <h2 className="section-title">План / факт по департаментам</h2>
+        <h2 className="section-title">
+          План / факт по департаментам · {baseline.planVersion.label}
+        </h2>
         <div className="table-scroll">
           <table className="simple-table simple-table--numeric">
             <thead>

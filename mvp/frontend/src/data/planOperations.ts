@@ -101,6 +101,53 @@ export function applyTerminationToVacancy(
   return { ok: true, positions: next };
 }
 
+function buildIntraUnitTarget(
+  positions: PositionRecord[],
+  source: PositionRecord,
+  params: PlanTransferParams,
+  options: PlanTransferOptions,
+): PositionRecord {
+  const transferMonth = params.month;
+  const seedBase = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? 0 : params.base));
+  const seedBonus = Array.from({ length: 12 }, (_, idx) => (idx < transferMonth ? 0 : params.bonus));
+  const seedSpec = Array.from({ length: 12 }, (_, idx) =>
+    idx < transferMonth ? source.seedMonthlySpec[idx] : params.specialization,
+  );
+  const seedLevel = Array.from({ length: 12 }, (_, idx) =>
+    idx < transferMonth ? source.seedMonthlyLevel[idx] : params.level,
+  );
+
+  const targetPosition: PositionRecord = {
+    positionId: options.nextPositionId(positions),
+    role: "Вакансия под перевод",
+    department: source.department,
+    unit: source.unit,
+    team: source.team,
+    slotType: "new",
+    activeFromMonth: transferMonth,
+    vacancySinceMonth: transferMonth,
+    limitFlag: "IN_LIMIT",
+    previousDecemberBase: 0,
+    employeeName: null,
+    employeeId: null,
+    status: "Vacancy",
+    seedEmployeeName: null,
+    seedEmployeeId: null,
+    seedStatus: "Vacancy",
+    seedVacancySinceMonth: transferMonth,
+    monthlySpec: [...seedSpec],
+    monthlyLevel: [...seedLevel],
+    monthlyBase: [...seedBase],
+    monthlyBonus: [...seedBonus],
+    seedMonthlySpec: seedSpec,
+    seedMonthlyLevel: seedLevel,
+    seedMonthlyBase: seedBase,
+    seedMonthlyBonus: seedBonus,
+    events: [],
+  };
+  return options.applyIndexationBatches(targetPosition, positions);
+}
+
 function buildInterDepartmentTarget(
   positions: PositionRecord[],
   source: PositionRecord,
@@ -167,14 +214,19 @@ export function applyPlanTransfer(
   let working = [...positions];
 
   if (params.transferKind === "INTRA_UNIT") {
-    if (!targetPositionId) return { ok: false, error: "Выберите целевую вакансию." };
-    const target = working.find((item) => item.positionId === targetPositionId);
-    if (!target) return { ok: false, error: "Целевая вакансия не найдена." };
-    if (target.department.trim() !== source.department.trim() || target.unit.trim() !== source.unit.trim()) {
-      return { ok: false, error: "Целевая вакансия должна быть в том же департаменте и юните." };
-    }
-    if (!isVacantForTransferAtMonth(target, month)) {
-      return { ok: false, error: "Целевой слот недоступен в выбранный месяц." };
+    if (!targetPositionId) {
+      const created = buildIntraUnitTarget(working, source, params, options);
+      working = [...working, created];
+      targetPositionId = created.positionId;
+    } else {
+      const target = working.find((item) => item.positionId === targetPositionId);
+      if (!target) return { ok: false, error: "Целевая вакансия не найдена." };
+      if (target.department.trim() !== source.department.trim() || target.unit.trim() !== source.unit.trim()) {
+        return { ok: false, error: "Целевая вакансия должна быть в том же департаменте и юните." };
+      }
+      if (!isVacantForTransferAtMonth(target, month)) {
+        return { ok: false, error: "Целевой слот недоступен в выбранный месяц." };
+      }
     }
   } else {
     if (!params.targetDepartment) return { ok: false, error: "Выберите целевой департамент." };

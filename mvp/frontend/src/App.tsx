@@ -8,7 +8,8 @@ import { PlanVsActualPage } from "./pages/PlanVsActualPage";
 import { DeviationPage } from "./pages/DeviationPage";
 import { VersionsPage } from "./pages/VersionsPage";
 import { ForecastPage } from "./pages/ForecastPage";
-import { ChangesJournalPage } from "./pages/ChangesJournalPage";
+import { PlanAuditPage } from "./pages/PlanAuditPage";
+import { ConsolidationPage } from "./pages/ConsolidationPage";
 
 function App() {
   return (
@@ -22,7 +23,9 @@ function App() {
           <Route path="/deviation" element={<DeviationPage />} />
           <Route path="/versions" element={<VersionsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
-          <Route path="/changes" element={<ChangesJournalPage />} />
+          <Route path="/consolidation" element={<ConsolidationPage />} />
+          <Route path="/audit" element={<PlanAuditPage />} />
+          <Route path="/changes" element={<Navigate to="/audit" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppLayout>

@@ -48,8 +48,27 @@ import {
   type OperationLogEntry,
 } from "../data/operationHistory";
 import { initialSalaryBands } from "../data/salaryRangeData";
+import {
+  APPROVAL_RULE_DEFINITIONS,
+  evaluateDraftApprovalRules,
+  validateDraftForApproval,
+  type DraftApprovalCheck,
+} from "../data/planApprovalRules";
+import {
+  filterPositionsByRole,
+  loadUserRole,
+  mergeScopedPositionUpdates,
+  roleCanEdit,
+  roleScopeDescription,
+  saveUserRole,
+  type UserRole,
+} from "../data/userAccess";
 import type { ViewMode } from "../data/dashboardMetrics";
+import { resolvePlanFactBaseline, type PlanFactBaseline } from "../data/planFactBaseline";
 import type { PositionRecord, SalaryCatalogAccess, SalaryRangeBand } from "../types";
+
+export type { UserRole };
+export { USER_ROLE_LABELS } from "../data/userAccess";
 
 export type { MvpPlanSnapshot, SnapshotPreview, ImportReport, ImportMode, PlanVersionMeta };
 export { formatImportReport };
@@ -96,6 +115,10 @@ type MvpAppContextValue = {
   setPlanVersionId: (id: string) => void;
   activePlan: PlanVersionMeta;
   canEditPlan: boolean;
+  userRole: UserRole;
+  setUserRole: (role: UserRole) => void;
+  roleScopeHint: string;
+  positionsTotalCount: number;
   workingDraft: PlanVersionMeta | null;
   latestApproved: PlanVersionMeta | null;
   versionDiff: VersionDiffBundle;
@@ -105,8 +128,11 @@ type MvpAppContextValue = {
     | { ok: false; error: string };
   approvePrimaryBudget: () => { ok: true } | { ok: false; error: string };
   submitDraftForApproval: () => { ok: true } | { ok: false; error: string };
+  draftApprovalCheck: DraftApprovalCheck;
   approvalRoute: ApprovalStep[];
   primaryBudget: PlanVersionMeta | null;
+  /** База плана для страниц план–факт (последняя утверждённая, не черновик в сайдбаре). */
+  planFactBaseline: PlanFactBaseline;
   openVersion: (id: string) => { ok: true } | { ok: false; error: string };
   positions: PositionRecord[];
   setPositions: Dispatch<SetStateAction<PositionRecord[]>>;
@@ -159,6 +185,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     const stored = localStorage.getItem("fot_mvp_catalog_access");
     return stored === "write" ? "write" : "read";
   });
+  const [userRole, setUserRoleState] = useState<UserRole>(() => loadUserRole());
 
   useEffect(() => {
     persistVersions(planVersions);
@@ -175,6 +202,11 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const setCatalogAccess = (access: SalaryCatalogAccess) => {
     localStorage.setItem("fot_mvp_catalog_access", access);
     setCatalogAccessState(access);
+  };
+
+  const setUserRole = (role: UserRole) => {
+    saveUserRole(role);
+    setUserRoleState(role);
   };
 
   const setPlanVersionId = (id: string) => {
@@ -215,16 +247,26 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     setViewModeState(mode);
   };
 
-  const positions = dataByVersion[planVersionId] ?? [];
+  const allPositions = dataByVersion[planVersionId] ?? [];
+  const positions = useMemo(
+    () => filterPositionsByRole(allPositions, userRole),
+    [allPositions, userRole],
+  );
+  const positionsTotalCount = allPositions.length;
+  const roleScopeHint = useMemo(() => roleScopeDescription(userRole), [userRole]);
+
   const setPositions = useCallback<Dispatch<SetStateAction<PositionRecord[]>>>(
     (updater) => {
       setDataByVersion((prev) => {
         const current = prev[planVersionId] ?? [];
-        const next = typeof updater === "function" ? updater(current) : updater;
+        const scopedBefore = filterPositionsByRole(current, userRole);
+        const scopedNext =
+          typeof updater === "function" ? updater(scopedBefore) : updater;
+        const next = mergeScopedPositionUpdates(current, scopedBefore, scopedNext);
         return { ...prev, [planVersionId]: next };
       });
     },
-    [planVersionId],
+    [planVersionId, userRole],
   );
 
   const activePlan = useMemo(
@@ -232,9 +274,13 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     [planVersions, planVersionId],
   );
 
-  const canEditPlan = canEditVersion(activePlan);
+  const canEditPlan = canEditVersion(activePlan) && roleCanEdit(userRole);
   const primaryBudget = useMemo(() => primaryBudgetVersion(planVersions) ?? null, [planVersions]);
   const latestApproved = useMemo(() => latestApprovedVersion(planVersions) ?? null, [planVersions]);
+  const planFactBaseline = useMemo(
+    () => resolvePlanFactBaseline(planVersions, dataByVersion, planVersionId),
+    [planVersions, dataByVersion, planVersionId],
+  );
   const workingDraft = useMemo(() => {
     if (!latestApproved) return null;
     return findWorkingDraftForBaseline(planVersions, latestApproved.id) ?? null;
@@ -264,16 +310,6 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     );
     return { ok: true };
   }, [planVersions, dataByVersion]);
-
-  const submitDraftForApproval = useCallback((): { ok: true } | { ok: false; error: string } => {
-    if (!workingDraft) return { ok: false, error: "Нет рабочего черновика." };
-    setPlanVersions((prev) =>
-      prev.map((version) =>
-        version.id === workingDraft.id ? { ...version, status: "IN_APPROVAL" } : version,
-      ),
-    );
-    return { ok: true };
-  }, [workingDraft]);
 
   const versionDiff = useMemo((): VersionDiffBundle => {
     const emptySummary: PlanVersionDiffSummary = {
@@ -308,6 +344,27 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     });
     return { rows, summary, baselinePositions, draftPositions };
   }, [workingDraft, planVersions, dataByVersion]);
+
+  const draftApprovalCheck = useMemo((): DraftApprovalCheck => {
+    const { baselinePositions, draftPositions } = versionDiff;
+    if (!workingDraft || baselinePositions.length === 0) {
+      return { triggered: [], clear: [...APPROVAL_RULE_DEFINITIONS] };
+    }
+    return evaluateDraftApprovalRules(baselinePositions, draftPositions);
+  }, [versionDiff, workingDraft]);
+
+  const submitDraftForApproval = useCallback((): { ok: true } | { ok: false; error: string } => {
+    if (!workingDraft) return { ok: false, error: "Нет рабочего черновика." };
+    const draftPositions = dataByVersion[workingDraft.id] ?? [];
+    const structural = validateDraftForApproval(draftPositions);
+    if (!structural.ok) return structural;
+    setPlanVersions((prev) =>
+      prev.map((version) =>
+        version.id === workingDraft.id ? { ...version, status: "IN_APPROVAL" } : version,
+      ),
+    );
+    return { ok: true };
+  }, [workingDraft, dataByVersion]);
 
   const createWorkingDraft = useCallback(
     (sourceApprovedId?: string): { ok: true; draftId: string } | { ok: false; error: string } => {
@@ -513,15 +570,21 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
         setPlanVersionId,
         activePlan,
         canEditPlan,
+        userRole,
+        setUserRole,
+        roleScopeHint,
+        positionsTotalCount,
         workingDraft,
         latestApproved,
         primaryBudget,
+        planFactBaseline,
         approvalRoute,
         versionDiff,
         createWorkingDraft,
         publishWorkingDraft,
         approvePrimaryBudget,
         submitDraftForApproval,
+        draftApprovalCheck,
         openVersion,
         positions,
         setPositions,

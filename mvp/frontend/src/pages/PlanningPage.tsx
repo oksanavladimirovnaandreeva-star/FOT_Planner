@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Calculator, Plus, Search, Trash2 } from "lucide-react";
+import { PlanApprovalPanel } from "../components/planning/PlanApprovalPanel";
+import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
+import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
 import {
   annualTotal,
   applyEvents,
@@ -22,11 +25,7 @@ import {
   unitOptions,
   upsertEvent,
 } from "../data/planningData";
-import {
-  formatEventChangeLine,
-  positionTableRowClass,
-  summarizeLatestPositionEvent,
-} from "../data/eventJournal";
+import { positionTableRowClass } from "../data/eventJournal";
 import {
   applyPlanTransferFromDrawerEvent,
   applyTerminationToVacancy,
@@ -105,13 +104,33 @@ function employeeCellLabel(record: PositionRecord): string {
   }
   const primaryName = maternityEvent.payload.maternityPrimaryEmployeeName || record.employeeName || "Сотрудник";
   const primaryId = maternityEvent.payload.maternityPrimaryEmployeeId || record.employeeId || "—";
-  const replacementName = maternityEvent.payload.employeeName || "Замещение";
-  const replacementId = maternityEvent.payload.employeeId || "—";
-  return `${primaryName} (${primaryId}) [декрет] + ${replacementName} (${replacementId}) [замещение]`;
+  const replacementLabel =
+    maternityEvent.payload.maternityReplacementKind === "VACANCY"
+      ? "Вакансия (замещение)"
+      : `${maternityEvent.payload.employeeName || "Замещение"} (${maternityEvent.payload.employeeId || "—"})`;
+  return `${primaryName} (${primaryId}) [декрет] + ${replacementLabel} [замещение]`;
+}
+
+type WorkspaceTab = "positions" | "matrix" | "journal" | "approval";
+
+function parseWorkspaceTab(value: string | null): WorkspaceTab {
+  if (value === "matrix" || value === "journal" || value === "approval") return value;
+  return "positions";
 }
 
 export function PlanningPage() {
-  const { positions, setPositions, activePlan, viewMode, salaryBands, canEditPlan, workingDraft } = useMvpApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const workspaceTab = parseWorkspaceTab(searchParams.get("tab"));
+  const {
+    positions,
+    setPositions,
+    activePlan,
+    viewMode,
+    salaryBands,
+    canEditPlan,
+    workingDraft,
+    roleScopeHint,
+  } = useMvpApp();
 
   const blockEdit = () => {
     window.alert("Правки только в рабочем черновике. Создайте черновик на странице «Версии».");
@@ -149,6 +168,10 @@ export function PlanningPage() {
     [],
   );
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [addSlotOpen, setAddSlotOpen] = useState(false);
+  const [addSlotKind, setAddSlotKind] = useState<"vacancy" | "occupied">("vacancy");
+  const [addSlotEmployeeId, setAddSlotEmployeeId] = useState("");
+  const [addSlotEmployeeName, setAddSlotEmployeeName] = useState("");
 
   const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(positions), [positions]);
   const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
@@ -156,6 +179,52 @@ export function PlanningPage() {
     () => mergePlanPositionsWithDraft(positions, active),
     [positions, active],
   );
+
+  const journalDiffPositionIds = useMemo(() => {
+    const raw = searchParams.get("positions");
+    if (!raw || searchParams.get("diff") !== "1") return undefined;
+    return new Set(raw.split(",").map((item) => item.trim()).filter(Boolean));
+  }, [searchParams]);
+
+  const journalHighlightPositionId = searchParams.get("position");
+
+  const setWorkspaceTab = (tab: WorkspaceTab) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", tab);
+    if (tab !== "journal") {
+      next.delete("position");
+      next.delete("positions");
+      next.delete("diff");
+    }
+    setSearchParams(next, { replace: true });
+  };
+
+  const openPositionFromJournal = (positionId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "positions");
+    next.set("position", positionId);
+    next.delete("positions");
+    next.delete("diff");
+    setSearchParams(next);
+  };
+
+  const openPositionInDrawer = (positionId: string) => {
+    const raw = positions.find((item) => item.positionId === positionId);
+    if (!raw) return;
+    const row = mapPositionsWithAppliedEvents([raw])[0];
+    setActive(row);
+    setActiveSourceId(positionId);
+  };
+
+  useEffect(() => {
+    const positionId = searchParams.get("position");
+    if (!positionId) return;
+    openPositionInDrawer(positionId);
+    if (workspaceTab === "journal" || workspaceTab === "approval") return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("position");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, positions, setSearchParams, workspaceTab]);
 
   useEffect(() => {
     if (!active) return;
@@ -190,14 +259,15 @@ export function PlanningPage() {
     });
   }, [appliedPositions, query, department, unit, team, limitFilter, occupancyFilter]);
 
-  const tableCounts = useMemo(
-    () => ({
-      total: filtered.length,
-      occupied: filtered.filter((position) => position.status === "Occupied").length,
-      vacancy: filtered.filter((position) => position.status === "Vacancy").length,
-    }),
-    [filtered],
-  );
+  const tableCounts = useMemo(() => {
+    const open = filtered.filter((position) => position.status !== "Closed");
+    return {
+      total: open.length,
+      occupied: open.filter((position) => position.status === "Occupied").length,
+      vacancy: open.filter((position) => position.status === "Vacancy").length,
+      closed: filtered.filter((position) => position.status === "Closed").length,
+    };
+  }, [filtered]);
 
 
   const applyIndexationToFiltered = () => {
@@ -348,11 +418,18 @@ export function PlanningPage() {
     }))
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "ru"));
 
-  const startAddVacancy = () => {
+  const openAddSlotDialog = () => {
     if (!canEditPlan) {
       blockEdit();
       return;
     }
+    setAddSlotKind("vacancy");
+    setAddSlotEmployeeId(nextEmployeeId(positions));
+    setAddSlotEmployeeName("");
+    setAddSlotOpen(true);
+  };
+
+  const createSlotFromDialog = () => {
     const newId = nextPositionId(positions);
     const activeFromMonth = new Date().getMonth();
     const org = normalizeOrgPath(
@@ -360,50 +437,63 @@ export function PlanningPage() {
       unit === "All" ? "" : unit,
       team === "All" ? "" : team,
     );
-    const vacancy: PositionRecord = applyExistingIndexationBatches(
+    const isOccupied = addSlotKind === "occupied";
+    const employeeId = addSlotEmployeeId.trim() || nextEmployeeId(positions);
+    const employeeName = addSlotEmployeeName.trim();
+
+    if (isOccupied && !employeeName) {
+      window.alert("Укажите ФИО сотрудника для занятого слота.");
+      return;
+    }
+
+    const baseSalary = 150_000;
+    const record: PositionRecord = applyExistingIndexationBatches(
       {
-      positionId: newId,
-      role: "Новая вакансия",
-      department: org.department,
-      unit: org.unit,
-      team: org.team,
-      slotType: "new",
-      limitFlag: defaultLimitFlagForSlotType("new"),
-      activeFromMonth,
-      vacancySinceMonth: activeFromMonth,
-      previousDecemberBase: 0,
-      employeeName: null,
-      employeeId: null,
-      status: "Vacancy",
-      seedEmployeeName: null,
-      seedEmployeeId: null,
-      seedStatus: "Vacancy",
-      seedVacancySinceMonth: activeFromMonth,
-      monthlySpec: Array.from({ length: 12 }, () => "Engineering"),
-      monthlyLevel: Array.from({ length: 12 }, () => "Middle"),
-      monthlyBase: Array.from({ length: 12 }, () => 150_000),
-      monthlyBonus: Array.from({ length: 12 }, () => 0),
-      seedMonthlySpec: Array.from({ length: 12 }, () => "Engineering"),
-      seedMonthlyLevel: Array.from({ length: 12 }, () => "Middle"),
-      seedMonthlyBase: Array.from({ length: 12 }, () => 150_000),
-      seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
-      events: [],
-    },
+        positionId: newId,
+        role: isOccupied ? employeeName : "Новая вакансия",
+        department: org.department,
+        unit: org.unit,
+        team: org.team,
+        slotType: "new",
+        limitFlag: defaultLimitFlagForSlotType("new"),
+        activeFromMonth,
+        vacancySinceMonth: isOccupied ? null : activeFromMonth,
+        previousDecemberBase: 0,
+        employeeName: isOccupied ? employeeName : null,
+        employeeId: isOccupied ? employeeId : null,
+        status: isOccupied ? "Occupied" : "Vacancy",
+        seedEmployeeName: isOccupied ? employeeName : null,
+        seedEmployeeId: isOccupied ? employeeId : null,
+        seedStatus: isOccupied ? "Occupied" : "Vacancy",
+        seedVacancySinceMonth: isOccupied ? null : activeFromMonth,
+        monthlySpec: Array.from({ length: 12 }, () => "Engineering"),
+        monthlyLevel: Array.from({ length: 12 }, () => "Middle"),
+        monthlyBase: Array.from({ length: 12 }, () => baseSalary),
+        monthlyBonus: Array.from({ length: 12 }, () => 0),
+        seedMonthlySpec: Array.from({ length: 12 }, () => "Engineering"),
+        seedMonthlyLevel: Array.from({ length: 12 }, () => "Middle"),
+        seedMonthlyBase: Array.from({ length: 12 }, () => baseSalary),
+        seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
+        events: [],
+      },
       positions,
     );
-    setActive(vacancy);
-    setActiveSourceId(vacancy.positionId);
+    setAddSlotOpen(false);
+    setActive(record);
+    setActiveSourceId(record.positionId);
   };
 
   return (
     <div className="content-page planning-page">
       <header className="page-header">
         <div>
-          <h1>Планирование и численность</h1>
+          <h1>Планирование ФОТ</h1>
           <p>
-            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} поз. (
-            {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии)
+            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} слотов (
+            {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии
+            {tableCounts.closed > 0 ? `, ${tableCounts.closed} закрыто` : ""})
           </p>
+          <p className="muted-line">{roleScopeHint}</p>
         </div>
         <div className="page-header__actions planning-toolbar">
           <div className="planning-indexation-compact" title="По позициям текущего фильтра таблицы">
@@ -445,12 +535,66 @@ export function PlanningPage() {
             <Link className="secondary-btn" to="/salary-ranges">
               Диапазоны
             </Link>
-            <button type="button" className="primary-btn" onClick={startAddVacancy} disabled={!canEditPlan}>
-              <Plus size={14} /> Добавить вакансию
-            </button>
+            {workspaceTab === "positions" ? (
+              <button type="button" className="primary-btn" onClick={openAddSlotDialog} disabled={!canEditPlan}>
+                <Plus size={14} /> Добавить слот
+              </button>
+            ) : null}
           </div>
         </div>
       </header>
+
+      <nav className="planning-workspace-tabs" aria-label="Разделы планирования">
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "positions" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("positions")}
+        >
+          Позиции
+        </button>
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "matrix" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("matrix")}
+        >
+          По месяцам
+        </button>
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "journal" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("journal")}
+        >
+          Журнал изменений
+        </button>
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "approval" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("approval")}
+        >
+          Согласование
+        </button>
+      </nav>
+
+      {workspaceTab === "positions" ? (
+        <p className="planning-workspace-hint">
+          Клик по строке → drawer: «Слот и занятость» · «События и ФОТ». Журнал — вкладка «Журнал изменений».
+        </p>
+      ) : null}
+      {workspaceTab === "matrix" ? (
+        <p className="planning-workspace-hint">
+          Матрица на конец месяца: план (З/В/—) и факт. Отклонения только для просмотра — план из факта не меняется.
+        </p>
+      ) : null}
+      {workspaceTab === "journal" ? (
+        <p className="planning-workspace-hint">
+          Все события текущей версии. Клик по строке откроет позицию для правки.
+        </p>
+      ) : null}
+      {workspaceTab === "approval" ? (
+        <p className="planning-workspace-hint">
+          Маршрут версии бюджета: утверждение v1 → черновик → согласование → публикация v+1.
+        </p>
+      ) : null}
 
       {!canEditPlan ? (
         <div className="planning-readonly-banner" role="status">
@@ -464,6 +608,9 @@ export function PlanningPage() {
         </div>
       ) : null}
 
+      {workspaceTab === "positions" || workspaceTab === "matrix" ? (
+        <>
+      {workspaceTab === "positions" ? (
       <AnalyticsSummaryStrip
         positions={filtered}
         viewMode={viewMode}
@@ -473,6 +620,7 @@ export function PlanningPage() {
         showAvgCr={false}
         planningLayout
       />
+      ) : null}
 
       <section className="card filters-card">
         <div className="filters-grid filters-grid--toolbar">
@@ -574,13 +722,24 @@ export function PlanningPage() {
         </div>
       </section>
 
-      {bulkFeedback && (
+      {bulkFeedback && workspaceTab === "positions" ? (
         <section className={`bulk-feedback bulk-feedback--${bulkFeedback.tone}`}>
           {bulkFeedback.text}
         </section>
-      )}
+      ) : null}
 
-      {indexationBatches.length > 0 && (
+      {workspaceTab === "matrix" ? (
+        <section className="card planning-workspace-panel">
+          <PlanMonthMatrixPanel
+            positions={filtered}
+            viewMode={viewMode}
+            viewModeLabel={viewMode === "total" ? "полный ФОТ" : "тарифный оклад"}
+            onOpenPosition={openPositionInDrawer}
+          />
+        </section>
+      ) : null}
+
+      {workspaceTab === "positions" && indexationBatches.length > 0 ? (
         <section className="card">
           <h2 className="section-title">Факты массовой индексации</h2>
           <p className="muted-line">По событиям текущей версии · {indexationBatches.length} факт(ов)</p>
@@ -617,8 +776,9 @@ export function PlanningPage() {
             </tbody>
           </table>
         </section>
-      )}
+      ) : null}
 
+      {workspaceTab === "positions" ? (
       <section className="card">
         <h2 className="section-title">Позиции · {tableCounts.total}</h2>
         <div className="table-scroll">
@@ -626,8 +786,7 @@ export function PlanningPage() {
           <thead>
             <tr>
               <th className="positions-table__sticky-col">Роль / ID</th>
-              <th>Сотрудник / орг.</th>
-              <th>Последнее событие</th>
+              <th>Занятость / орг.</th>
               <th>Спец. и уровень</th>
               <th>Дек → дек</th>
               <th>ФОТ год</th>
@@ -640,10 +799,8 @@ export function PlanningPage() {
               const cr = avgCR(row, salaryBands);
               const decDelta = row.monthlyBase[11] - row.previousDecemberBase;
               const decPct = decToDec(row.previousDecemberBase, row.monthlyBase[11]);
-              const latestEvent = summarizeLatestPositionEvent(
-                positions.find((item) => item.positionId === row.positionId) ?? row,
-              );
               const rowExtra = recentlyIndexedIds.includes(row.positionId) ? "row-updated" : undefined;
+              const eventCount = (positions.find((item) => item.positionId === row.positionId) ?? row).events.length;
               return (
                 <tr
                   key={row.positionId}
@@ -652,13 +809,16 @@ export function PlanningPage() {
                     setActiveSourceId(row.positionId);
                   }}
                   className={positionTableRowClass(row.status, rowExtra)}
-                  title={latestEvent?.commentTooltip ?? undefined}
+                  title="Открыть карточку позиции"
                 >
                   <td>
                     <div className="positions-table__role">{row.role}</div>
                     <div className="muted-line">
                       {row.positionId} · с {monthLabel(row.activeFromMonth)} ·{" "}
                       {POSITION_STATUS_LABELS[row.status]}
+                      {eventCount > 0 ? (
+                        <span className="position-state-badge position-state-badge--events"> · {eventCount} соб.</span>
+                      ) : null}
                       {active?.positionId === row.positionId && !positions.some((p) => p.positionId === row.positionId) ? (
                         <span className="position-state-badge position-state-badge--draft"> · черновик</span>
                       ) : null}
@@ -669,25 +829,15 @@ export function PlanningPage() {
                     )}
                   </td>
                   <td>
-                    <div>{employeeCellLabel(row)}</div>
+                    <div className="positions-table__occupancy-line">
+                      <span className="position-state-badge position-state-badge--status">
+                        {POSITION_STATUS_LABELS[row.status]}
+                      </span>
+                      <span>{employeeCellLabel(row)}</span>
+                    </div>
                     <div className="muted-line">
                       {row.department} / {row.unit} / {row.team}
                     </div>
-                  </td>
-                  <td className="positions-table__events">
-                    {latestEvent ? (
-                      <>
-                        <div className="positions-table__event-type">{latestEvent.typeLabel}</div>
-                        {latestEvent.employeeLine ? (
-                          <div className="positions-table__event-employee">{latestEvent.employeeLine}</div>
-                        ) : null}
-                        <div className="muted-line positions-table__event-change">
-                          {formatEventChangeLine(latestEvent.change)}
-                        </div>
-                      </>
-                    ) : (
-                      <span className="muted-line">—</span>
-                    )}
                   </td>
                   <td>
                     {row.monthlySpec[11]}
@@ -719,6 +869,85 @@ export function PlanningPage() {
         </div>
         {filtered.length === 0 && <p className="muted-line">Нет позиций по текущим фильтрам.</p>}
       </section>
+      ) : null}
+        </>
+      ) : null}
+
+      {workspaceTab === "journal" ? (
+        <section className="card planning-workspace-panel">
+          <PlanJournalPanel
+            onOpenPosition={openPositionFromJournal}
+            highlightPositionId={journalHighlightPositionId}
+            filterPositionIds={journalDiffPositionIds}
+          />
+        </section>
+      ) : null}
+
+      {workspaceTab === "approval" ? (
+        <section className="planning-workspace-panel">
+          <PlanApprovalPanel />
+        </section>
+      ) : null}
+
+      {addSlotOpen ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="add-slot-title">
+          <div className="modal-card">
+            <h2 id="add-slot-title" className="section-title">
+              Новый слот в плане
+            </h2>
+            <p className="muted-line">Позиция — штатная единица. Сразу выберите: вакансия или сотрудник на слоте.</p>
+            <div className="add-slot-kind">
+              <label>
+                <input
+                  type="radio"
+                  name="addSlotKind"
+                  checked={addSlotKind === "vacancy"}
+                  onChange={() => setAddSlotKind("vacancy")}
+                />
+                Вакансия
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="addSlotKind"
+                  checked={addSlotKind === "occupied"}
+                  onChange={() => setAddSlotKind("occupied")}
+                />
+                С сотрудником
+              </label>
+            </div>
+            {addSlotKind === "occupied" ? (
+              <div className="add-slot-employee-fields">
+                <label>
+                  ФИО
+                  <input
+                    type="text"
+                    value={addSlotEmployeeName}
+                    onChange={(event) => setAddSlotEmployeeName(event.target.value)}
+                    placeholder="Иванов Иван"
+                  />
+                </label>
+                <label>
+                  ID сотрудника
+                  <input
+                    type="text"
+                    value={addSlotEmployeeId}
+                    onChange={(event) => setAddSlotEmployeeId(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+            <div className="modal-card__actions">
+              <button type="button" className="secondary-btn" onClick={() => setAddSlotOpen(false)}>
+                Отмена
+              </button>
+              <button type="button" className="primary-btn" onClick={createSlotFromDialog}>
+                Создать и открыть
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <PositionDrawer
         open={Boolean(active)}

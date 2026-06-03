@@ -1,4 +1,4 @@
-import { emptySlice, type EmployeeFactSlice } from "./factStore";
+import { emptySlice, type EmployeeFactSlice, type FactPositionAssignment } from "./factStore";
 
 export type FactImportSnapshot = {
   schemaVersion: 1;
@@ -12,6 +12,7 @@ type FactLine = {
   month: number;
   article: "BASE" | "BONUS_PLAN";
   amount: number;
+  positionId?: string;
 };
 
 function normalizeEmployeeId(value: unknown): string | null {
@@ -30,6 +31,7 @@ function monthIndexFromPayload(value: unknown): number | null {
 function accumulateLine(
   store: Record<string, EmployeeFactSlice>,
   line: FactLine,
+  assignments: FactPositionAssignment[],
 ): void {
   const slice = store[line.employeeId] ?? emptySlice();
   if (line.article === "BASE") {
@@ -38,10 +40,27 @@ function accumulateLine(
     slice.monthlyFactBonus[line.month] = line.amount;
   }
   store[line.employeeId] = slice;
+  if (line.positionId) {
+    assignments.push({
+      positionId: line.positionId,
+      employeeId: line.employeeId,
+      month: line.month,
+    });
+  }
 }
 
-function parseLinesArray(lines: unknown[]): { employees: Record<string, EmployeeFactSlice>; errors: string[] } {
+function normalizePositionId(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return value.trim();
+}
+
+function parseLinesArray(lines: unknown[]): {
+  employees: Record<string, EmployeeFactSlice>;
+  assignments: FactPositionAssignment[];
+  errors: string[];
+} {
   const employees: Record<string, EmployeeFactSlice> = {};
+  const assignments: FactPositionAssignment[] = [];
   const errors: string[] = [];
   lines.forEach((row, index) => {
     if (!row || typeof row !== "object") {
@@ -69,9 +88,13 @@ function parseLinesArray(lines: unknown[]): { employees: Record<string, Employee
       errors.push(`Строка ${index + 1}: amount не число.`);
       return;
     }
-    accumulateLine(employees, { employeeId, month, article, amount });
+    const positionId =
+      normalizePositionId(record.positionId) ??
+      normalizePositionId(record.position_id) ??
+      undefined;
+    accumulateLine(employees, { employeeId, month, article, amount, positionId }, assignments);
   });
-  return { employees, errors };
+  return { employees, assignments, errors };
 }
 
 function parseEmployeesMap(map: unknown): { employees: Record<string, EmployeeFactSlice>; errors: string[] } {
@@ -118,19 +141,19 @@ export function inspectFactImport(
 export function parseFactPayload(
   payload: unknown,
 ):
-  | { ok: true; employees: Record<string, EmployeeFactSlice>; lineCount?: number }
+  | { ok: true; employees: Record<string, EmployeeFactSlice>; assignments: FactPositionAssignment[]; lineCount?: number }
   | { ok: false; errors: string[] } {
   if (!payload || typeof payload !== "object") {
     return { ok: false, errors: ["Корневой JSON должен быть объектом."] };
   }
   const draft = payload as Record<string, unknown>;
   if (Array.isArray(draft.lines)) {
-    const { employees, errors } = parseLinesArray(draft.lines);
+    const { employees, assignments, errors } = parseLinesArray(draft.lines);
     if (errors.length > 0) return { ok: false, errors };
     if (Object.keys(employees).length === 0) {
       return { ok: false, errors: ["Нет валидных строк факта."] };
     }
-    return { ok: true, employees, lineCount: draft.lines.length };
+    return { ok: true, employees, assignments, lineCount: draft.lines.length };
   }
   if (draft.employees && typeof draft.employees === "object") {
     const { employees, errors } = parseEmployeesMap(draft.employees);
@@ -138,10 +161,12 @@ export function parseFactPayload(
     if (Object.keys(employees).length === 0) {
       return { ok: false, errors: ["employees пуст."] };
     }
-    return { ok: true, employees };
+    return { ok: true, employees, assignments: [] };
   }
   return {
     ok: false,
-    errors: ["Ожидается employees { E001: { monthlyFactBase[], monthlyFactBonus[] } } или массив lines."],
+    errors: [
+      "Ожидается employees { E001: { monthlyFactBase[], monthlyFactBonus[] } } или массив lines (опционально position_id / positionId).",
+    ],
   };
 }

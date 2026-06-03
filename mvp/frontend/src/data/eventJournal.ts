@@ -127,6 +127,13 @@ export function summarizeLatestPositionEvent(position: PositionRecord): Position
   };
 }
 
+/** Одна строка для таблицы планирования (без дубля drawer). */
+export function formatEventTableCompact(summary: PositionEventSummary): string {
+  const hasComment = Boolean(summary.event.payload.comment?.trim());
+  const commentMark = hasComment ? " · комментарий" : "";
+  return `${summary.typeLabel} · с ${summary.change.monthLabel}${commentMark}`;
+}
+
 export function formatEventChangeLine(change: EventChangeSummary): string {
   const parts: string[] = [`с ${change.monthLabel}`];
   if (change.statusBefore !== change.statusAfter) {

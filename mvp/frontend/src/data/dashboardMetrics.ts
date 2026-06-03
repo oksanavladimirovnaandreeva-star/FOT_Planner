@@ -1,6 +1,7 @@
 import { annualTotal, decToDec, getMonthlyCR } from "./planningData";
 import { initialSalaryBands } from "./salaryRangeData";
 import { hasFactData, monthFactAmountFromStore } from "./factStore";
+import { isPlanClosedAtMonth } from "./occupancyTimeline";
 import { MONTHS } from "../types";
 import type { LimitFlagKey, PositionRecord, SalaryRangeBand } from "../types";
 
@@ -53,8 +54,8 @@ export function monthlyFotSeries(
     let base = 0;
     let bonus = 0;
     for (const position of positions) {
-      if (position.status === "Closed") continue;
       if (month < position.activeFromMonth) continue;
+      if (isPlanClosedAtMonth(position, month)) continue;
       base += position.monthlyBase[month];
       bonus += position.monthlyBonus[month];
     }
@@ -79,8 +80,8 @@ export function totalsByLimitFlag(
     TOTAL: 0,
   };
   for (const position of positions) {
-    if (position.status === "Closed") continue;
     const yearAmount = viewMode === "total" ? annualTotal(position) : position.monthlyBase.reduce((s, v) => s + v, 0);
+    if (yearAmount === 0) continue;
     acc[position.limitFlag] += yearAmount;
     acc.TOTAL += yearAmount;
   }
@@ -90,8 +91,9 @@ export function totalsByLimitFlag(
 export type LimitPlanFact = { plan: number; fact: number; variance: number };
 
 export function monthAmountForPosition(position: PositionRecord, month: number, viewMode: ViewMode): number {
-  if (position.status === "Closed" || month < position.activeFromMonth) return 0;
-  return pickFotAmount(position.monthlyBase[month], position.monthlyBonus[month], viewMode);
+  if (month < position.activeFromMonth) return 0;
+  if (isPlanClosedAtMonth(position, month)) return 0;
+  return pickFotAmount(position.monthlyBase[month] ?? 0, position.monthlyBonus[month] ?? 0, viewMode);
 }
 
 export function monthFactAmount(position: PositionRecord, month: number, viewMode: ViewMode): number {
@@ -118,7 +120,7 @@ export function monthlyPlanFactByLimit(positions: PositionRecord[], viewMode: Vi
       UNLIMITED: { plan: 0, fact: 0, variance: 0 },
     };
     for (const position of positions) {
-      if (position.status === "Closed" || month < position.activeFromMonth) continue;
+      if (month < position.activeFromMonth) continue;
       const plan = monthAmountForPosition(position, month, viewMode);
       const fact = monthFactAmount(position, month, viewMode);
       byLimit[position.limitFlag].plan += plan;
@@ -136,8 +138,8 @@ export function planFactByLimitYear(positions: PositionRecord[], viewMode: ViewM
     UNLIMITED: { plan: 0, fact: 0, variance: 0 },
   };
   for (const position of positions) {
-    if (position.status === "Closed") continue;
     const plan = viewMode === "total" ? annualTotal(position) : position.monthlyBase.reduce((s, v) => s + v, 0);
+    if (plan === 0) continue;
     const fact = 0;
     byLimit[position.limitFlag].plan += plan;
     byLimit[position.limitFlag].fact += fact;
@@ -147,9 +149,9 @@ export function planFactByLimitYear(positions: PositionRecord[], viewMode: ViewM
 }
 
 export function sliceAnalytics(positions: PositionRecord[], viewMode: ViewMode) {
-  const active = positions.filter((position) => position.status !== "Closed");
-  const decPrev = active.reduce((sum, position) => sum + position.previousDecemberBase, 0);
-  const decPlan = active.reduce((sum, position) => sum + position.monthlyBase[11], 0);
+  const openHeadcount = positions.filter((position) => position.status !== "Closed");
+  const decPrev = openHeadcount.reduce((sum, position) => sum + position.previousDecemberBase, 0);
+  const decPlan = openHeadcount.reduce((sum, position) => sum + position.monthlyBase[11], 0);
   const decPct = decToDec(decPrev, decPlan);
   const byLimitYear = planFactByLimitYear(positions, viewMode);
   const yearPlan = byLimitYear.IN_LIMIT.plan + byLimitYear.OVER_LIMIT.plan + byLimitYear.UNLIMITED.plan;
@@ -158,7 +160,7 @@ export function sliceAnalytics(positions: PositionRecord[], viewMode: ViewMode) 
   const ytdThroughMonth = new Date().getMonth();
   let planYtd = 0;
   let factYtd = 0;
-  for (const position of active) {
+  for (const position of positions) {
     for (let month = 0; month <= ytdThroughMonth; month += 1) {
       planYtd += monthAmountForPosition(position, month, viewMode);
       factYtd += monthFactAmount(position, month, viewMode);

@@ -38,6 +38,8 @@ export interface EventPayload {
   transferToPositionId?: string;
   transferKind?: "INTRA_UNIT" | "INTER_DEPARTMENT";
   maternityMode?: "SHARED_POSITION";
+  /** Замещение в декрете: сотрудник или вакансия без ФИО. */
+  maternityReplacementKind?: "EMPLOYEE" | "VACANCY";
   maternityPrimaryEmployeeId?: string;
   maternityPrimaryEmployeeName?: string;
   targetDepartment?: string;

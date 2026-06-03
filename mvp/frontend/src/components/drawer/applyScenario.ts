@@ -79,10 +79,23 @@ export function applyDrawerScenario(params: {
       onAddEvent(selected.positionId, createEvent("CLOSE_POSITION", { month }));
       return { ok: true };
     case "MATERNITY": {
-      if (base <= 0) return { ok: false, message: "Укажите оклад замещения > 0." };
-      let replacementEmployeeId: string;
-      let replacementEmployeeName: string;
-      if (scenarioForm.replacementMode === "FROM_LIST") {
+      if (base <= 0 && scenarioForm.replacementMode !== "VACANCY") {
+        return { ok: false, message: "Укажите оклад замещения > 0." };
+      }
+      const payload: PlannedEvent["payload"] = {
+        month,
+        base,
+        bonus: 0,
+        specialization,
+        level,
+        maternityMode: "SHARED_POSITION",
+        maternityPrimaryEmployeeId: selected.employeeId ?? undefined,
+        maternityPrimaryEmployeeName: selected.employeeName ?? undefined,
+      };
+      if (scenarioForm.replacementMode === "VACANCY") {
+        payload.maternityReplacementKind = "VACANCY";
+        payload.employeeName = "Вакансия (замещение)";
+      } else {
         if (!scenarioForm.replacementEmployeeId) {
           return { ok: false, message: "Выберите сотрудника замещения." };
         }
@@ -90,31 +103,11 @@ export function applyDrawerScenario(params: {
           (e) => e.employeeId === scenarioForm.replacementEmployeeId,
         );
         if (!replacement) return { ok: false, message: "Сотрудник не найден." };
-        replacementEmployeeId = replacement.employeeId;
-        replacementEmployeeName = replacement.employeeName;
-      } else {
-        const name = scenarioForm.newReplacementName.trim();
-        const id = scenarioForm.newReplacementId.trim();
-        if (!name) return { ok: false, message: "Укажите ФИО замещения." };
-        if (!id) return { ok: false, message: "Укажите ID сотрудника." };
-        replacementEmployeeId = id;
-        replacementEmployeeName = name;
+        payload.maternityReplacementKind = "EMPLOYEE";
+        payload.employeeId = replacement.employeeId;
+        payload.employeeName = replacement.employeeName;
       }
-      onAddEvent(
-        selected.positionId,
-        createEvent("MANUAL_OVERRIDE", {
-          month,
-          base,
-          bonus: 0,
-          specialization,
-          level,
-          maternityMode: "SHARED_POSITION",
-          maternityPrimaryEmployeeId: selected.employeeId ?? undefined,
-          maternityPrimaryEmployeeName: selected.employeeName ?? undefined,
-          employeeId: replacementEmployeeId,
-          employeeName: replacementEmployeeName,
-        }),
-      );
+      onAddEvent(selected.positionId, createEvent("MANUAL_OVERRIDE", payload));
       return { ok: true };
     }
     default:

@@ -157,7 +157,7 @@ export function buildApprovalRoute(
     {
       id: "approval-route",
       label: "Согласование",
-      hint: "Маршрут по типу изменений (MVP — заглушка)",
+      hint: "Проверка правил по событиям черновика (вкладка «Согласование»)",
       state: workingDraft?.status === "IN_APPROVAL" ? "current" : workingDraft?.status === "DRAFT" ? "pending" : "pending",
     },
     {

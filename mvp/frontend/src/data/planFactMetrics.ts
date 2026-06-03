@@ -29,7 +29,6 @@ export function planFactTotals(positions: PositionRecord[], viewMode: ViewMode) 
   let plan = 0;
   let fact = 0;
   for (const position of applied) {
-    if (position.status === "Closed") continue;
     for (let month = 0; month <= ytd; month += 1) {
       plan += monthAmountForPosition(position, month, viewMode);
       fact += monthFactAmount(position, month, viewMode);
@@ -50,7 +49,6 @@ export function planFactByDepartment(positions: PositionRecord[], viewMode: View
   const ytd = ytdMonthIndex();
   const acc = new Map<string, { plan: number; fact: number }>();
   for (const position of applied) {
-    if (position.status === "Closed") continue;
     const key = position.department;
     const cell = acc.get(key) ?? { plan: 0, fact: 0 };
     for (let month = 0; month <= ytd; month += 1) {
@@ -84,7 +82,6 @@ export function planFactByLimit(positions: PositionRecord[], viewMode: ViewMode)
     UNLIMITED: { plan: 0, fact: 0 },
   };
   for (const position of applied) {
-    if (position.status === "Closed") continue;
     for (let month = 0; month <= ytd; month += 1) {
       acc[position.limitFlag].plan += monthAmountForPosition(position, month, viewMode);
       acc[position.limitFlag].fact += monthFactAmount(position, month, viewMode);

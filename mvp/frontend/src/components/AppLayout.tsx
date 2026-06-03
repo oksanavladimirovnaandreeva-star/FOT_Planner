@@ -9,10 +9,11 @@ import {
   Scale,
   Settings,
   LineChart,
-  ListTree,
+  Network,
   TrendingUp,
 } from "lucide-react";
-import { formatImportReport, useMvpApp } from "../context/MvpAppContext";
+import { formatImportReport, USER_ROLE_LABELS, useMvpApp } from "../context/MvpAppContext";
+import type { UserRole } from "../context/MvpAppContext";
 import type { ImportReport } from "../data/snapshotImport";
 import { inspectFactImport, parseFactPayload } from "../data/factImport";
 import {
@@ -30,7 +31,7 @@ import type { PlannedEvent } from "../types";
 const NAV = [
   { to: "/", label: "Обзор и итого", icon: LayoutDashboard, end: true },
   { to: "/planning", label: "Планирование", icon: CalendarRange },
-  { to: "/changes", label: "Журнал изменений", icon: ListTree },
+  { to: "/consolidation", label: "Консолидация", icon: Network, roles: ["admin", "unit_lead", "team_lead"] as UserRole[] },
   { to: "/versions", label: "Версии", icon: GitBranch },
   { to: "/salary-ranges", label: "Диапазоны", icon: Scale },
   { to: "/plan-vs-actual", label: "План и факт", icon: TrendingUp },
@@ -74,6 +75,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     operationHistory,
     refreshOperationHistory,
     resetDevPlanToDraft,
+    userRole,
+    setUserRole,
+    roleScopeHint,
+    positionsTotalCount,
   } = useMvpApp();
   const [isDataDialogOpen, setIsDataDialogOpen] = useState(false);
   const [dataMessage, setDataMessage] = useState<string | null>(null);
@@ -272,7 +277,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       setDataMessage(parsed.errors.join(" "));
       return;
     }
-    const result = importEmployeeFacts(parsed.employees, factImportMode);
+    const result = importEmployeeFacts(parsed.employees, factImportMode, parsed.assignments);
     setFactLoaded(true);
     setFactStats(factStoreStats());
     setPendingFactImport(null);
@@ -281,7 +286,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         (factImportMode === "merge" && result.mergedEmployees > 0
           ? ` (обновлено ${result.mergedEmployees})`
           : "") +
-        ". Ключ — employee_id.",
+        (result.assignmentCount > 0 ? ` · посадок на слоты: ${result.assignmentCount}` : "") +
+        ". Ключ — employee_id; в lines можно передать position_id.",
     );
   };
 
@@ -390,6 +396,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <p className="app-sidebar__hint app-sidebar__hint--warn">Только просмотр · правки в черновике</p>
           ) : null}
           <label className="app-field">
+            <span>Роль (MVP)</span>
+            <select value={userRole} onChange={(e) => setUserRole(e.target.value as UserRole)}>
+              {(Object.keys(USER_ROLE_LABELS) as UserRole[]).map((role) => (
+                <option key={role} value={role}>
+                  {USER_ROLE_LABELS[role]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="app-sidebar__hint">{roleScopeHint}</p>
+          {positions.length !== positionsTotalCount ? (
+            <p className="app-sidebar__hint app-sidebar__hint--warn">
+              В срезе {positions.length} из {positionsTotalCount} поз.
+            </p>
+          ) : null}
+          <label className="app-field">
             <span>Режим просмотра</span>
             <select value={viewMode} onChange={(e) => setViewMode(e.target.value as "base" | "total")}>
               <option value="base">Оклад (BASE)</option>
@@ -401,7 +423,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         <nav className="app-sidebar__nav" aria-label="Основное меню">
           <p className="app-sidebar__section-label">Основное меню</p>
-          {NAV.map((item) => (
+          {NAV.filter((item) => !("roles" in item) || item.roles.includes(userRole)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

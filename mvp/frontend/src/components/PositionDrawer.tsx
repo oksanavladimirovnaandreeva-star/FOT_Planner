@@ -21,8 +21,12 @@ import { useMvpApp } from "../context/MvpAppContext";
 import type { LimitFlagKey } from "../types";
 import { MONTHS } from "../types";
 import type { PlannedEvent, PositionRecord } from "../types";
-import { eventEmployeeLine, eventCommentTooltip } from "../data/eventJournal";
+import { eventEmployeeLine } from "../data/eventJournal";
 import { eventTypeLabel, formatEventHuman } from "./drawer/formatEventHistory";
+import { OccupancyTimelineStrip } from "./OccupancyTimelineStrip";
+import { collectOccupancyMismatches, mismatchesForPosition } from "../data/occupancyReconciliation";
+import { formatOccupancyMonthLabel, planOccupancyAtMonth, planOccupancyTimeline } from "../data/occupancyTimeline";
+import { hasFactData } from "../data/factStore";
 
 interface PositionDrawerProps {
   open: boolean;
@@ -57,38 +61,47 @@ type ScenarioFormState = {
   specialization: string;
   level: string;
   transferToPositionId: string;
-  replacementMode: "FROM_LIST" | "NEW";
+  replacementMode: "FROM_LIST" | "VACANCY";
   replacementEmployeeId: string;
-  newReplacementName: string;
-  newReplacementId: string;
   targetDepartment: string;
   targetUnit: string;
   targetTeam: string;
   comment: string;
 };
 const SCENARIO_LABEL: Record<ScenarioType, string> = {
-  REVIEW: "Пересмотр",
-  TRANSFER_INTRA: "Перевод внутри юнита",
-  TRANSFER_INTER: "Перевод в другой департамент",
-  TERMINATION: "Увольнение",
-  REDUCTION: "Сокращение",
-  MATERNITY: "Декрет",
+  REVIEW: "РџРµСЂРµСЃРјРѕС‚СЂ Р¤РћРў (Р·Р°РЅСЏС‚РѕСЃС‚СЊ Р±РµР· РёР·РјРµРЅРµРЅРёР№)",
+  TRANSFER_INTRA: "РЎРѕС‚СЂСѓРґРЅРёРє в†’ РґСЂСѓРіРѕР№ СЃР»РѕС‚ (РІ СЋРЅРёС‚Рµ)",
+  TRANSFER_INTER: "РЎРѕС‚СЂСѓРґРЅРёРє в†’ РґСЂСѓРіРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚",
+  TERMINATION: "РћСЃРІРѕР±РѕРґРёС‚СЊ СЃР»РѕС‚ в†’ РІР°РєР°РЅСЃРёСЏ",
+  REDUCTION: "Р—Р°РєСЂС‹С‚СЊ СЃР»РѕС‚",
+  MATERNITY: "Р”РµРєСЂРµС‚: РѕСЃРЅРѕРІРЅРѕР№ + Р·Р°РјРµС‰РµРЅРёРµ",
 };
+
+const SCENARIO_GROUPS: { label: string; scenarios: ScenarioType[] }[] = [
+  {
+    label: "Р—Р°РЅСЏС‚РѕСЃС‚СЊ СЃР»РѕС‚Р°",
+    scenarios: ["TRANSFER_INTRA", "TRANSFER_INTER", "TERMINATION", "REDUCTION", "MATERNITY"],
+  },
+  {
+    label: "Р¤РћРў Р±РµР· СЃРјРµРЅС‹ Р·Р°РЅСЏС‚РѕСЃС‚Рё",
+    scenarios: ["REVIEW"],
+  },
+];
 
 function scenarioHelpText(scenario: ScenarioType): string {
   switch (scenario) {
     case "REVIEW":
-      return "Оклад, премия, специализация и уровень — с выбранного месяца до конца года.";
+      return "РњРµРЅСЏРµС‚СЃСЏ С‚РѕР»СЊРєРѕ РѕРєР»Р°Рґ/РїСЂРµРјРёСЏ/РіСЂРµР№Рґ. РљС‚Рѕ СЃРёРґРёС‚ РЅР° СЃР»РѕС‚Рµ вЂ” РЅРµ РјРµРЅСЏРµС‚СЃСЏ.";
     case "TRANSFER_INTRA":
-      return "Перевод на вакансию в том же департаменте и юните.";
+      return "РўРµРєСѓС‰РёР№ СЃРѕС‚СЂСѓРґРЅРёРє РїРµСЂРµРµР·Р¶Р°РµС‚ РЅР° РґСЂСѓРіСѓСЋ РІР°РєР°РЅСЃРёСЋ РІ С‚РѕРј Р¶Рµ dept Рё СЋРЅРёС‚Рµ.";
     case "TRANSFER_INTER":
-      return "Перевод в другой департамент; вакансию можно не указыать.";
+      return "РЎРѕС‚СЂСѓРґРЅРёРє РїРµСЂРµРµР·Р¶Р°РµС‚ РІ РґСЂСѓРіРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚; С†РµР»РµРІСѓСЋ РІР°РєР°РЅСЃРёСЋ РјРѕР¶РЅРѕ РЅРµ РІС‹Р±РёСЂР°С‚СЊ.";
     case "TERMINATION":
-      return "Сотрудник уходит, позиция остаётся вакансией.";
+      return "РЎРѕС‚СЂСѓРґРЅРёРє СѓС…РѕРґРёС‚, СЃР»РѕС‚ РѕСЃС‚Р°С‘С‚СЃСЏ РІР°РєР°РЅСЃРёРµР№ (Р±СЋРґР¶РµС‚ СЃР»РѕС‚Р° СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ).";
     case "REDUCTION":
-      return "Позиция закрывается.";
+      return "РЎР»РѕС‚ Р·Р°РєСЂС‹РІР°РµС‚СЃСЏ СЃ РІС‹Р±СЂР°РЅРЅРѕРіРѕ РјРµСЃСЏС†Р°.";
     case "MATERNITY":
-      return "Декрет с указанием сотрудника замещения.";
+      return "Сотрудник в декрете остаётся на слоте; замещение — существующий сотрудник или вакансия без ФИО.";
     default:
       return "";
   }
@@ -99,6 +112,13 @@ function crTone(value: number): "warn" | "ok" | "danger" {
   if (value <= 1.2) return "ok";
   return "danger";
 }
+
+type DrawerTab = "slot" | "plan";
+
+const DRAWER_TAB_LABEL: Record<DrawerTab, string> = {
+  slot: "РЎР»РѕС‚ Рё Р·Р°РЅСЏС‚РѕСЃС‚СЊ",
+  plan: "РЎРѕР±С‹С‚РёСЏ Рё Р¤РћРў",
+};
 
 export function PositionDrawer({
   open,
@@ -117,9 +137,10 @@ export function PositionDrawer({
   teamOptionsForUnit,
   readOnly = false,
 }: PositionDrawerProps) {
-  const { salaryBands } = useMvpApp();
+  const { salaryBands, positions: planPositionsAll } = useMvpApp();
   const specOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const selected = useMemo(() => record, [record]);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("slot");
   const [scenarioForm, setScenarioForm] = useState<ScenarioFormState>({
     scenario: "REVIEW",
     month: 0,
@@ -130,8 +151,6 @@ export function PositionDrawer({
     transferToPositionId: "",
     replacementMode: "FROM_LIST",
     replacementEmployeeId: "",
-    newReplacementName: "",
-    newReplacementId: suggestedNewEmployeeId,
     targetDepartment: "",
     targetUnit: "",
     targetTeam: "",
@@ -158,14 +177,26 @@ export function PositionDrawer({
       transferToPositionId: "",
       replacementMode: "FROM_LIST",
       replacementEmployeeId: "",
-      newReplacementName: "",
-      newReplacementId: suggestedNewEmployeeId,
       targetDepartment: preferredDepartment,
       targetUnit: preferredUnit,
       targetTeam: preferredTeam,
       comment: "",
     });
   }, [selected?.positionId, departmentOptions, unitOptionsForDepartment, teamOptionsForUnit, suggestedNewEmployeeId]);
+
+  useEffect(() => {
+    if (open) setDrawerTab("slot");
+  }, [open, selected?.positionId]);
+
+  const occupancyTimeline = useMemo(
+    () => (selected ? planOccupancyTimeline(selected) : []),
+    [selected],
+  );
+  const positionMismatches = useMemo(() => {
+    if (!selected || !hasFactData()) return [];
+    return mismatchesForPosition(collectOccupancyMismatches(planPositionsAll), selected.positionId);
+  }, [selected, planPositionsAll]);
+
   if (!open || !selected) return null;
   const transferMonth = scenarioForm.month;
   const orgMatch = (a: string, b: string) => a.trim() === b.trim();
@@ -259,7 +290,7 @@ export function PositionDrawer({
     const specialization = scenarioForm.specialization;
     const level = scenarioForm.level;
     if (selected.status !== "Occupied" && scenarioForm.scenario !== "REVIEW") {
-      window.alert("Операция доступна только для занятых сотрудников.");
+      window.alert("РћРїРµСЂР°С†РёСЏ РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РґР»СЏ Р·Р°РЅСЏС‚С‹С… СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ.");
       return;
     }
     switch (scenarioForm.scenario) {
@@ -277,21 +308,16 @@ export function PositionDrawer({
       case "TRANSFER_INTRA":
       case "TRANSFER_INTER": {
         if (!selected.employeeId || !selected.employeeName) {
-          window.alert("Для перевода нужны employeeId и ФИО сотрудника.");
-          return;
-        }
-        const requiresExistingVacancy = scenarioForm.scenario === "TRANSFER_INTRA";
-        if (requiresExistingVacancy && !scenarioForm.transferToPositionId) {
-          window.alert("Выберите целевую вакансию для перевода.");
+          window.alert("Р”Р»СЏ РїРµСЂРµРІРѕРґР° РЅСѓР¶РЅС‹ employeeId Рё Р¤РРћ СЃРѕС‚СЂСѓРґРЅРёРєР°.");
           return;
         }
         const target = transferOptions.find((item) => item.positionId === scenarioForm.transferToPositionId);
         if (scenarioForm.transferToPositionId && !target) {
-          window.alert("Целевая вакансия не подходит для выбранного типа перевода.");
+          window.alert("Р¦РµР»РµРІР°СЏ РІР°РєР°РЅСЃРёСЏ РЅРµ РїРѕРґС…РѕРґРёС‚ РґР»СЏ РІС‹Р±СЂР°РЅРЅРѕРіРѕ С‚РёРїР° РїРµСЂРµРІРѕРґР°.");
           return;
         }
         if (scenarioForm.scenario === "TRANSFER_INTER" && !scenarioForm.targetDepartment) {
-          window.alert("Выберите целевой департамент.");
+          window.alert("Р’С‹Р±РµСЂРёС‚Рµ С†РµР»РµРІРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚.");
           return;
         }
         applyEventToRecord(
@@ -319,55 +345,45 @@ export function PositionDrawer({
         applyEventToRecord(createEvent("CLOSE_POSITION", { month }));
         break;
       case "MATERNITY": {
-        if (base <= 0) {
-          window.alert("Для замещения в декрете укажите оклад > 0.");
+        if (base <= 0 && scenarioForm.replacementMode !== "VACANCY") {
+          window.alert("Р”Р»СЏ Р·Р°РјРµС‰РµРЅРёСЏ РІ РґРµРєСЂРµС‚Рµ СѓРєР°Р¶РёС‚Рµ РѕРєР»Р°Рґ > 0.");
           return;
         }
-        let replacementEmployeeId: string;
-        let replacementEmployeeName: string;
-        if (scenarioForm.replacementMode === "FROM_LIST") {
+        const payload: PlannedEvent["payload"] = {
+          month,
+          base: scenarioForm.replacementMode === "VACANCY" ? base : base,
+          bonus: 0,
+          specialization,
+          level,
+          maternityMode: "SHARED_POSITION",
+          maternityPrimaryEmployeeId: selected.employeeId ?? undefined,
+          maternityPrimaryEmployeeName: selected.employeeName ?? undefined,
+        };
+        if (scenarioForm.replacementMode === "VACANCY") {
+          payload.maternityReplacementKind = "VACANCY";
+          payload.employeeName = "Р’Р°РєР°РЅСЃРёСЏ (Р·Р°РјРµС‰РµРЅРёРµ)";
+        } else if (scenarioForm.replacementMode === "FROM_LIST") {
           if (!scenarioForm.replacementEmployeeId) {
-            window.alert("Выберите сотрудника замещения из списка.");
+            window.alert("Р’С‹Р±РµСЂРёС‚Рµ СЃРѕС‚СЂСѓРґРЅРёРєР° Р·Р°РјРµС‰РµРЅРёСЏ РёР· СЃРїРёСЃРєР°.");
             return;
           }
           const replacement = replacementEmployeeOptions.find(
             (employee) => employee.employeeId === scenarioForm.replacementEmployeeId,
           );
           if (!replacement) {
-            window.alert("Сотрудник замещения не найден в списке.");
+            window.alert("РЎРѕС‚СЂСѓРґРЅРёРє Р·Р°РјРµС‰РµРЅРёСЏ РЅРµ РЅР°Р№РґРµРЅ РІ СЃРїРёСЃРєРµ.");
             return;
           }
-          replacementEmployeeId = replacement.employeeId;
-          replacementEmployeeName = replacement.employeeName;
-        } else {
-          const name = scenarioForm.newReplacementName.trim();
-          const id = scenarioForm.newReplacementId.trim();
-          if (!name) {
-            window.alert("Укажите ФИО нового сотрудника замещения.");
-            return;
-          }
-          if (!id) {
-            window.alert("Укажите ID сотрудника замещения или сгенерируйте автоматически.");
-            return;
-          }
-          replacementEmployeeId = id;
-          replacementEmployeeName = name;
+          payload.maternityReplacementKind = "EMPLOYEE";
+          payload.employeeId = replacement.employeeId;
+          payload.employeeName = replacement.employeeName;
         }
-        applyEventToRecord(
-          createEvent("MANUAL_OVERRIDE", {
-            month,
-            base,
-            bonus: 0,
-            specialization,
-            level,
-            maternityMode: "SHARED_POSITION",
-            maternityPrimaryEmployeeId: selected.employeeId ?? undefined,
-            maternityPrimaryEmployeeName: selected.employeeName ?? undefined,
-            employeeId: replacementEmployeeId,
-            employeeName: replacementEmployeeName,
-          }),
+        applyEventToRecord(createEvent("MANUAL_OVERRIDE", payload));
+        window.alert(
+          scenarioForm.replacementMode === "VACANCY"
+            ? "Р”РµРєСЂРµС‚: РѕСЃРЅРѕРІРЅРѕР№ СЃРѕС‚СЂСѓРґРЅРёРє + Р·Р°РјРµС‰РµРЅРёРµ РІР°РєР°РЅСЃРёРµР№."
+            : "Р”РµРєСЂРµС‚: РѕСЃРЅРѕРІРЅРѕР№ + СЃРѕС‚СЂСѓРґРЅРёРє Р·Р°РјРµС‰РµРЅРёСЏ.",
         );
-        window.alert("Декрет применен: на позиции отражены сотрудник в декрете и сотрудник замещения.");
         break;
       }
       default:
@@ -377,8 +393,6 @@ export function PositionDrawer({
       ...prev,
       transferToPositionId: "",
       replacementEmployeeId: "",
-      newReplacementName: "",
-      newReplacementId: suggestedNewEmployeeId,
       comment: "",
     }));
   };
@@ -389,8 +403,7 @@ export function PositionDrawer({
   const isTransfer = scenarioForm.scenario === "TRANSFER_INTRA" || scenarioForm.scenario === "TRANSFER_INTER";
   const isInterTransfer = scenarioForm.scenario === "TRANSFER_INTER";
   const isMaternity = scenarioForm.scenario === "MATERNITY";
-  const transferButtonDisabled =
-    selected.status !== "Occupied" || (scenarioForm.scenario === "TRANSFER_INTRA" && transferOptions.length === 0);
+  const transferButtonDisabled = selected.status !== "Occupied";
   const classAnchor = selected.activeFromMonth;
   const slotSpec = selected.monthlySpec[classAnchor] ?? selected.seedMonthlySpec[classAnchor];
   const slotLevel = selected.monthlyLevel[classAnchor] ?? selected.seedMonthlyLevel[classAnchor];
@@ -409,45 +422,46 @@ export function PositionDrawer({
   };
 
   const headerTitle =
-    selected.status === "Occupied" && selected.employeeName ? selected.employeeName : selected.role;
+    selected.status === "Occupied" && selected.employeeName
+      ? `${selected.employeeName} В· СЃР»РѕС‚ ${selected.positionId}`
+      : `РЎР»РѕС‚ ${selected.positionId}`;
   const headerEmployeeId =
     selected.status === "Occupied" && selected.employeeId ? selected.employeeId : null;
 
   return (
     <div className="drawer-overlay" role="dialog" aria-modal="true">
-      <div className="drawer drawer--compact">
+      <div className="drawer drawer--workspace">
         <header className="drawer-header">
           <div className="drawer-header__main">
             <h2>{headerTitle}</h2>
             <p className="drawer-header__meta">
-              <span>{selected.positionId}</span>
+              <span>{selected.role}</span>
               {selected.status === "Occupied" && selected.employeeName ? (
                 <>
-                  <span>·</span>
-                  <span>{selected.role}</span>
+                  <span>В·</span>
+                  <span>
+                    {selected.employeeName}
+                    {headerEmployeeId ? ` (${headerEmployeeId})` : ""}
+                  </span>
                 </>
-              ) : null}
-              {headerEmployeeId ? (
+              ) : (
                 <>
-                  <span>·</span>
-                  <span>{headerEmployeeId}</span>
+                  <span>В·</span>
+                  <span>{POSITION_STATUS_LABELS[selected.status]}</span>
                 </>
-              ) : null}
-              <span>·</span>
+              )}
+              <span>В·</span>
               <span>
                 {selected.department} / {selected.unit}
                 {selected.team ? ` / ${selected.team}` : ""}
               </span>
             </p>
             <div className="drawer-header__chips">
-              <span className="position-state-badge position-state-badge--status">
-                {POSITION_STATUS_LABELS[selected.status]}
-              </span>
               <span className={`limit-flag-badge limit-flag-badge--${selected.limitFlag}`}>
                 {LIMIT_FLAG_LABELS[selected.limitFlag]}
               </span>
-              <span className="drawer-header__stat">Дек→дек {growth.toFixed(1)}%</span>
-              <span className="drawer-header__stat">ФОТ {annualTotal(selected).toLocaleString("ru-RU")} ₽</span>
+              <span className="drawer-header__stat">Р”РµРєв†’РґРµРє {growth.toFixed(1)}%</span>
+              <span className="drawer-header__stat">Р¤РћРў {annualTotal(selected).toLocaleString("ru-RU")} в‚Ѕ</span>
             </div>
           </div>
           <div className="drawer-header-actions">
@@ -455,8 +469,8 @@ export function PositionDrawer({
               <button
                 type="button"
                 className="icon-btn danger"
-                aria-label="Удалить вакансию"
-                title="Удалить вакансию"
+                aria-label="РЈРґР°Р»РёС‚СЊ СЃР»РѕС‚"
+                title="РЈРґР°Р»РёС‚СЊ СЃР»РѕС‚"
                 onClick={() => onDeletePosition(selected.positionId)}
               >
                 <Trash2 size={18} />
@@ -464,38 +478,48 @@ export function PositionDrawer({
             )}
             {!isPersisted && selected.status === "Vacancy" && (
               <button type="button" className="primary-btn" onClick={persistVacancyToPlan}>
-                Сохранить в план
+                РЎРѕС…СЂР°РЅРёС‚СЊ СЃР»РѕС‚
               </button>
             )}
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="Закрыть">
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Р—Р°РєСЂС‹С‚СЊ">
               <X size={18} />
             </button>
           </div>
         </header>
 
-        <div className="drawer-body">
+        <nav className="drawer-tabs" aria-label="Р Р°Р·РґРµР»С‹ РєР°СЂС‚РѕС‡РєРё">
+          {(Object.keys(DRAWER_TAB_LABEL) as DrawerTab[]).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={`drawer-tabs__btn${drawerTab === tab ? " drawer-tabs__btn--active" : ""}`}
+              onClick={() => setDrawerTab(tab)}
+            >
+              {DRAWER_TAB_LABEL[tab]}
+              {tab === "plan" && selected.events.length > 0 ? (
+                <span className="drawer-tabs__badge">{selected.events.length}</span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
+
+        <div className="drawer-body drawer-body--tabbed">
+          {drawerTab === "slot" ? (
+          <>
           <section className="drawer-position-block">
             <div className="drawer-position-block__group">
-              <p className="drawer-position-block__label">Слот</p>
+              <p className="drawer-position-block__label">РџСЂРѕС„РёР»СЊ СЃР»РѕС‚Р°</p>
               <div className="drawer-position-block__grid drawer-position-block__grid--slot">
                 <label>
-                  ID
+                  ID СЃР»РѕС‚Р°
                   <input
                     type="text"
                     value={selected.positionId}
-                    disabled={readOnly}
-                    onChange={(event) => {
-                      const value = event.target.value.trim();
-                      if (!value) return;
-                      const next = applyDirectEdit(selected, (draft) => {
-                        draft.positionId = value;
-                      });
-                      onSaveDraft(next, selected.positionId);
-                    }}
+                    disabled
                   />
                 </label>
                 <label>
-                  Роль
+                  Р РѕР»СЊ
                   <input
                     type="text"
                     value={selected.role}
@@ -509,7 +533,7 @@ export function PositionDrawer({
                   />
                 </label>
                 <label>
-                  Специализация
+                  РЎРїРµС†РёР°Р»РёР·Р°С†РёСЏ
                   <select
                     value={slotSpec}
                     disabled={readOnly}
@@ -523,7 +547,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Уровень
+                  РЈСЂРѕРІРµРЅСЊ
                   <select
                     value={slotLevel}
                     disabled={readOnly}
@@ -539,10 +563,10 @@ export function PositionDrawer({
               </div>
             </div>
             <div className="drawer-position-block__group">
-              <p className="drawer-position-block__label">Оргструктура</p>
+              <p className="drawer-position-block__label">РћСЂРіСЃС‚СЂСѓРєС‚СѓСЂР°</p>
               <div className="drawer-position-block__grid drawer-position-block__grid--org">
                 <label>
-                  Департамент
+                  Р”РµРїР°СЂС‚Р°РјРµРЅС‚
                   <select
                     value={selected.department}
                     disabled={readOnly}
@@ -568,7 +592,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Юнит
+                  Р®РЅРёС‚
                   <select
                     value={selected.unit}
                     disabled={readOnly}
@@ -591,7 +615,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Команда
+                  РљРѕРјР°РЅРґР°
                   <select
                     value={selected.team}
                     disabled={readOnly}
@@ -612,10 +636,10 @@ export function PositionDrawer({
               </div>
             </div>
             <div className="drawer-position-block__group">
-              <p className="drawer-position-block__label">Параметры</p>
+              <p className="drawer-position-block__label">РџР°СЂР°РјРµС‚СЂС‹ СЃР»РѕС‚Р°</p>
               <div className="drawer-position-block__grid drawer-position-block__grid--params">
                 <label>
-                  С месяца
+                  РђРєС‚РёРІРµРЅ СЃ
                   <select
                     value={selected.activeFromMonth}
                     disabled={readOnly}
@@ -639,7 +663,7 @@ export function PositionDrawer({
                   </select>
                 </label>
                 <label>
-                  Слот
+                  РўРёРї СЃР»РѕС‚Р°
                   <select
                     value={selected.slotType}
                     disabled={readOnly}
@@ -656,12 +680,12 @@ export function PositionDrawer({
                       onSaveDraft(next, selected.positionId);
                     }}
                   >
-                    <option value="carryover">Перенос</option>
-                    <option value="new">Новый</option>
+                    <option value="carryover">РџРµСЂРµРЅРѕСЃ</option>
+                    <option value="new">РќРѕРІС‹Р№</option>
                   </select>
                 </label>
                 <label>
-                  Лимит
+                  Р›РёРјРёС‚
                   <select
                     value={selected.limitFlag}
                     disabled={readOnly || selected.slotType === "carryover"}
@@ -683,32 +707,392 @@ export function PositionDrawer({
               </div>
             </div>
             {selected.status === "Vacancy" && selected.slotType === "carryover" && !carryoverApplied ? (
-              <p className="drawer-position-block__hint">Перенос бюджета — в «Данные» или на планировании.</p>
+              <p className="drawer-position-block__hint">РџРµСЂРµРЅРѕСЃ Р±СЋРґР¶РµС‚Р° вЂ” РІ В«Р”Р°РЅРЅС‹РµВ» РёР»Рё РЅР° РїР»Р°РЅРёСЂРѕРІР°РЅРёРё.</p>
             ) : null}
           </section>
 
-          <section className="drawer-section monthly-table-wrap drawer-section--flush">
-              <h3 className="drawer-section__title">Помесячно</h3>
+          <section className="drawer-position-block drawer-position-block--occupancy-tab">
+            <p className="drawer-position-block__label">Р—Р°РЅСЏС‚РѕСЃС‚СЊ РїРѕ РјРµСЃСЏС†Р°Рј (РїР»Р°РЅ)</p>
+            <p className="drawer-position-block__hint">
+              РќР° РєРѕРЅРµС† РєР°Р¶РґРѕРіРѕ РјРµСЃСЏС†Р°. РЎРѕР±С‹С‚РёСЏ, РјРµРЅСЏСЋС‰РёРµ Р·Р°РЅСЏС‚РѕСЃС‚СЊ Рё Р¤РћРў вЂ” РЅР° РІРєР»Р°РґРєРµ В«РЎРѕР±С‹С‚РёСЏ Рё Р¤РћРўВ».
+            </p>
+            <div className="drawer-occupancy-current">
+              <span className="position-state-badge position-state-badge--status">
+                {POSITION_STATUS_LABELS[selected.status]}
+              </span>
+              {selected.status === "Occupied" && selected.employeeName ? (
+                <span>
+                  {selected.employeeName} ({selected.employeeId})
+                </span>
+              ) : (
+                <span className="muted-line">
+                  {selected.status === "Vacancy"
+                    ? `Р’Р°РєР°РЅСЃРёСЏ СЃ ${MONTHS[selected.vacancySinceMonth ?? selected.activeFromMonth]}`
+                    : "вЂ”"}
+                </span>
+              )}
+            </div>
+            <OccupancyTimelineStrip
+              timeline={occupancyTimeline}
+              activeFromMonth={selected.activeFromMonth}
+              mismatches={positionMismatches}
+            />
+            {positionMismatches.length > 0 ? (
+              <ul className="drawer-occupancy-mismatches">
+                {positionMismatches.map((item) => (
+                  <li key={`${item.kind}-${item.month}`}>{item.summary}</li>
+                ))}
+              </ul>
+            ) : hasFactData() ? (
+              <p className="muted-line drawer-position-block__hint">Р Р°СЃС…РѕР¶РґРµРЅРёР№ СЃ С„Р°РєС‚РѕРј РїРѕ СЌС‚РѕРјСѓ СЃР»РѕС‚Сѓ РЅРµС‚.</p>
+            ) : (
+              <p className="muted-line drawer-position-block__hint">Р—Р°РіСЂСѓР·РёС‚Рµ С„Р°РєС‚ РІ В«Р”Р°РЅРЅС‹РµВ», С‡С‚РѕР±С‹ СЃРІРµСЂСЏС‚СЊ Р·Р°РЅСЏС‚РѕСЃС‚СЊ.</p>
+            )}
+          </section>
+          </>
+          ) : null}
+
+          {drawerTab === "plan" ? (
+          <>
+          <section className="drawer-events-panel">
+          <div className="drawer-events-panel__history">
+            <h3 className="drawer-events-panel__title">РСЃС‚РѕСЂРёСЏ РёР·РјРµРЅРµРЅРёР№ РїРѕ СЃР»РѕС‚Сѓ</h3>
+            <ul className="drawer-history-list drawer-history-list--prominent">
+              {selected.events.length === 0 && (
+                <li className="drawer-history-list__empty">РЎРѕР±С‹С‚РёР№ РїРѕРєР° РЅРµС‚ вЂ” РґРѕР±Р°РІСЊС‚Рµ СЃС†РµРЅР°СЂРёР№ РЅРёР¶Рµ</li>
+              )}
+              {[...selected.events]
+                .sort((a, b) => b.createdOrder - a.createdOrder)
+                .map((event) => {
+                  const employeeLine = eventEmployeeLine(event, selected);
+                  return (
+                    <li key={event.id} className="drawer-history-item drawer-history-item--prominent">
+                      <div className="drawer-history-item__head">
+                        <strong>{eventTypeLabel(event.type)}</strong>
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          aria-label="РЈРґР°Р»РёС‚СЊ"
+                          disabled={readOnly}
+                          onClick={() => deleteEventFromRecord(event.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      {employeeLine ? (
+                        <div className="drawer-history-item__employee">{employeeLine}</div>
+                      ) : null}
+                      <p className="drawer-history-item__details">{formatEventHuman(event)}</p>
+                      {event.payload.comment ? (
+                        <blockquote className="drawer-history-item__comment">{event.payload.comment}</blockquote>
+                      ) : null}
+                    </li>
+                  );
+                })}
+            </ul>
+          </div>
+
+          <div className="drawer-events-panel__composer">
+            <h3 className="drawer-events-panel__title">РџР»Р°РЅРѕРІРѕРµ РёР·РјРµРЅРµРЅРёРµ</h3>
+            <p className="drawer-events-panel__hint">{scenarioHelpText(scenarioForm.scenario)}</p>
+          <div className="drawer-events-block__form event-grid event-grid--drawer">
+            <label>
+              РўРёРї РёР·РјРµРЅРµРЅРёСЏ
+              <select
+                value={scenarioForm.scenario}
+                onChange={(event) =>
+                  setScenarioForm((prev) => ({
+                    ...prev,
+                    scenario: event.target.value as ScenarioType,
+                    transferToPositionId: "",
+                    targetDepartment:
+                      prev.targetDepartment ||
+                      departmentOptions.find((department) => department !== selected.department) ||
+                      departmentOptions[0] ||
+                      "",
+                  }))
+                }
+              >
+                {SCENARIO_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.scenarios.map((scenarioKey) => (
+                      <option key={scenarioKey} value={scenarioKey}>
+                        {SCENARIO_LABEL[scenarioKey]}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            <label>
+              РЎ РєР°РєРѕРіРѕ РјРµСЃСЏС†Р°
+              <select
+                value={scenarioForm.month}
+                onChange={(event) => {
+                  const month = Number(event.target.value);
+                  const specialization = selected.monthlySpec[month] || scenarioForm.specialization;
+                  const levels = levelOptionsForSpecialization(specialization, salaryBands);
+                  const level = levels.includes(selected.monthlyLevel[month]) ? selected.monthlyLevel[month] : levels[0];
+                  setScenarioForm((prev) => ({
+                    ...prev,
+                    month,
+                    specialization,
+                    level,
+                    base: selected.monthlyBase[month] || prev.base,
+                    bonus: selected.monthlyBonus[month] || prev.bonus,
+                  }));
+                }}
+              >
+                {MONTHS.map((month, index) => (
+                  <option key={month} value={index}>{month}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              РћРєР»Р°Рґ
+              <input
+                type="number"
+                value={scenarioForm.base}
+                onChange={(event) => setScenarioForm((prev) => ({ ...prev, base: Number(event.target.value) }))}
+              />
+            </label>
+            {!isMaternity && (
+              <label>
+                РџСЂРµРјРёСЏ
+                <input
+                  type="number"
+                  value={scenarioForm.bonus}
+                  onChange={(event) => setScenarioForm((prev) => ({ ...prev, bonus: Number(event.target.value) }))}
+                />
+              </label>
+            )}
+            {(isReview || isTransfer || isMaternity) && (
+              <>
+                <label>
+                  РЎРїРµС†РёР°Р»РёР·Р°С†РёСЏ
+                  <select
+                    value={scenarioForm.specialization}
+                    onChange={(event) => {
+                      const specialization = event.target.value;
+                      const levels = levelOptionsForSpecialization(specialization, salaryBands);
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        specialization,
+                        level: levels.includes(prev.level) ? prev.level : levels[0],
+                      }));
+                    }}
+                  >
+                    {specOptions.map((specialization) => (
+                      <option key={specialization} value={specialization}>
+                        {specialization}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  РЈСЂРѕРІРµРЅСЊ
+                  <select value={scenarioForm.level} onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}>
+                    {monthLevels.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            {isTransfer && (
+              <label>
+                Р¦РµР»РµРІР°СЏ РІР°РєР°РЅСЃРёСЏ
+                <select
+                  value={scenarioForm.transferToPositionId}
+                  onChange={(event) => setScenarioForm((prev) => ({ ...prev, transferToPositionId: event.target.value }))}
+                >
+                  <option value="">
+                    {isInterTransfer
+                      ? transferOptions.length
+                        ? "РќРµС‚ РїРѕРґС…РѕРґСЏС‰РµР№? РјРѕР¶РЅРѕ Р±РµР· РІР°РєР°РЅСЃРёРё"
+                        : "РЎРѕР·РґР°С‚СЊ РїРѕР·РёС†РёСЋ РІ С†РµР»РµРІРѕРј РґРµРїР°СЂС‚Р°РјРµРЅС‚Рµ"
+                      : transferOptions.length
+                        ? "РР»Рё Р±РµР· РІС‹Р±РѕСЂР° вЂ” СЃРѕР·РґР°С‚СЊ РІР°РєР°РЅСЃРёСЋ РІ СЋРЅРёС‚Рµ"
+                        : "РЎРѕР·РґР°С‚СЊ РІР°РєР°РЅСЃРёСЋ РІ С‚РѕРј Р¶Рµ СЋРЅРёС‚Рµ"}
+                  </option>
+                  {transferOptions.map((option) => (
+                    <option key={option.positionId} value={option.positionId}>
+                      {option.positionId} В· {option.team || option.unit} В· {option.role}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {intraTransferHint ? (
+              <p className="drawer-events-block__hint drawer-events-block__hint--warn">{intraTransferHint}</p>
+            ) : null}
+            {isInterTransfer && (
+              <>
+                <label>
+                  Р¦РµР»РµРІРѕР№ РґРµРїР°СЂС‚Р°РјРµРЅС‚
+                  <select
+                    value={scenarioForm.targetDepartment}
+                    onChange={(event) => {
+                      const targetDepartment = event.target.value;
+                      const units = unitOptionsForDepartment(targetDepartment);
+                      const targetUnit = units[0] || "";
+                      const teams = teamOptionsForUnit(targetDepartment, targetUnit);
+                      const targetTeam = teams[0] || "";
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        targetDepartment,
+                        targetUnit,
+                        targetTeam,
+                        transferToPositionId: "",
+                      }));
+                    }}
+                  >
+                    {departmentOptions
+                      .filter((department) => department !== selected.department)
+                      .map((department) => (
+                        <option key={department} value={department}>
+                          {department}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label>
+                  Р¦РµР»РµРІРѕР№ СЋРЅРёС‚
+                  <select
+                    value={scenarioForm.targetUnit}
+                    onChange={(event) => {
+                      const targetUnit = event.target.value;
+                      const teams = teamOptionsForUnit(scenarioForm.targetDepartment, targetUnit);
+                      const targetTeam = teams[0] || "";
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        targetUnit,
+                        targetTeam,
+                        transferToPositionId: "",
+                      }));
+                    }}
+                  >
+                    {unitOptionsForDepartment(scenarioForm.targetDepartment).map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Р¦РµР»РµРІР°СЏ РєРѕРјР°РЅРґР°
+                  <select
+                    value={scenarioForm.targetTeam}
+                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, targetTeam: event.target.value }))}
+                  >
+                    {teamOptionsForUnit(scenarioForm.targetDepartment, scenarioForm.targetUnit).map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            {isMaternity && (
+              <>
+                <label>
+                  Р—Р°РјРµС‰РµРЅРёРµ
+                  <select
+                    value={scenarioForm.replacementMode}
+                    onChange={(event) =>
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        replacementMode: event.target.value as ScenarioFormState["replacementMode"],
+                        replacementEmployeeId: "",
+                      }))
+                    }
+                  >
+                    <option value="FROM_LIST">РЎСѓС‰РµСЃС‚РІСѓСЋС‰РёР№ СЃРѕС‚СЂСѓРґРЅРёРє</option>
+                    <option value="VACANCY">Р’Р°РєР°РЅСЃРёСЏ (Р±РµР· Р¤РРћ Р·Р°РјРµС‰РµРЅРёСЏ)</option>                  </select>
+                </label>
+                {scenarioForm.replacementMode === "FROM_LIST" ? (
+                  <label>
+                    РЎРѕС‚СЂСѓРґРЅРёРє Р·Р°РјРµС‰РµРЅРёСЏ
+                    <select
+                      value={scenarioForm.replacementEmployeeId}
+                      onChange={(event) => setScenarioForm((prev) => ({ ...prev, replacementEmployeeId: event.target.value }))}
+                    >
+                      <option value="">
+                        {replacementEmployeeOptions.length ? "Р’С‹Р±РµСЂРёС‚Рµ СЃРѕС‚СЂСѓРґРЅРёРєР°" : "РќРµС‚ РґРѕСЃС‚СѓРїРЅС‹С… СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ"}
+                      </option>
+                      {replacementEmployeeOptions.map((employee) => (
+                        <option key={employee.employeeId} value={employee.employeeId}>
+                          {employee.employeeName} ({employee.employeeId}) В· {employee.positionId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <p className="drawer-events-block__hint">
+                    Р—Р°РјРµС‰РµРЅРёРµ РїР»Р°РЅРёСЂСѓРµС‚СЃСЏ РєР°Рє РІР°РєР°РЅСЃРёСЏ РЅР° СЃР»РѕС‚Рµ (Р±СЋРґР¶РµС‚ РјРѕР¶РЅРѕ Р·Р°РґР°С‚СЊ РѕРєР»Р°РґРѕРј РІС‹С€Рµ).
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+          {selectedTransferTarget && (
+            <p className="drawer-events-block__hint">
+              в†’ {selectedTransferTarget.positionId} ({selectedTransferTarget.team || selectedTransferTarget.unit})
+            </p>
+          )}
+          <label className="drawer-comment-field">
+            <span className="drawer-comment-field__label">РљРѕРјРјРµРЅС‚Р°СЂРёР№ РґР»СЏ СЃРѕРіР»Р°СЃРѕРІР°РЅРёСЏ</span>
+            <textarea
+              rows={4}
+              value={scenarioForm.comment}
+              disabled={readOnly}
+              placeholder="Р—Р°С‡РµРј РјРµРЅСЏРµРј: РїРµСЂРµРІРѕРґ, СѓРІРѕР»СЊРЅРµРЅРёРµ, РёРЅРґРµРєСЃР°С†РёСЏвЂ¦"
+              onChange={(event) => setScenarioForm((prev) => ({ ...prev, comment: event.target.value }))}
+            />
+          </label>
+          <div className="drawer-events-panel__footer">
+            <button
+              type="button"
+              onClick={applyScenario}
+              className="primary-btn"
+              disabled={readOnly || (isTransfer && transferButtonDisabled)}
+            >
+              РџСЂРёРјРµРЅРёС‚СЊ РёР·РјРµРЅРµРЅРёРµ
+            </button>
+          </div>
+          </div>
+          </section>
+
+          <section className="drawer-section monthly-table-wrap drawer-section--flush drawer-section--monthly-tab">
+              <h3 className="drawer-section__title">Р¤РћРў Рё Р·Р°РЅСЏС‚РѕСЃС‚СЊ РїРѕ РјРµСЃСЏС†Р°Рј</h3>
               <table className="monthly-table monthly-table--drawer monthly-table--dense">
             <thead>
               <tr>
-                <th>Мес</th>
+                <th>РњРµСЃ</th>
+                <th>РќР° СЃР»РѕС‚Рµ</th>
                 <th>Spec</th>
                 <th>Lvl</th>
                 <th>BASE</th>
                 <th>BON</th>
-                <th>Σ</th>
+                <th>ОЈ</th>
                 <th>CR</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {MONTHS.map((month, index) => {
+                const monthSnap = planOccupancyAtMonth(selected, index);
+                const isClosedMonth = monthSnap.status === "Closed";
+                const occupancyLabel = formatOccupancyMonthLabel(monthSnap);
                 const total = selected.monthlyBase[index] + selected.monthlyBonus[index];
                 const cr = getMonthlyCR(selected.monthlyBase[index], selected.monthlySpec[index], selected.monthlyLevel[index], salaryBands);
                 return (
-                  <tr key={month}>
+                  <tr key={month} className={isClosedMonth ? "monthly-table__row--closed" : undefined}>
                     <td>{month.slice(0, 3)}</td>
+                    <td className="monthly-table__occupancy">{occupancyLabel}</td>
                     <td>
                       <select value={selected.monthlySpec[index]} disabled={readOnly} onChange={(event) => {
                         const next = applyDirectEdit(selected, (draft) => {
@@ -773,341 +1157,10 @@ export function PositionDrawer({
             </tbody>
           </table>
           </section>
-
-          <section className="drawer-events-block drawer-section--flush">
-          <p className="drawer-events-block__label">События</p>
-          <div className="drawer-events-block__form event-grid event-grid--compact">
-            <label>
-              Сценарий
-              <select
-                value={scenarioForm.scenario}
-                onChange={(event) =>
-                  setScenarioForm((prev) => ({
-                    ...prev,
-                    scenario: event.target.value as ScenarioType,
-                    transferToPositionId: "",
-                    targetDepartment:
-                      prev.targetDepartment ||
-                      departmentOptions.find((department) => department !== selected.department) ||
-                      departmentOptions[0] ||
-                      "",
-                  }))
-                }
-              >
-                {(Object.keys(SCENARIO_LABEL) as ScenarioType[]).map((scenarioKey) => (
-                  <option key={scenarioKey} value={scenarioKey}>
-                    {SCENARIO_LABEL[scenarioKey]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              С какого месяца
-              <select
-                value={scenarioForm.month}
-                onChange={(event) => {
-                  const month = Number(event.target.value);
-                  const specialization = selected.monthlySpec[month] || scenarioForm.specialization;
-                  const levels = levelOptionsForSpecialization(specialization, salaryBands);
-                  const level = levels.includes(selected.monthlyLevel[month]) ? selected.monthlyLevel[month] : levels[0];
-                  setScenarioForm((prev) => ({
-                    ...prev,
-                    month,
-                    specialization,
-                    level,
-                    base: selected.monthlyBase[month] || prev.base,
-                    bonus: selected.monthlyBonus[month] || prev.bonus,
-                  }));
-                }}
-              >
-                {MONTHS.map((month, index) => (
-                  <option key={month} value={index}>{month}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Оклад
-              <input
-                type="number"
-                value={scenarioForm.base}
-                onChange={(event) => setScenarioForm((prev) => ({ ...prev, base: Number(event.target.value) }))}
-              />
-            </label>
-            {!isMaternity && (
-              <label>
-                Премия
-                <input
-                  type="number"
-                  value={scenarioForm.bonus}
-                  onChange={(event) => setScenarioForm((prev) => ({ ...prev, bonus: Number(event.target.value) }))}
-                />
-              </label>
-            )}
-            {(isReview || isTransfer || isMaternity) && (
-              <>
-                <label>
-                  Специализация
-                  <select
-                    value={scenarioForm.specialization}
-                    onChange={(event) => {
-                      const specialization = event.target.value;
-                      const levels = levelOptionsForSpecialization(specialization, salaryBands);
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        specialization,
-                        level: levels.includes(prev.level) ? prev.level : levels[0],
-                      }));
-                    }}
-                  >
-                    {specOptions.map((specialization) => (
-                      <option key={specialization} value={specialization}>
-                        {specialization}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Уровень
-                  <select value={scenarioForm.level} onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}>
-                    {monthLevels.map((level) => (
-                      <option key={level} value={level}>
-                        {level}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            )}
-            {isTransfer && (
-              <label>
-                Целевая вакансия
-                <select
-                  value={scenarioForm.transferToPositionId}
-                  onChange={(event) => setScenarioForm((prev) => ({ ...prev, transferToPositionId: event.target.value }))}
-                >
-                  <option value="">
-                    {isInterTransfer
-                      ? transferOptions.length
-                        ? "Нет подходящей? можно без вакансии"
-                        : "Создать позицию в целевом департаменте"
-                      : transferOptions.length
-                        ? "Выберите вакансию"
-                        : "Нет вакансий в юните на этот месяц (сохраните вакансию в план)"}
-                  </option>
-                  {transferOptions.map((option) => (
-                    <option key={option.positionId} value={option.positionId}>
-                      {option.positionId} · {option.team || option.unit} · {option.role}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {intraTransferHint ? (
-              <p className="drawer-events-block__hint drawer-events-block__hint--warn">{intraTransferHint}</p>
-            ) : null}
-            {isInterTransfer && (
-              <>
-                <label>
-                  Целевой департамент
-                  <select
-                    value={scenarioForm.targetDepartment}
-                    onChange={(event) => {
-                      const targetDepartment = event.target.value;
-                      const units = unitOptionsForDepartment(targetDepartment);
-                      const targetUnit = units[0] || "";
-                      const teams = teamOptionsForUnit(targetDepartment, targetUnit);
-                      const targetTeam = teams[0] || "";
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        targetDepartment,
-                        targetUnit,
-                        targetTeam,
-                        transferToPositionId: "",
-                      }));
-                    }}
-                  >
-                    {departmentOptions
-                      .filter((department) => department !== selected.department)
-                      .map((department) => (
-                        <option key={department} value={department}>
-                          {department}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label>
-                  Целевой юнит
-                  <select
-                    value={scenarioForm.targetUnit}
-                    onChange={(event) => {
-                      const targetUnit = event.target.value;
-                      const teams = teamOptionsForUnit(scenarioForm.targetDepartment, targetUnit);
-                      const targetTeam = teams[0] || "";
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        targetUnit,
-                        targetTeam,
-                        transferToPositionId: "",
-                      }));
-                    }}
-                  >
-                    {unitOptionsForDepartment(scenarioForm.targetDepartment).map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Целевая команда
-                  <select
-                    value={scenarioForm.targetTeam}
-                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, targetTeam: event.target.value }))}
-                  >
-                    {teamOptionsForUnit(scenarioForm.targetDepartment, scenarioForm.targetUnit).map((team) => (
-                      <option key={team} value={team}>
-                        {team}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            )}
-            {isMaternity && (
-              <>
-                <label>
-                  Замещение
-                  <select
-                    value={scenarioForm.replacementMode}
-                    onChange={(event) =>
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        replacementMode: event.target.value as ScenarioFormState["replacementMode"],
-                        replacementEmployeeId: "",
-                      }))
-                    }
-                  >
-                    <option value="FROM_LIST">Сотрудник из списка</option>
-                    <option value="NEW">Новый сотрудник</option>
-                  </select>
-                </label>
-                {scenarioForm.replacementMode === "FROM_LIST" ? (
-                  <label>
-                    Сотрудник замещения
-                    <select
-                      value={scenarioForm.replacementEmployeeId}
-                      onChange={(event) => setScenarioForm((prev) => ({ ...prev, replacementEmployeeId: event.target.value }))}
-                    >
-                      <option value="">
-                        {replacementEmployeeOptions.length ? "Выберите сотрудника" : "Нет доступных сотрудников"}
-                      </option>
-                      {replacementEmployeeOptions.map((employee) => (
-                        <option key={employee.employeeId} value={employee.employeeId}>
-                          {employee.employeeName} ({employee.employeeId}) · {employee.positionId}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label>
-                      ФИО нового сотрудника
-                      <input
-                        type="text"
-                        value={scenarioForm.newReplacementName}
-                        onChange={(event) => setScenarioForm((prev) => ({ ...prev, newReplacementName: event.target.value }))}
-                        placeholder="Иванов Иван"
-                      />
-                    </label>
-                    <label>
-                      ID сотрудника
-                      <input
-                        type="text"
-                        value={scenarioForm.newReplacementId}
-                        onChange={(event) => setScenarioForm((prev) => ({ ...prev, newReplacementId: event.target.value }))}
-                        placeholder={suggestedNewEmployeeId}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-btn"
-                      onClick={() =>
-                        setScenarioForm((prev) => ({ ...prev, newReplacementId: suggestedNewEmployeeId }))
-                      }
-                    >
-                      Сгенерировать ID ({suggestedNewEmployeeId})
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-          <p className="drawer-events-block__hint">{scenarioHelpText(scenarioForm.scenario)}</p>
-          {selectedTransferTarget && (
-            <p className="drawer-events-block__hint">
-              → {selectedTransferTarget.positionId} ({selectedTransferTarget.team || selectedTransferTarget.unit})
-            </p>
-          )}
-          <label className="drawer-events-block__comment">
-            Комментарий к событию
-            <textarea
-              rows={2}
-              value={scenarioForm.comment}
-              disabled={readOnly}
-              placeholder="Причина, контекст для согласования…"
-              onChange={(event) => setScenarioForm((prev) => ({ ...prev, comment: event.target.value }))}
-            />
-          </label>
-          <div className="drawer-events-block__footer">
-            <button
-              type="button"
-              onClick={applyScenario}
-              className="primary-btn primary-btn--sm"
-              disabled={readOnly || (isTransfer && transferButtonDisabled)}
-            >
-              Добавить
-            </button>
-          </div>
-          <ul className="drawer-history-list drawer-history-list--compact">
-            {selected.events.length === 0 && <li className="drawer-history-list__empty">Нет событий</li>}
-            {[...selected.events]
-              .sort((a, b) => b.createdOrder - a.createdOrder)
-              .map((event) => {
-                const employeeLine = eventEmployeeLine(event, selected);
-                const tooltip = eventCommentTooltip(event);
-                return (
-                  <li
-                    key={event.id}
-                    className="drawer-history-item"
-                    title={tooltip ?? undefined}
-                  >
-                    <div className="drawer-history-item__head">
-                      <strong>{eventTypeLabel(event.type)}</strong>
-                      <button
-                        type="button"
-                        className="icon-btn danger"
-                        aria-label="Удалить"
-                        disabled={readOnly}
-                        onClick={() => deleteEventFromRecord(event.id)}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                    {employeeLine ? (
-                      <div className="drawer-history-item__employee">{employeeLine}</div>
-                    ) : null}
-                    <p className="drawer-history-item__details">{formatEventHuman(event)}</p>
-                    {event.payload.comment ? (
-                      <p className="drawer-history-item__comment">{event.payload.comment}</p>
-                    ) : null}
-                  </li>
-                );
-              })}
-          </ul>
-          </section>
+          </>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
-

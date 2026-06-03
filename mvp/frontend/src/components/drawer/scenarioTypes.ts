@@ -18,10 +18,8 @@ export type ScenarioFormState = {
   specialization: string;
   level: string;
   transferToPositionId: string;
-  replacementMode: "FROM_LIST" | "NEW";
+  replacementMode: "FROM_LIST" | "VACANCY";
   replacementEmployeeId: string;
-  newReplacementName: string;
-  newReplacementId: string;
   targetDepartment: string;
   targetUnit: string;
   targetTeam: string;
@@ -40,7 +38,7 @@ export const SCENARIO_CARDS: {
   { id: "TRANSFER_INTER", title: "Перевод в другой департамент", short: "Смена оргструктуры", occupiedOnly: true },
   { id: "TERMINATION", title: "Увольнение", short: "Позиция станет вакансией", occupiedOnly: true },
   { id: "REDUCTION", title: "Сокращение", short: "Позиция закрывается", occupiedOnly: true },
-  { id: "MATERNITY", title: "Декрет", short: "Замещение на той же позиции", occupiedOnly: true },
+  { id: "MATERNITY", title: "Декрет", short: "Замещение: сотрудник или вакансия", occupiedOnly: true },
 ];
 
 export function scenarioHelpText(scenario: ScenarioType): string {
@@ -69,7 +67,6 @@ export function initialScenarioForm(
   departmentOptions: string[],
   unitOptionsForDepartment: (d: string) => string[],
   teamOptionsForUnit: (d: string, u: string) => string[],
-  suggestedNewEmployeeId: string,
 ): ScenarioFormState {
   const month = 0;
   const specialization = selected.monthlySpec[month] || specOptions[0] || "Engineering";
@@ -88,8 +85,6 @@ export function initialScenarioForm(
     transferToPositionId: "",
     replacementMode: "FROM_LIST",
     replacementEmployeeId: "",
-    newReplacementName: "",
-    newReplacementId: suggestedNewEmployeeId,
     targetDepartment: preferredDepartment,
     targetUnit: preferredUnit,
     targetTeam: preferredTeam,

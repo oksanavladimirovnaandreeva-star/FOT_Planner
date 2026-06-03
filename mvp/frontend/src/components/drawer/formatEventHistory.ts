@@ -28,7 +28,10 @@ export function formatEventHuman(event: PlannedEvent): string {
   }
   if (p.maternityMode === "SHARED_POSITION") {
     const primary = p.maternityPrimaryEmployeeName || p.maternityPrimaryEmployeeId || "основной";
-    const repl = p.employeeName || p.employeeId || "замещение";
+    const repl =
+      p.maternityReplacementKind === "VACANCY"
+        ? "вакансия (замещение)"
+        : p.employeeName || p.employeeId || "замещение";
     parts.push(`декрет: ${primary}, замещение: ${repl}`);
   } else if (p.employeeName) {
     parts.push(p.employeeName);

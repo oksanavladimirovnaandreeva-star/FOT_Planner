@@ -64,6 +64,40 @@ describe("applyPlanTransfer", () => {
     expect(targetAfter.employeeId).toBe("E001");
   });
 
+  it("intra: создаёт вакансию в юните, если целевая не выбрана", () => {
+    const positions = clonePositions().filter((item) => item.positionId !== "P004");
+    const source = positions.find((item) => item.positionId === "P001")!;
+    const result = applyPlanTransfer(
+      positions,
+      {
+        sourcePositionId: "P001",
+        month: 3,
+        transferKind: "INTRA_UNIT",
+        employeeId: source.employeeId!,
+        employeeName: source.employeeName!,
+        base: 185_000,
+        bonus: 0,
+        specialization: "Engineering",
+        level: "Senior",
+      },
+      transferOptions,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.positions.length).toBe(positions.length + 1);
+    const sourceAfter = applyEvents(result.positions.find((item) => item.positionId === "P001")!);
+    expect(sourceAfter.status).toBe("Vacancy");
+    const created = result.positions.find(
+      (item) =>
+        !positions.some((position) => position.positionId === item.positionId) &&
+        item.events.some((event) => event.type === "PLANNED_HIRE"),
+    );
+    expect(created).toBeTruthy();
+    expect(applyEvents(created!).status).toBe("Occupied");
+    expect(created!.department).toBe(source.department);
+    expect(created!.unit).toBe(source.unit);
+  });
+
   it("inter: создаёт целевую позицию при отсутствии вакансии", () => {
     const positions = clonePositions();
     const source = positions.find((item) => item.positionId === "P001")!;

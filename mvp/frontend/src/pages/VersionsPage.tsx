@@ -1,13 +1,9 @@
 import { Link, useNavigate } from "react-router-dom";
 import { VersionCompareDashboard } from "../components/VersionCompareDashboard";
+import { formatApprovalSubmitConfirm } from "../data/planApprovalRules";
 import { formatDiffSummaryLine } from "../data/planVersionDiff";
-import { formatGrowthDelta } from "../data/planningData";
 import { isBudgetLocked, PLAN_VERSION_STATUS_LABELS } from "../data/planVersions";
 import { useMvpApp } from "../context/MvpAppContext";
-
-function formatMoney(value: number): string {
-  return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
-}
 
 export function VersionsPage() {
   const navigate = useNavigate();
@@ -24,6 +20,7 @@ export function VersionsPage() {
     publishWorkingDraft,
     approvePrimaryBudget,
     submitDraftForApproval,
+    draftApprovalCheck,
     openVersion,
     versionDiff,
   } = useMvpApp();
@@ -61,6 +58,8 @@ export function VersionsPage() {
   };
 
   const handleSubmitApproval = () => {
+    const confirmText = formatApprovalSubmitConfirm(draftApprovalCheck);
+    if (confirmText && !window.confirm(confirmText)) return;
     const result = submitDraftForApproval();
     if (!result.ok) window.alert(result.error);
   };
@@ -81,9 +80,10 @@ export function VersionsPage() {
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
         <div>
-          <h1>Версии и сравнение бюджета</h1>
+          <h1>Версии бюджета</h1>
           <p className="content-page__lead">
-            v1 правится до утверждения · далее квартальный черновик → согласование → v+1
+            Жизненный цикл: v1 → утверждение → квартальный черновик → согласование → v+1. События по позициям — в{" "}
+            <Link to="/audit">аудите</Link>, правки — в <Link to="/planning">планировании</Link>.
           </p>
         </div>
         <div className="versions-page__actions">
@@ -179,37 +179,22 @@ export function VersionsPage() {
             baselinePositions={baselinePositions}
             draftPositions={draftPositions}
           />
-          <section className="versions-page__changes">
-            <h2>Изменения по позициям</h2>
+          <section className="versions-page__changes card">
+            <h2>Сводка diff</h2>
             <p className="versions-page__summary">{formatDiffSummaryLine(summary)}</p>
             {rows.length === 0 ? (
               <p className="muted-text">Нет отличий от базы.</p>
             ) : (
-              <div className="versions-page__changes-scroll">
-                <table className="data-table data-table--compact">
-                  <thead>
-                    <tr>
-                      <th>Позиция</th>
-                      <th>ФОТ база</th>
-                      <th>ФОТ черновик</th>
-                      <th>Δ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.slice(0, 12).map((row) => (
-                      <tr key={row.positionId}>
-                        <td>
-                          <strong>{row.positionId}</strong>
-                          <div className="muted-text">{row.role}</div>
-                        </td>
-                        <td>{row.baselineAnnualFot ? formatMoney(row.baselineAnnualFot) : "—"}</td>
-                        <td>{row.draftAnnualFot ? formatMoney(row.draftAnnualFot) : "—"}</td>
-                        <td>{formatGrowthDelta(row.deltaFot)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {rows.length > 12 ? <p className="muted-text">Показаны 12 из {rows.length} изменений.</p> : null}
+              <div className="versions-page__audit-cta">
+                <p className="muted-text">
+                  Детализация по событиям (месяц, статус, оклад, комментарии) — в аудите, не дублируем таблицу здесь.
+                </p>
+                <Link
+                  className="primary-btn"
+                  to={`/planning?tab=journal&diff=1&positions=${rows.map((row) => row.positionId).join(",")}`}
+                >
+                  Журнал изменений ({rows.length} поз.)
+                </Link>
               </div>
             )}
           </section>
