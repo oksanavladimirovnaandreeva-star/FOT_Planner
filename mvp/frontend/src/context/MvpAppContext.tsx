@@ -74,6 +74,7 @@ import {
 } from "../data/userAccess";
 import type { ViewMode } from "../data/dashboardMetrics";
 import { resolvePlanFactBaseline, type PlanFactBaseline } from "../data/planFactBaseline";
+import { deletePlanVersionState } from "../data/planVersionDelete";
 import type { PositionRecord, SalaryCatalogAccess, SalaryRangeBand } from "../types";
 
 export type { UserRole };
@@ -156,7 +157,7 @@ type MvpAppContextValue = {
   userRole: UserRole;
   setUserRole: (role: UserRole) => void;
   roleScopeHint: string;
-  /** Все позиции текущей версии (без RBAC-фильтра) — для ID новых слотов. */
+  /** Все позиции текущей версии (без RBAC-фильтра) — для ID новых позиций. */
   allPositions: PositionRecord[];
   positionsTotalCount: number;
   workingDraft: PlanVersionMeta | null;
@@ -174,6 +175,7 @@ type MvpAppContextValue = {
   /** База плана для страниц план–факт (последняя утверждённая, не черновик в сайдбаре). */
   planFactBaseline: PlanFactBaseline;
   openVersion: (id: string) => { ok: true } | { ok: false; error: string };
+  deletePlanVersion: (versionId: string) => { ok: true; deletedLabel: string } | { ok: false; error: string };
   positions: PositionRecord[];
   setPositions: Dispatch<SetStateAction<PositionRecord[]>>;
   viewMode: ViewMode;
@@ -204,6 +206,8 @@ type MvpAppContextValue = {
   resetDevPlanToDraft: () => { ok: true } | { ok: false; error: string };
   reloadDemoSeed: () => { ok: true; count: number } | { ok: false; error: string };
   demoRoleScopeLabel: string | null;
+  refreshAppConfig: () => void;
+  appConfigRevision: number;
 };
 
 const MvpAppContext = createContext<MvpAppContextValue | null>(null);
@@ -229,6 +233,11 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   });
   const [userRole, setUserRoleState] = useState<UserRole>(() => loadUserRole());
   const [leadEditFrozen, setLeadEditFrozenState] = useState(() => loadLeadEditFrozen());
+  const [configRevision, setConfigRevision] = useState(0);
+
+  const refreshAppConfig = useCallback(() => {
+    setConfigRevision((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     persistVersions(planVersions);
@@ -294,10 +303,10 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const allPositions = dataByVersion[planVersionId] ?? [];
   const positions = useMemo(
     () => filterPositionsByRole(allPositions, userRole),
-    [allPositions, userRole],
+    [allPositions, userRole, configRevision],
   );
   const positionsTotalCount = allPositions.length;
-  const roleScopeHint = useMemo(() => roleScopeDescription(userRole, leadEditFrozen), [userRole, leadEditFrozen]);
+  const roleScopeHint = useMemo(() => roleScopeDescription(userRole, leadEditFrozen), [userRole, leadEditFrozen, configRevision]);
   const canToggleLeadFreeze = roleCanToggleLeadFreeze(userRole);
   const leadEditFrozenForRole = leadEditFrozen && (userRole === "team_lead" || userRole === "unit_lead");
   const canManagePlanVersions = roleCanManageVersions(userRole);
@@ -489,6 +498,23 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     });
     return { ok: true, versionId: publishedMeta.id, versionLabel: publishedMeta.label };
   }, [workingDraft, planVersions, dataByVersion]);
+
+  const deletePlanVersion = useCallback(
+    (versionId: string): { ok: true; deletedLabel: string } | { ok: false; error: string } => {
+      if (!roleCanManageVersions(userRole)) {
+        return { ok: false, error: "Удаление версий доступно только C&B." };
+      }
+      const result = deletePlanVersionState(versionId, planVersions, dataByVersion, planVersionId);
+      if (!result.ok) return result;
+      setPlanVersions(result.versions);
+      setDataByVersion(result.dataByVersion);
+      if (planVersionId === versionId) {
+        setPlanVersionId(result.fallbackVersionId);
+      }
+      return { ok: true, deletedLabel: result.deletedLabel };
+    },
+    [userRole, planVersions, dataByVersion, planVersionId],
+  );
 
   const pickAmount = useCallback(
     (base: number, bonus = 0) => (viewMode === "total" ? base + bonus : base),
@@ -703,6 +729,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       submitDraftForApproval,
       draftApprovalCheck,
       openVersion,
+      deletePlanVersion,
       positions,
       setPositions,
       viewMode,
@@ -724,6 +751,8 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       refreshOperationHistory,
       resetDevPlanToDraft,
       reloadDemoSeed,
+      refreshAppConfig,
+      appConfigRevision: configRevision,
     }),
     [
       planVersions,
@@ -753,6 +782,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       submitDraftForApproval,
       draftApprovalCheck,
       openVersion,
+      deletePlanVersion,
       positions,
       setPositions,
       viewMode,
@@ -770,6 +800,8 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       refreshOperationHistory,
       resetDevPlanToDraft,
       reloadDemoSeed,
+      refreshAppConfig,
+      configRevision,
     ],
   );
 

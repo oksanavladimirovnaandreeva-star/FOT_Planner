@@ -493,7 +493,7 @@ export function DataSettingsPanel() {
         <div className="app-data-panel__block">
           <strong>Демо-данные</strong>
           <p className="muted-line">
-            500+ позиций, декабрьский перенос в январь, события на части слотов. Затем — демо-факт.
+            500+ позиций, декабрьский перенос в январь, события на части позиций. Затем — демо-факт.
           </p>
           <div className="app-data-panel__actions">
             <button

@@ -129,7 +129,7 @@ export function DashboardPage() {
         <OrgSliceMultiSelect
           layout="toolbar"
           label="Департамент"
-          options={departmentOptions}
+          options={departmentOptions()}
           value={filters.departments}
           disabled={orgFilterDefaults?.lockDepartment}
           onChange={(departments) =>

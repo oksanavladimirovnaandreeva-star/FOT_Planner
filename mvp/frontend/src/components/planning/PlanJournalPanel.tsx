@@ -129,7 +129,7 @@ export function PlanJournalPanel({
             }}
           >
             <option value="All">Все</option>
-            {departmentOptions.map((item) => (
+            {departmentOptions().map((item) => (
               <option key={item} value={item}>
                 {item}
               </option>

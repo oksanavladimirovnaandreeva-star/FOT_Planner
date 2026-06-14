@@ -928,7 +928,7 @@ export function PlanningPage() {
           <OrgSliceMultiSelect
             layout="toolbar"
             label="Департамент"
-            options={departmentOptions}
+            options={departmentOptions()}
             value={orgSlice.departments}
             disabled={orgFilterDefaults?.lockDepartment}
             onChange={(departments) => setOrgSlice((prev) => updateOrgSliceDepartments(prev, departments))}
@@ -1195,7 +1195,7 @@ export function PlanningPage() {
         suggestedNewEmployeeId={nextEmployeeId(allPositions)}
         isPersisted={Boolean(active && positions.some((item) => item.positionId === active.positionId))}
         correctionWindow={workspaceMode === "correction" ? correctionWindow : undefined}
-        departmentOptions={departmentOptions}
+        departmentOptions={departmentOptions()}
         unitOptionsForDepartment={unitOptions}
         teamOptionsForUnit={teamOptions}
       />

@@ -36,7 +36,8 @@ export function getMonthlyCR(
 }
 
 export function normalizeOrgPath(department: string, unit: string, team: string): { department: string; unit: string; team: string } {
-  const safeDepartment = departmentOptions.includes(department) ? department : departmentOptions[0];
+  const departments = departmentOptions();
+  const safeDepartment = departments.includes(department) ? department : departments[0];
   const units = unitOptions(safeDepartment);
   const safeUnit = units.includes(unit) ? unit : units[0];
   const teams = teamOptions(safeDepartment, safeUnit);

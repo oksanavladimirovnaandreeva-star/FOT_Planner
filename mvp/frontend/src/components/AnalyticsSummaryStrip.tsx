@@ -3,13 +3,20 @@ import { formatGrowthPct, sliceAnalytics } from "../data/dashboardMetrics";
 import { formatMoney } from "../data/formatDisplay";
 import { getMonthlyCR } from "../data/planningData";
 import { LIMIT_FLAG_LABELS } from "../data/planningData";
+import { METRIC_HELP } from "../data/metricHelp";
+import { MetricHelp } from "./MetricHelp";
 import type { LimitFlagKey, PositionRecord, SalaryRangeBand } from "../types";
 import type { ViewMode } from "../data/dashboardMetrics";
 
 const DISPLAY_LIMIT_FLAGS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT"];
 
-function StripLabel({ children }: { children: ReactNode }) {
-  return <span className="analytics-strip__label">{children}</span>;
+function StripLabel({ children, help }: { children: ReactNode; help?: string }) {
+  return (
+    <span className="analytics-strip__label">
+      {children}
+      {help ? <MetricHelp title={typeof children === "string" ? children : undefined}>{help}</MetricHelp> : null}
+    </span>
+  );
 }
 
 export function AnalyticsSummaryStrip({
@@ -145,7 +152,7 @@ export function AnalyticsSummaryStrip({
   const fotCards = (
     <>
       <div className="analytics-strip__item">
-        <StripLabel>Итого ФОТ год</StripLabel>
+        <StripLabel help={METRIC_HELP.yearPlan}>Итого ФОТ год</StripLabel>
         <strong>{formatMoney(a.yearPlan, true)}</strong>
         <div className="analytics-strip__rows">
           {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -157,7 +164,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <StripLabel>Дек прошл.</StripLabel>
+        <StripLabel help={METRIC_HELP.decPrev}>Дек прошл.</StripLabel>
         <strong>{formatMoney(a.decPrev)}</strong>
         <div className="analytics-strip__rows">
           {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -169,7 +176,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <StripLabel>Дек план</StripLabel>
+        <StripLabel help={METRIC_HELP.decPlan}>Дек план</StripLabel>
         <strong>{formatMoney(a.decPlan)}</strong>
         <div className="analytics-strip__rows">
           {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -209,7 +216,7 @@ export function AnalyticsSummaryStrip({
   const headcountCards = (
     <>
       <div className="analytics-strip__item">
-        <StripLabel>Позиции</StripLabel>
+        <StripLabel help={METRIC_HELP.positions}>Позиции</StripLabel>
         <strong>
           {active.length} · {formatMoney(a.yearPlan, true)}
         </strong>
@@ -225,7 +232,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <StripLabel>Вакансии</StripLabel>
+        <StripLabel help={METRIC_HELP.vacancies}>Вакансии</StripLabel>
         <strong>
           {totalVacancyCount} · {formatMoney(totalVacancyAmount, true)}
         </strong>
@@ -247,7 +254,7 @@ export function AnalyticsSummaryStrip({
     <>
       {showAvgCr ? (
         <div className="analytics-strip__item">
-          <StripLabel>Средний CR</StripLabel>
+          <StripLabel help={METRIC_HELP.avgCr}>Средний CR</StripLabel>
           <strong>{avgCr.toFixed(2)}</strong>
         </div>
       ) : null}
@@ -313,7 +320,7 @@ export function AnalyticsSummaryStrip({
             <strong>{totalVacancyCount}</strong>
           </div>
           <div className="analytics-strip__item">
-            <StripLabel>Средний CR</StripLabel>
+            <StripLabel help={METRIC_HELP.avgCr}>Средний CR</StripLabel>
             <strong>{avgCr > 0 ? avgCr.toFixed(2) : "—"}</strong>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import { VersionCompareDashboard } from "../components/VersionCompareDashboard";
 import { CorrectionComparePanel } from "../components/planning/CorrectionComparePanel";
 import { PlanApprovalPanel } from "../components/planning/PlanApprovalPanel";
@@ -8,6 +9,7 @@ import { resolveCorrectionWindow } from "../data/planCorrectionWindow";
 import { formatDiffSummaryLine } from "../data/planVersionDiff";
 import { planVersionStatusUiLabel } from "../data/planVersionDisplay";
 import { isBudgetLocked } from "../data/planVersions";
+import { canDeletePlanVersion } from "../data/planVersionDelete";
 import { useMvpApp } from "../context/MvpAppContext";
 import { ConsolidationPage } from "./ConsolidationPage";
 import type { UserRole } from "../data/userAccess";
@@ -44,6 +46,7 @@ export function VersionsPage() {
     submitDraftForApproval,
     draftApprovalCheck,
     openVersion,
+    deletePlanVersion,
     versionDiff,
     userRole,
   } = useMvpApp();
@@ -121,6 +124,24 @@ export function VersionsPage() {
     }
     openVersion(result.versionId);
     window.alert(`Создана ${result.versionLabel}.`);
+  };
+
+  const handleDeleteVersion = (versionId: string, label: string) => {
+    const policy = canDeletePlanVersion(versionId, planVersions);
+    if (!policy.ok) {
+      window.alert(policy.error);
+      return;
+    }
+    const confirmed = window.confirm(
+      `Удалить версию «${label}»?\n\nДанные позиций этой версии будут удалены из браузера. Действие необратимо.`,
+    );
+    if (!confirmed) return;
+    const result = deletePlanVersion(versionId);
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    window.alert(`Версия «${result.deletedLabel}» удалена.`);
   };
 
   return (
@@ -249,7 +270,9 @@ export function VersionsPage() {
           <tbody>
             {[...planVersions]
               .sort((a, b) => b.versionNumber - a.versionNumber || b.createdAt.localeCompare(a.createdAt))
-              .map((version) => (
+              .map((version) => {
+                const deletePolicy = canDeletePlanVersion(version.id, planVersions);
+                return (
                 <tr key={version.id} className={version.id === planVersionId ? "data-table__row--active" : ""}>
                   <td>
                     <strong>{version.label}</strong>
@@ -262,16 +285,31 @@ export function VersionsPage() {
                     {new Date(version.publishedAt ?? version.createdAt).toLocaleDateString("ru-RU")}
                   </td>
                   <td>
-                    <button
-                      type="button"
-                      className="app-btn app-btn--ghost app-btn--sm"
-                      onClick={() => handleOpenVersion(version.id, version.kind === "WORKING_DRAFT")}
-                    >
-                      {version.kind === "WORKING_DRAFT" ? "Планирование" : "Открыть"}
-                    </button>
+                    <div className="versions-page__row-actions">
+                      <button
+                        type="button"
+                        className="app-btn app-btn--ghost app-btn--sm"
+                        onClick={() => handleOpenVersion(version.id, version.kind === "WORKING_DRAFT")}
+                      >
+                        {version.kind === "WORKING_DRAFT" ? "Планирование" : "Открыть"}
+                      </button>
+                      {canManagePlanVersions ? (
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          aria-label={`Удалить ${version.label}`}
+                          title={deletePolicy.ok ? "Удалить версию" : deletePolicy.error}
+                          disabled={!deletePolicy.ok}
+                          onClick={() => handleDeleteVersion(version.id, version.label)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
           </tbody>
         </table>
       </section>

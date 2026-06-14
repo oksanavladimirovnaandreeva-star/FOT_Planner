@@ -92,7 +92,7 @@ export function PlanVsActualPage({ embedded = false }: { embedded?: boolean }) {
       >
         <SliceToolbarSelect label="Департамент" value={department} onChange={setDepartment}>
           <option value="All">Все</option>
-          {departmentOptions.map((item) => (
+          {departmentOptions().map((item) => (
             <option key={item} value={item}>
               {item}
             </option>

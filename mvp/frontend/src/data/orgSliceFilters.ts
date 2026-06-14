@@ -24,7 +24,7 @@ export function matchesOrgSlice(
 }
 
 export function availableUnitsForSlice(slice: Pick<OrgSliceSelection, "departments">): string[] {
-  const depts = slice.departments.length > 0 ? slice.departments : departmentOptions;
+  const depts = slice.departments.length > 0 ? slice.departments : departmentOptions();
   const units = new Set<string>();
   for (const dept of depts) {
     for (const unit of unitOptions(dept)) units.add(unit);
@@ -33,7 +33,7 @@ export function availableUnitsForSlice(slice: Pick<OrgSliceSelection, "departmen
 }
 
 export function availableTeamsForSlice(slice: Pick<OrgSliceSelection, "departments" | "units">): string[] {
-  const depts = slice.departments.length > 0 ? slice.departments : departmentOptions;
+  const depts = slice.departments.length > 0 ? slice.departments : departmentOptions();
   const teams = new Set<string>();
 
   if (slice.units.length > 0) {
@@ -75,7 +75,7 @@ export function updateOrgSliceTeams(slice: OrgSliceSelection, teams: string[]): 
 }
 
 export function primaryDepartmentForOrg(slice: OrgSliceSelection): string {
-  return slice.departments[0] ?? departmentOptions[0] ?? "Engineering";
+  return slice.departments[0] ?? departmentOptions()[0] ?? "Engineering";
 }
 
 export function primaryUnitForOrg(slice: OrgSliceSelection): string {

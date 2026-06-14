@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { DemoRoleSelect } from "../components/DemoRoleSelect";
+import { DemoAccessSettingsPanel } from "../components/settings/DemoAccessSettingsPanel";
 import { DataSettingsPanel } from "../components/settings/DataSettingsPanel";
+import { OrgStructureSettingsPanel } from "../components/settings/OrgStructureSettingsPanel";
 import { USER_ROLE_LABELS, useMvpApp } from "../context/MvpAppContext";
 import { listExportAuditLog } from "../data/exportAuditLog";
 import { resetWorkflowHints } from "../data/workflowHints";
@@ -92,6 +94,16 @@ export function SettingsPage() {
           <p className="muted-line">Директор может заблокировать корректировки ниже по иерархии.</p>
         </section>
       ) : null}
+
+      <section className="card settings-section">
+        <h2 className="section-title">Оргструктура</h2>
+        <OrgStructureSettingsPanel />
+      </section>
+
+      <section className="card settings-section">
+        <h2 className="section-title">Доступы (демо)</h2>
+        <DemoAccessSettingsPanel />
+      </section>
 
       <section className="card settings-section">
         <h2 className="section-title">Данные</h2>

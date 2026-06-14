@@ -1,3 +1,4 @@
+import { roleScopeFor, type RoleScopeRecord } from "./demoRoleScopeStore";
 import type { PositionRecord } from "../types";
 
 /**
@@ -18,14 +19,22 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   viewer: "Просмотр (аудит)",
 };
 
-/** Демо-срез для ролей в MVP (позже — из профиля / API). */
-export const DEMO_ROLE_SCOPE: Record<
-  Exclude<UserRole, "admin" | "viewer">,
-  { department: string; unit?: string; team?: string }
-> = {
-  director: { department: "Engineering" },
-  unit_lead: { department: "Engineering", unit: "ProductDev" },
-  team_lead: { department: "Engineering", unit: "ProductDev", team: "Frontend Web" },
+/** Демо-срез для ролей — читается из localStorage (Настройки → Доступы). */
+export function demoRoleScope(role: Exclude<UserRole, "admin" | "viewer">): RoleScopeRecord {
+  return roleScopeFor(role);
+}
+
+/** @deprecated Используйте demoRoleScope(role). */
+export const DEMO_ROLE_SCOPE = {
+  get director() {
+    return demoRoleScope("director");
+  },
+  get unit_lead() {
+    return demoRoleScope("unit_lead");
+  },
+  get team_lead() {
+    return demoRoleScope("team_lead");
+  },
 };
 
 export type OrgFilterDefaults = {
@@ -129,12 +138,18 @@ export function formatDemoRoleScope(role: UserRole): string | null {
       return "Вся оргструктура";
     case "viewer":
       return "Просмотр всей оргструктуры";
-    case "director":
-      return `Департамент: ${DEMO_ROLE_SCOPE.director.department}`;
-    case "unit_lead":
-      return `Юнит: ${DEMO_ROLE_SCOPE.unit_lead.department} / ${DEMO_ROLE_SCOPE.unit_lead.unit}`;
-    case "team_lead":
-      return `Команда: ${DEMO_ROLE_SCOPE.team_lead.department} / ${DEMO_ROLE_SCOPE.team_lead.unit} / ${DEMO_ROLE_SCOPE.team_lead.team}`;
+    case "director": {
+      const scope = demoRoleScope("director");
+      return `Департамент: ${scope.department}`;
+    }
+    case "unit_lead": {
+      const scope = demoRoleScope("unit_lead");
+      return `Юнит: ${scope.department} / ${scope.unit}`;
+    }
+    case "team_lead": {
+      const scope = demoRoleScope("team_lead");
+      return `Команда: ${scope.department} / ${scope.unit} / ${scope.team}`;
+    }
     default:
       return null;
   }
@@ -152,12 +167,18 @@ export function roleScopeDescription(role: UserRole, leadFrozen: boolean): strin
       return "Видны все позиции. Полный доступ: версии, факт, справочники." + freezeNote;
     case "viewer":
       return "Только просмотр и аудит по всей оргструктуре, без правок.";
-    case "director":
-      return `Срез: департамент ${DEMO_ROLE_SCOPE.director.department} (все юниты). Можно закрыть правки лидов.${freezeNote}`;
-    case "unit_lead":
-      return `Срез: юнит ${DEMO_ROLE_SCOPE.unit_lead.department} / ${DEMO_ROLE_SCOPE.unit_lead.unit} (все команды юнита).${freezeNote}`;
-    case "team_lead":
-      return `Срез: команда ${DEMO_ROLE_SCOPE.team_lead.department} / ${DEMO_ROLE_SCOPE.team_lead.unit} / ${DEMO_ROLE_SCOPE.team_lead.team}.${freezeNote}`;
+    case "director": {
+      const scope = demoRoleScope("director");
+      return `Срез: департамент ${scope.department} (все юниты). Можно закрыть правки лидов.${freezeNote}`;
+    }
+    case "unit_lead": {
+      const scope = demoRoleScope("unit_lead");
+      return `Срез: юнит ${scope.department} / ${scope.unit} (все команды юнита).${freezeNote}`;
+    }
+    case "team_lead": {
+      const scope = demoRoleScope("team_lead");
+      return `Срез: команда ${scope.department} / ${scope.unit} / ${scope.team}.${freezeNote}`;
+    }
     default:
       return "";
   }
@@ -166,13 +187,13 @@ export function roleScopeDescription(role: UserRole, leadFrozen: boolean): strin
 export function positionMatchesRole(position: PositionRecord, role: UserRole): boolean {
   if (role === "admin" || role === "viewer") return true;
   if (role === "director") {
-    return position.department === DEMO_ROLE_SCOPE.director.department;
+    return position.department === demoRoleScope("director").department;
   }
   if (role === "unit_lead") {
-    const scope = DEMO_ROLE_SCOPE.unit_lead;
+    const scope = demoRoleScope("unit_lead");
     return position.department === scope.department && position.unit === scope.unit;
   }
-  const scope = DEMO_ROLE_SCOPE.team_lead;
+  const scope = demoRoleScope("team_lead");
   return (
     position.department === scope.department &&
     position.unit === scope.unit &&
@@ -188,7 +209,7 @@ export function filterPositionsByRole(positions: PositionRecord[], role: UserRol
 /** Фиксированные фильтры оргструктуры для team_lead и unit_lead. */
 export function roleOrgFilterDefaults(role: UserRole): OrgFilterDefaults | null {
   if (role === "team_lead") {
-    const scope = DEMO_ROLE_SCOPE.team_lead;
+    const scope = demoRoleScope("team_lead");
     return {
       departments: [scope.department],
       units: scope.unit ? [scope.unit] : [],
@@ -199,7 +220,7 @@ export function roleOrgFilterDefaults(role: UserRole): OrgFilterDefaults | null 
     };
   }
   if (role === "unit_lead") {
-    const scope = DEMO_ROLE_SCOPE.unit_lead;
+    const scope = demoRoleScope("unit_lead");
     return {
       departments: [scope.department],
       units: scope.unit ? [scope.unit] : [],
