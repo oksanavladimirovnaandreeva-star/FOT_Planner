@@ -1,7 +1,7 @@
 # Handoff: ФОТ-планировщик MVP
 
 **Обновлено:** 2026-06-14  
-**Чекпоинт:** `UX-3-workspace-drawer` (F1–F5 + UX-3, **69 tests**, без F2/Kaiten и UX-4)
+**Чекпоинт:** `UX-3-workspace-drawer` (F1–F5 + UX-3, **69 tests**, без F2/Kaiten и UX-4) · git `a33d116`
 **Проект:** [`C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner`](C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner)  
 **Актуальный код:** [`mvp/frontend/`](../mvp/frontend/) — единственный UI в работе. PG/API — после фронта.
 
