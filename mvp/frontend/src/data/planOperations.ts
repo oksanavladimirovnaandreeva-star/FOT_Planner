@@ -225,7 +225,7 @@ export function applyPlanTransfer(
         return { ok: false, error: "Целевая вакансия должна быть в том же департаменте и юните." };
       }
       if (!isVacantForTransferAtMonth(target, month)) {
-        return { ok: false, error: "Целевой слот недоступен в выбранный месяц." };
+        return { ok: false, error: "Целевая позиция недоступна в выбранный месяц." };
       }
     }
   } else {
@@ -238,7 +238,7 @@ export function applyPlanTransfer(
       const target = working.find((item) => item.positionId === targetPositionId);
       if (!target) return { ok: false, error: "Целевая вакансия не найдена." };
       if (!isVacantForTransferAtMonth(target, month)) {
-        return { ok: false, error: "Целевой слот недоступен в выбранный месяц." };
+        return { ok: false, error: "Целевая позиция недоступна в выбранный месяц." };
       }
     }
   }
@@ -334,6 +334,16 @@ export function removePlanEvent(
     );
   }
   return next;
+}
+
+export function removePlanPosition(
+  positions: PositionRecord[],
+  positionId: string,
+): { ok: true; positions: PositionRecord[] } | { ok: false; error: string } {
+  if (!positions.some((position) => position.positionId === positionId)) {
+    return { ok: false, error: "Позиция не найдена." };
+  }
+  return { ok: true, positions: positions.filter((position) => position.positionId !== positionId) };
 }
 
 export function applyPlanTransferFromDrawerEvent(

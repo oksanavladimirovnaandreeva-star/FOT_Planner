@@ -1,17 +1,39 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { VersionCompareDashboard } from "../components/VersionCompareDashboard";
+import { CorrectionComparePanel } from "../components/planning/CorrectionComparePanel";
+import { PlanApprovalPanel } from "../components/planning/PlanApprovalPanel";
 import { formatApprovalSubmitConfirm } from "../data/planApprovalRules";
+import { resolveCorrectionWindow } from "../data/planCorrectionWindow";
 import { formatDiffSummaryLine } from "../data/planVersionDiff";
-import { isBudgetLocked, PLAN_VERSION_STATUS_LABELS } from "../data/planVersions";
+import { planVersionStatusUiLabel } from "../data/planVersionDisplay";
+import { isBudgetLocked } from "../data/planVersions";
 import { useMvpApp } from "../context/MvpAppContext";
+import { ConsolidationPage } from "./ConsolidationPage";
+import type { UserRole } from "../data/userAccess";
+import { planWorkspacePath } from "../data/planWorkspaceMode";
+
+const CONSOLIDATION_ROLES: UserRole[] = ["admin", "director", "unit_lead", "team_lead"];
+
+type VersionsTab = "versions" | "consolidation" | "approval" | "compare";
+
+function parseVersionsTab(value: string | null): VersionsTab {
+  if (value === "consolidation") return "consolidation";
+  if (value === "approval") return "approval";
+  if (value === "compare") return "compare";
+  return "versions";
+}
 
 export function VersionsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseVersionsTab(searchParams.get("tab"));
   const {
     planVersions,
     planVersionId,
     activePlan,
     canEditPlan,
+    canManagePlanVersions,
     workingDraft,
     latestApproved,
     primaryBudget,
@@ -23,14 +45,36 @@ export function VersionsPage() {
     draftApprovalCheck,
     openVersion,
     versionDiff,
+    userRole,
   } = useMvpApp();
+
+  const showConsolidation = CONSOLIDATION_ROLES.includes(userRole);
+
+  const correctionWindow = useMemo(
+    () => resolveCorrectionWindow(activePlan, primaryBudget, { workspaceMode: "correction" }),
+    [activePlan, primaryBudget],
+  );
+
+  const setTab = (next: VersionsTab) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === "versions") params.delete("tab");
+        else params.set("tab", next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
 
   const { rows, summary, baselinePositions, draftPositions } = versionDiff;
   const v1Locked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
-  const canApproveV1 = primaryBudget && !v1Locked;
-  const canCreateDraft = Boolean(latestApproved && v1Locked && !workingDraft);
-  const canSubmitApproval = activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
-  const canPublish = activePlan.kind === "WORKING_DRAFT" && activePlan.status === "IN_APPROVAL";
+  const canApproveV1 = primaryBudget && !v1Locked && canManagePlanVersions && canEditPlan;
+  const canCreateDraft = Boolean(latestApproved && v1Locked && !workingDraft && canManagePlanVersions && canEditPlan);
+  const canSubmitApproval =
+    canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
+  const canPublish =
+    canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "IN_APPROVAL";
 
   const handleOpenVersion = (id: string, goPlanning = false) => {
     const result = openVersion(id);
@@ -38,7 +82,10 @@ export function VersionsPage() {
       window.alert(result.error);
       return;
     }
-    if (goPlanning) navigate("/planning");
+    if (goPlanning) {
+      const version = planVersions.find((item) => item.id === id);
+      navigate(version?.kind === "WORKING_DRAFT" ? planWorkspacePath("correction") : "/planning");
+    }
   };
 
   const handleCreateDraft = () => {
@@ -80,12 +127,13 @@ export function VersionsPage() {
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
         <div>
-          <h1>Версии бюджета</h1>
+          <h1>Версии и согласование</h1>
           <p className="content-page__lead">
             Жизненный цикл: v1 → утверждение → квартальный черновик → согласование → v+1. События по позициям — в{" "}
             <Link to="/audit">аудите</Link>, правки — в <Link to="/planning">планировании</Link>.
           </p>
         </div>
+        {tab === "versions" ? (
         <div className="versions-page__actions">
           {canApproveV1 ? (
             <button type="button" className="primary-btn" onClick={handleApproveV1}>
@@ -98,8 +146,15 @@ export function VersionsPage() {
             </button>
           ) : null}
           {workingDraft ? (
-            <button type="button" className="secondary-btn" onClick={() => handleOpenVersion(workingDraft.id, true)}>
-              Открыть черновик в планировании
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => {
+                handleOpenVersion(workingDraft.id);
+                navigate(planWorkspacePath("correction"));
+              }}
+            >
+              Открыть в корректировке
             </button>
           ) : null}
           {canSubmitApproval ? (
@@ -113,8 +168,58 @@ export function VersionsPage() {
             </button>
           ) : null}
         </div>
+        ) : null}
       </header>
 
+      <nav className="planning-workspace-tabs" aria-label="Разделы версий">
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${tab === "versions" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setTab("versions")}
+        >
+          Версии бюджета
+        </button>
+        {showConsolidation ? (
+          <button
+            type="button"
+            className={`planning-workspace-tabs__btn${tab === "consolidation" ? " planning-workspace-tabs__btn--active" : ""}`}
+            onClick={() => setTab("consolidation")}
+          >
+            Консолидация
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${tab === "approval" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setTab("approval")}
+        >
+          Согласование
+        </button>
+        {workingDraft ? (
+          <button
+            type="button"
+            className={`planning-workspace-tabs__btn${tab === "compare" ? " planning-workspace-tabs__btn--active" : ""}`}
+            onClick={() => setTab("compare")}
+          >
+            Сравнение
+          </button>
+        ) : null}
+      </nav>
+
+      {tab === "consolidation" && showConsolidation ? <ConsolidationPage embedded /> : null}
+
+      {tab === "approval" ? (
+        <section className="card planning-workspace-panel">
+          <PlanApprovalPanel />
+        </section>
+      ) : null}
+
+      {tab === "compare" && workingDraft ? (
+        <CorrectionComparePanel workspaceMode="correction" correctionWindow={correctionWindow} />
+      ) : null}
+
+      {tab === "versions" ? (
+      <>
       <section className="version-approval-route">
         <h2 className="version-approval-route__title">Маршрут</h2>
         <ol className="version-approval-route__steps">
@@ -152,7 +257,7 @@ export function VersionsPage() {
                       <span className="version-tag version-tag--draft">черновик</span>
                     ) : null}
                   </td>
-                  <td>{PLAN_VERSION_STATUS_LABELS[version.status]}</td>
+                  <td>{planVersionStatusUiLabel(version.status)}</td>
                   <td className="muted-text">
                     {new Date(version.publishedAt ?? version.createdAt).toLocaleDateString("ru-RU")}
                   </td>
@@ -189,11 +294,18 @@ export function VersionsPage() {
                 <p className="muted-text">
                   Детализация по событиям (месяц, статус, оклад, комментарии) — в аудите, не дублируем таблицу здесь.
                 </p>
+                <Link className="primary-btn" to="/versions?tab=compare">
+                  Сравнение и лимит
+                </Link>
                 <Link
-                  className="primary-btn"
-                  to={`/planning?tab=journal&diff=1&positions=${rows.map((row) => row.positionId).join(",")}`}
+                  className="secondary-btn"
+                  to={planWorkspacePath("correction", {
+                    tab: "journal",
+                    diff: "1",
+                    positions: rows.map((row) => row.positionId).join(","),
+                  })}
                 >
-                  Журнал изменений ({rows.length} поз.)
+                  Журнал ({rows.length} поз.)
                 </Link>
               </div>
             )}
@@ -224,6 +336,8 @@ export function VersionsPage() {
           )}
           .
         </p>
+      ) : null}
+      </>
       ) : null}
     </div>
   );

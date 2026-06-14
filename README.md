@@ -2,73 +2,81 @@
 
 Веб-система годового планирования ФОТ и план-факт (MVP).
 
-**Передача в новый чат:** [`docs/HANDOFF.md`](docs/HANDOFF.md)  
-**Вся текущая работа:** [`mvp/frontend/`](mvp/frontend/) → http://127.0.0.1:5174/ (локально, без БД)
+| | |
+|---|---|
+| **Папка проекта** | [`C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner`](C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner) |
+| **Актуальный UI** | [`mvp/frontend/`](mvp/frontend/) |
+| **Локально** | http://localhost:5174 (см. `Local:` в терминале) |
+| **Handoff** | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
+| **Новый чат** | [`docs/NEW-CHAT-PROMPT.md`](docs/NEW-CHAT-PROMPT.md) |
+| **Дизайн-референс** | [`docs/design/annual-budget-planning-app/source/`](docs/design/annual-budget-planning-app/source/) |
 
 ## Структура
 
-- `mvp/frontend/` — **единственный актуальный UI** (React, данные в браузере)
-- `docs/HANDOFF.md` — handoff для нового чата
-- `docs/design/...` — референс Figma
-- `apps/`, `packages/` — не в фокусе текущей итерации
+```
+fot-planner/
+  mvp/frontend/     ← единственный актуальный UI (React + Vite)
+  docs/             ← продукт, handoff, шаги, ИБ, дизайн
+  scripts/          ← start-web.ps1, start.ps1
+  apps/, packages/  ← legacy (API, domain) — не в фокусе MVP
+```
 
 ## Запуск
 
-Нужны **два процесса**: API (8000) и фронт (5180). Порт **5173 не используется** — там может быть ваш лидерборд.
-
-**Быстрый старт (PowerShell):**
+Нужен **Node.js**. API и PostgreSQL **не требуются**.
 
 ```powershell
-cd c:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
-
-# Терминал 1 — API (создаёт .venv, ставит зависимости)
-.\scripts\start-api.ps1
-
-# Терминал 2 — интерфейс
-.\scripts\start-web.ps1
+cd C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
+npm run dev
 ```
 
-Или одной командой (API в отдельном окне): `.\scripts\start.ps1`
+Или: `.\scripts\start-web.ps1`
 
-Если порт `8000` занят или API отвечает старым кодом:
+Первый раз:
 
 ```powershell
-.\scripts\restart-api.ps1
+cd mvp\frontend
+npm install
+npm run dev
 ```
 
-Также можно запускать API с автоматическим освобождением порта:
+### Проверка
 
 ```powershell
-.\scripts\start-api.ps1 -ForceKillPort
+npm test        # 48 тестов
+npm run build
 ```
 
-Нужны **Python 3.11+** (в PATH) и **Node.js** (npm).
+### Если не открывается
 
-Откройте **http://localhost:5180** — только после `npm run dev` (должно быть `VITE ready`).
+1. Смотрите URL в терминале (`VITE ready` → `Local:`).
+2. Порт 5174 занят → Vite выберет 5175 и т.д.
+3. Закрыть старый процесс: `Get-NetTCPConnection -LocalPort 5174`
+4. Не открывать legacy **:5180** — это старый `apps/web`.
 
-### Страницы пустые
+### Пустые данные
 
-1. **API должен работать** на http://127.0.0.1:8000/docs  
-2. В сайдбаре выберите план **2026 — baseline** (подставляется автоматически).  
-3. Если KPI = 0: **Пересчитать план** или (админ) **Импорт → Пересоздать демо-данные** → F5.
+Сайдбар → план **2026 — baseline**. Admin → **Данные** → «Загрузить расширенное демо» → F5.
 
-### `Not Found` на `/budget` или странный статус в планировании
+## Навигация MVP
 
-Обычно это старый процесс на `:8000`. Выполните `.\scripts\restart-api.ps1`, затем обновите браузер через `Ctrl+F5`.
+- **Обзор** — `/`
+- **Планирование** — `/planning` (корректировка: `?mode=correction`)
+- **Аналитика** — `/analytics`
+- **Версии** — `/versions` (консолидация: `?tab=consolidation`)
 
-### Ошибка `Cannot GET /` на :5180
+## Legacy
 
-На порту отвечает **не** Vite (чужой процесс или фронт не запущен). Закройте лишнее на 5180, выполните `npm run dev` в `apps/web` и обновите страницу.
-
-### Пользователи (заголовок X-User-Id)
-
-- `admin` — полный доступ
-- `user_it` — срез DEPT-IT
-
-## Тесты движка
-
-```bash
-cd packages/domain
-pip install pytest
-pytest tests -q
+```powershell
+npm run web:legacy    # apps/web → :5180
+npm run api             # FastAPI → :8000
 ```
+
+## Документация
+
+| Файл | О чём |
+|------|--------|
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Состояние кода, запуск, файлы |
+| [`docs/PRODUCT-MODEL.md`](docs/PRODUCT-MODEL.md) | Продуктовые правила |
+| [`docs/IMPLEMENTATION-STEPS.md`](docs/IMPLEMENTATION-STEPS.md) | Чеклист шагов |
+| [`docs/CONTEXT-MAP.md`](docs/CONTEXT-MAP.md) | Карта всех docs |

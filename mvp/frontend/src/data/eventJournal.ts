@@ -5,7 +5,7 @@ import {
   sortEventsForApply,
 } from "./planningData";
 import type { EventType, PlannedEvent, PositionRecord } from "../types";
-import { eventTypeLabel } from "../components/drawer/formatEventHistory";
+import { eventTypeLabel } from "./eventLabels";
 
 const TABLE_EVENT_TYPES = new Set<EventType>([
   "INDEXATION",
@@ -62,6 +62,7 @@ export type PlanEventJournalRow = {
 export function tableRowStatusClass(status: PositionRecord["status"]): string {
   if (status === "Vacancy") return "table-row--vacancy";
   if (status === "Closed") return "table-row--closed";
+  if (status === "Occupied") return "table-row--occupied";
   return "";
 }
 
@@ -120,7 +121,7 @@ export function summarizeLatestPositionEvent(position: PositionRecord): Position
   })[0];
   return {
     event,
-    typeLabel: eventTypeLabel(event.type),
+    typeLabel: eventTypeLabel(event),
     employeeLine: eventEmployeeLine(event, position),
     change: summarizeEventChange(position, event),
     commentTooltip: eventCommentTooltip(event),
@@ -165,7 +166,7 @@ export function collectPlanEventJournalRows(positions: PositionRecord[]): PlanEv
         limitFlag: position.limitFlag,
         statusAfter: applyEventsUntil(position, event.id, true).status,
         employeeLine: eventEmployeeLine(event, position),
-        typeLabel: eventTypeLabel(event.type),
+        typeLabel: eventTypeLabel(event),
         change,
         comment: event.payload.comment?.trim() || null,
         commentTooltip: eventCommentTooltip(event),
@@ -183,7 +184,8 @@ export const JOURNAL_EVENT_TYPE_OPTIONS: { value: EventType | "All"; label: stri
   { value: "TERMINATION_TO_VACANCY", label: "Увольнение" },
   { value: "CLOSE_POSITION", label: "Сокращение" },
   { value: "INDEXATION", label: "Индексация" },
-  { value: "MANUAL_OVERRIDE", label: "Ручная настройка" },
+  { value: "MANUAL_OVERRIDE", label: "Пересмотр" },
+  { value: "TARGET_SALARY", label: "Пересмотр" },
   { value: "CLASSIFICATION_CHANGE", label: "Смена грейда" },
   { value: "POSITION_CARRYOVER", label: "Перенос бюджета" },
 ];

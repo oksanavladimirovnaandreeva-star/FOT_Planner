@@ -2,8 +2,14 @@
   "name": "fot-planner",
   "private": true,
   "scripts": {
+    "dev": "npm run dev --prefix mvp/frontend",
+    "onboarding": "npm run dev --prefix prolyceum-onboarding",
+    "eval": "npm run dev --prefix annual-eval",
+    "start": "npm run dev",
+    "build": "npm run build --prefix mvp/frontend",
+    "test": "npm run test --prefix mvp/frontend",
     "api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
-    "web": "cd apps/web && npm run dev",
+    "web:legacy": "cd apps/web && npm run dev",
     "test:domain": "cd packages/domain && python -m pytest tests -q"
   }
 }

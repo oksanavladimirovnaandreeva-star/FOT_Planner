@@ -23,6 +23,7 @@ export type ScenarioFormState = {
   targetDepartment: string;
   targetUnit: string;
   targetTeam: string;
+  comment: string;
 };
 
 export type DrawerTab = "position" | "event" | "monthly" | "history";
@@ -88,5 +89,6 @@ export function initialScenarioForm(
     targetDepartment: preferredDepartment,
     targetUnit: preferredUnit,
     targetTeam: preferredTeam,
+    comment: "",
   };
 }

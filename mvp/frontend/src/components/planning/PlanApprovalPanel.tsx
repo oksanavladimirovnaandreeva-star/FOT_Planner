@@ -12,6 +12,7 @@ export function PlanApprovalPanel() {
   const {
     activePlan,
     canEditPlan,
+    canManagePlanVersions,
     workingDraft,
     latestApproved,
     primaryBudget,
@@ -28,10 +29,12 @@ export function PlanApprovalPanel() {
 
   const { rows, summary, baselinePositions, draftPositions } = versionDiff;
   const v1Locked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
-  const canApproveV1 = primaryBudget && !v1Locked && canEditPlan;
-  const canCreateDraft = Boolean(latestApproved && v1Locked && !workingDraft && canEditPlan);
-  const canSubmitApproval = canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
-  const canPublish = canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "IN_APPROVAL";
+  const canApproveV1 = primaryBudget && !v1Locked && canManagePlanVersions && canEditPlan;
+  const canCreateDraft = Boolean(latestApproved && v1Locked && !workingDraft && canManagePlanVersions && canEditPlan);
+  const canSubmitApproval =
+    canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
+  const canPublish =
+    canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "IN_APPROVAL";
   const triggeredRuleIds = new Set(draftApprovalCheck.triggered.map((rule) => rule.id));
 
   const handleCreateDraft = () => {

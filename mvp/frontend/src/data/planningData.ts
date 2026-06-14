@@ -11,20 +11,10 @@ import type { SalaryRangeBand } from "../types";
 
 const DEFAULT_BANDS = initialSalaryBands();
 
-export const ORG_STRUCTURE: Record<string, Record<string, string[]>> = {
-  Engineering: {
-    Platform: ["Backend Core", "Infrastructure"],
-    ProductDev: ["Frontend Web", "Mobile"],
-  },
-  Product: {
-    Core: ["PM Team A", "PM Team B"],
-    Analytics: ["Research", "Insights"],
-  },
-  Marketing: {
-    Brand: ["Content", "SMM"],
-    Growth: ["Performance", "CRM"],
-  },
-};
+import { ORG_STRUCTURE, departmentOptions, teamOptions, unitOptions } from "./orgStructure";
+import { buildDemoPositions } from "./demoPlanSeed";
+
+export { ORG_STRUCTURE, departmentOptions, unitOptions, teamOptions };
 
 /** @deprecated Используйте specializationOptions(salaryBands) из контекста. */
 export const SPECIALIZATION_OPTIONS = specializationOptions(DEFAULT_BANDS);
@@ -45,16 +35,6 @@ export function getMonthlyCR(
   return crFromCatalog(base, spec, level, bands);
 }
 
-export const departmentOptions = Object.keys(ORG_STRUCTURE);
-
-export function unitOptions(department: string): string[] {
-  return Object.keys(ORG_STRUCTURE[department] ?? {});
-}
-
-export function teamOptions(department: string, unit: string): string[] {
-  return ORG_STRUCTURE[department]?.[unit] ?? [];
-}
-
 export function normalizeOrgPath(department: string, unit: string, team: string): { department: string; unit: string; team: string } {
   const safeDepartment = departmentOptions.includes(department) ? department : departmentOptions[0];
   const units = unitOptions(safeDepartment);
@@ -63,8 +43,6 @@ export function normalizeOrgPath(department: string, unit: string, team: string)
   const safeTeam = teams.includes(team) ? team : teams[0];
   return { department: safeDepartment, unit: safeUnit, team: safeTeam };
 }
-
-const twelve = <T,>(value: T): T[] => Array.from({ length: 12 }, () => value);
 
 const EVENT_PRIORITY: Record<string, number> = {
   MANUAL_OVERRIDE: 1,
@@ -145,7 +123,7 @@ export function intraTransferVacancyHint(
     );
     if (vacantElsewhere.length > 0) {
       const units = [...new Set(vacantElsewhere.map((position) => position.unit))];
-      return `В юните «${source.unit}» нет слотов. Свободные вакансии в ${source.department}: ${units.join(", ")} — смените юнит у вакансии или используйте перевод в другой департамент.`;
+      return `В юните «${source.unit}» нет позиций. Свободные вакансии в ${source.department}: ${units.join(", ")} — смените юнит у вакансии или используйте перевод в другой департамент.`;
     }
     return `В юните «${source.unit}» (${source.department}) нет вакансий на ${monthLabel(transferMonth)}. Создайте вакансию с тем же юнитом и «Сохранить в план».`;
   }
@@ -160,128 +138,7 @@ export function intraTransferVacancyHint(
 }
 
 export function initialPositions(): PositionRecord[] {
-  return [
-    {
-      positionId: "P001",
-      role: "Senior Frontend Engineer",
-      department: "Engineering",
-      unit: "ProductDev",
-      team: "Frontend Web",
-      slotType: "carryover",
-      limitFlag: "IN_LIMIT",
-      activeFromMonth: 0,
-      vacancySinceMonth: null,
-      previousDecemberBase: 172_000,
-      employeeName: "Ирина Соколова",
-      employeeId: "E001",
-      status: "Occupied",
-      seedEmployeeName: "Ирина Соколова",
-      seedEmployeeId: "E001",
-      seedStatus: "Occupied",
-      seedVacancySinceMonth: null,
-      monthlySpec: twelve("Engineering"),
-      monthlyLevel: twelve("Senior"),
-      monthlyBase: twelve(180_000),
-      monthlyBonus: twelve(0),
-      seedMonthlySpec: twelve("Engineering"),
-      seedMonthlyLevel: twelve("Senior"),
-      seedMonthlyBase: twelve(180_000),
-      seedMonthlyBonus: twelve(0),
-      events: [],
-    },
-    {
-      positionId: "P002",
-      role: "Backend Engineer",
-      department: "Engineering",
-      unit: "Platform",
-      team: "Backend Core",
-      slotType: "carryover",
-      limitFlag: "IN_LIMIT",
-      activeFromMonth: 0,
-      vacancySinceMonth: null,
-      previousDecemberBase: 150_000,
-      employeeName: null,
-      employeeId: null,
-      status: "Vacancy",
-      seedEmployeeName: null,
-      seedEmployeeId: null,
-      seedStatus: "Vacancy",
-      seedVacancySinceMonth: null,
-      monthlySpec: twelve("Engineering"),
-      monthlyLevel: twelve("Middle"),
-      monthlyBase: twelve(155_000),
-      monthlyBonus: twelve(0),
-      seedMonthlySpec: twelve("Engineering"),
-      seedMonthlyLevel: twelve("Middle"),
-      seedMonthlyBase: twelve(155_000),
-      seedMonthlyBonus: twelve(0),
-      events: [
-        {
-          id: "seed-carryover-p002",
-          type: "POSITION_CARRYOVER",
-          createdAt: "2026-01-01T00:00:00.000Z",
-          createdOrder: 1,
-          payload: { month: 0 },
-        },
-      ],
-    },
-    {
-      positionId: "P003",
-      role: "Product Manager",
-      department: "Product",
-      unit: "Core",
-      team: "PM Team A",
-      slotType: "carryover",
-      limitFlag: "IN_LIMIT",
-      activeFromMonth: 0,
-      vacancySinceMonth: null,
-      previousDecemberBase: 205_000,
-      employeeName: "Марк Чен",
-      employeeId: "E003",
-      status: "Occupied",
-      seedEmployeeName: "Марк Чен",
-      seedEmployeeId: "E003",
-      seedStatus: "Occupied",
-      seedVacancySinceMonth: null,
-      monthlySpec: twelve("Product"),
-      monthlyLevel: twelve("Senior"),
-      monthlyBase: twelve(220_000),
-      monthlyBonus: twelve(0),
-      seedMonthlySpec: twelve("Product"),
-      seedMonthlyLevel: twelve("Senior"),
-      seedMonthlyBase: twelve(220_000),
-      seedMonthlyBonus: twelve(0),
-      events: [],
-    },
-    {
-      positionId: "P004",
-      role: "Frontend Engineer (вакансия)",
-      department: "Engineering",
-      unit: "ProductDev",
-      team: "Frontend Web",
-      slotType: "new",
-      limitFlag: "OVER_LIMIT",
-      activeFromMonth: 0,
-      vacancySinceMonth: 0,
-      previousDecemberBase: 0,
-      employeeName: null,
-      employeeId: null,
-      status: "Vacancy",
-      seedEmployeeName: null,
-      seedEmployeeId: null,
-      seedStatus: "Vacancy",
-      seedVacancySinceMonth: 0,
-      monthlySpec: twelve("Engineering"),
-      monthlyLevel: twelve("Middle"),
-      monthlyBase: twelve(160_000),
-      monthlyBonus: twelve(0),
-      seedMonthlySpec: twelve("Engineering"),
-      seedMonthlyLevel: twelve("Middle"),
-      seedMonthlyBase: twelve(160_000),
-      seedMonthlyBonus: twelve(0),
-      events: [],
-    },
-  ];
+  return buildDemoPositions();
 }
 
 function round(value: number): number {
@@ -301,14 +158,14 @@ export function decToDec(prevDecember: number, currDecember: number): number {
 export type SlotTypeKey = PositionRecord["slotType"];
 
 export const SLOT_TYPE_LABELS: Record<SlotTypeKey, string> = {
-  carryover: "Перенос (старые)",
-  new: "Новый слот",
+  carryover: "Перенос",
+  new: "Новая",
 };
 
 export const LIMIT_FLAG_LABELS: Record<LimitFlagKey, string> = {
-  IN_LIMIT: "В лимите",
-  OVER_LIMIT: "Сверх лимита",
-  UNLIMITED: "Без лимита",
+  IN_LIMIT: "В лимите (старая позиция)",
+  OVER_LIMIT: "Вне лимита (новая позиция)",
+  UNLIMITED: "Без ограничения роста",
 };
 
 export const POSITION_STATUS_LABELS: Record<PositionRecord["status"], string> = {
@@ -318,9 +175,9 @@ export const POSITION_STATUS_LABELS: Record<PositionRecord["status"], string> = 
 };
 
 export const LIMIT_FLAG_OPTIONS: { value: LimitFlagKey; label: string }[] = [
-  { value: "IN_LIMIT", label: "В лимите (IN_LIMIT)" },
-  { value: "OVER_LIMIT", label: "Сверх лимита (OVER_LIMIT)" },
-  { value: "UNLIMITED", label: "Без лимита (UNLIMITED)" },
+  { value: "IN_LIMIT", label: "В лимите (старая позиция)" },
+  { value: "OVER_LIMIT", label: "Вне лимита (новая позиция)" },
+  { value: "UNLIMITED", label: "Без ограничения роста" },
 ];
 
 /** Стартовое значение при создании слота (как в VacancyDrawer: carryover → только IN_LIMIT). */

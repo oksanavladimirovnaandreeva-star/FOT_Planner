@@ -1,17 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { Calculator, Plus, Search, Trash2 } from "lucide-react";
-import { PlanApprovalPanel } from "../components/planning/PlanApprovalPanel";
-import { PlanCorrectionWindowBanner } from "../components/planning/PlanCorrectionWindowBanner";
-import { PlanIndexationBanner } from "../components/planning/PlanIndexationBanner";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Plus, Trash2 } from "lucide-react";
+import { PlanContextBar } from "../components/planning/PlanContextBar";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
 import {
   isPlanEventMonthAllowed,
   planEventMonthBlockedMessage,
+  isAnnualPlanningDraft,
+  isQuarterWorkingDraft,
   resolveCorrectionWindow,
 } from "../data/planCorrectionWindow";
-import { roleCanApplyMassIndexation } from "../data/userAccess";
+import { PLAN_WORKSPACE_LABELS, type PlanWorkspaceMode } from "../data/planWorkspaceMode";
+import {
+  availableTeamsForSlice,
+  availableUnitsForSlice,
+  EMPTY_ORG_SLICE,
+  matchesOrgSlice,
+  primaryDepartmentForOrg,
+  primaryTeamForOrg,
+  primaryUnitForOrg,
+  updateOrgSliceDepartments,
+  updateOrgSliceTeams,
+  updateOrgSliceUnits,
+  type OrgSliceSelection,
+} from "../data/orgSliceFilters";
+import { OrgSliceMultiSelect } from "../components/OrgSliceMultiSelect";
+import { SliceToolbar, SliceToolbarSelect } from "../components/SliceToolbar";
+import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
+import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults } from "../data/userAccess";
 import {
   annualTotal,
   applyEvents,
@@ -40,12 +57,15 @@ import {
   mapPositionsWithAppliedEvents,
   mergePlanPositionsWithDraft,
   removePlanEvent,
+  removePlanPosition,
 } from "../data/planOperations";
 import { useMvpApp } from "../context/MvpAppContext";
 import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
+import { ExportCsvActions } from "../components/ExportCsvActions";
 import { PositionDrawer } from "../components/PositionDrawer";
-import { MONTHS } from "../types";
+import { WorkflowHint } from "../components/WorkflowHint";
 import type { PlannedEvent, PositionRecord, SalaryRangeBand } from "../types";
+import { MONTHS } from "../types";
 
 type EmployeeOption = {
   employeeId: string;
@@ -119,47 +139,172 @@ function employeeCellLabel(record: PositionRecord): string {
   return `${primaryName} (${primaryId}) [декрет] + ${replacementLabel} [замещение]`;
 }
 
-type WorkspaceTab = "positions" | "matrix" | "journal" | "approval";
+type WorkspaceTab = "positions" | "matrix" | "journal";
 
 function parseWorkspaceTab(value: string | null): WorkspaceTab {
-  if (value === "matrix" || value === "journal" || value === "approval") return value;
+  if (value === "matrix" || value === "journal") return value;
   return "positions";
 }
 
+function parseWorkspaceMode(value: string | null): PlanWorkspaceMode {
+  return value === "correction" ? "correction" : "planning";
+}
+
+function positionEmployeePrimary(row: PositionRecord): string {
+  const label = employeeCellLabel(row);
+  if (label !== "-") return label;
+  if (row.status === "Vacancy") return "Вакансия";
+  if (row.status === "Closed") return "Закрыта";
+  return "—";
+}
+
 export function PlanningPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const workspaceTab = parseWorkspaceTab(searchParams.get("tab"));
+  const workspaceMode = parseWorkspaceMode(searchParams.get("mode"));
+  const rawTab = searchParams.get("tab");
+  const workspaceTab = parseWorkspaceTab(rawTab);
+
+  useEffect(() => {
+    if (rawTab === "approval") {
+      navigate("/versions?tab=approval", { replace: true });
+    } else if (rawTab === "compare") {
+      navigate("/versions?tab=compare", { replace: true });
+    }
+  }, [rawTab, navigate]);
+
   const {
     positions,
+    allPositions,
     setPositions,
     activePlan,
     viewMode,
     salaryBands,
     canEditPlan,
     workingDraft,
+    latestApproved,
+    createWorkingDraft,
     roleScopeHint,
     primaryBudget,
     userRole,
+    leadEditFrozenForRole,
+    leadEditFrozen,
+    canToggleLeadFreeze,
+    openVersion,
+    planVersionId,
   } = useMvpApp();
 
+  const orgFilterDefaults = useMemo(() => roleOrgFilterDefaults(userRole), [userRole]);
+
   const correctionWindow = useMemo(
-    () => resolveCorrectionWindow(activePlan, primaryBudget),
-    [activePlan, primaryBudget],
+    () => resolveCorrectionWindow(activePlan, primaryBudget, { workspaceMode }),
+    [activePlan, primaryBudget, workspaceMode],
   );
-  const canMassIndexation = roleCanApplyMassIndexation(userRole);
+  const isOnWorkingDraft = activePlan.kind === "WORKING_DRAFT";
+  const isAnnualDraft = isAnnualPlanningDraft(activePlan);
+  const canEditWorkspace = useMemo(() => {
+    if (!canEditPlan) return false;
+    if (workspaceMode === "correction") {
+      return isQuarterWorkingDraft(activePlan, primaryBudget);
+    }
+    return isAnnualDraft;
+  }, [canEditPlan, workspaceMode, activePlan, primaryBudget, isAnnualDraft]);
+
+  useEffect(() => {
+    if (workspaceMode !== "correction" || !workingDraft) return;
+    if (planVersionId !== workingDraft.id) {
+      openVersion(workingDraft.id);
+    }
+  }, [workspaceMode, workingDraft, planVersionId, openVersion]);
+
+  const canMassIndexation =
+    roleCanApplyMassIndexation(userRole) &&
+    (workspaceMode === "correction" ? canEditWorkspace : isAnnualDraft);
+
+  const canAddPosition =
+    roleCanEdit(userRole, leadEditFrozen) &&
+    (canEditWorkspace || Boolean(workingDraft) || Boolean(latestApproved) || isAnnualDraft);
 
   const blockEdit = () => {
-    window.alert("Правки только в рабочем черновике. Создайте черновик на странице «Версии».");
+    if (workspaceMode === "correction") {
+      window.alert(
+        workingDraft
+          ? "Правки только в квартальном черновике с допустимым месяцем события."
+          : "Создайте квартальный черновик на странице «Версии» (C&B).",
+      );
+      return;
+    }
+    window.alert("Годовые правки — в неутверждённом бюджете v1. Квартальные — переключитесь на «Корректировка».");
   };
   const [query, setQuery] = useState("");
-  const [department, setDepartment] = useState("All");
-  const [unit, setUnit] = useState("All");
-  const [team, setTeam] = useState("All");
+  const [orgSlice, setOrgSlice] = useState<OrgSliceSelection>(() => {
+    if (orgFilterDefaults) {
+      return {
+        departments: orgFilterDefaults.departments,
+        units: orgFilterDefaults.units,
+        teams: orgFilterDefaults.teams,
+      };
+    }
+    return loadPersistedOrgSlice() ?? EMPTY_ORG_SLICE;
+  });
+
+  useEffect(() => {
+    if (!orgFilterDefaults) return;
+    setOrgSlice({
+      departments: orgFilterDefaults.departments,
+      units: orgFilterDefaults.units,
+      teams: orgFilterDefaults.teams,
+    });
+  }, [orgFilterDefaults]);
+
+  useEffect(() => {
+    if (orgFilterDefaults) return;
+    savePersistedOrgSlice(orgSlice);
+  }, [orgSlice, orgFilterDefaults]);
+
+  useEffect(() => {
+    if (orgFilterDefaults) return;
+    const sliceDept = searchParams.get("sliceDept");
+    const sliceUnit = searchParams.get("sliceUnit");
+    const sliceTeam = searchParams.get("sliceTeam");
+    if (!sliceDept && !sliceUnit && !sliceTeam) return;
+    setOrgSlice({
+      departments: sliceDept ? sliceDept.split(",").filter(Boolean) : [],
+      units: sliceUnit ? sliceUnit.split(",").filter(Boolean) : [],
+      teams: sliceTeam ? sliceTeam.split(",").filter(Boolean) : [],
+    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("sliceDept");
+        next.delete("sliceUnit");
+        next.delete("sliceTeam");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [orgFilterDefaults, searchParams, setSearchParams]);
+
+  const unitOptionsList = useMemo(
+    () => availableUnitsForSlice({ departments: orgSlice.departments }),
+    [orgSlice.departments],
+  );
+  const teamOptionsList = useMemo(
+    () => availableTeamsForSlice({ departments: orgSlice.departments, units: orgSlice.units }),
+    [orgSlice.departments, orgSlice.units],
+  );
+
   const [limitFilter, setLimitFilter] = useState<"All" | "IN_LIMIT" | "OVER_LIMIT">("All");
   const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy" | "Closed">("All");
   const [active, setActive] = useState<PositionRecord | null>(null);
   const [idxPercent, setIdxPercent] = useState(5);
   const [idxMonth, setIdxMonth] = useState(8);
+  useEffect(() => {
+    if (workspaceMode !== "correction" || correctionWindow.startMonth == null) return;
+    setIdxMonth((current) =>
+      isPlanEventMonthAllowed(current, correctionWindow) ? current : correctionWindow.startMonth!,
+    );
+  }, [workspaceMode, correctionWindow]);
   const [recentlyIndexedIds, setRecentlyIndexedIds] = useState<string[]>([]);
   const [bulkFeedback, setBulkFeedback] = useState<{ tone: "success" | "warning"; text: string } | null>(null);
   const bulkFeedbackTimer = useRef<number | null>(null);
@@ -188,6 +333,16 @@ export function PlanningPage() {
   const [addSlotKind, setAddSlotKind] = useState<"vacancy" | "occupied">("vacancy");
   const [addSlotEmployeeId, setAddSlotEmployeeId] = useState("");
   const [addSlotEmployeeName, setAddSlotEmployeeName] = useState("");
+  const [pendingAddSlot, setPendingAddSlot] = useState(false);
+
+  useEffect(() => {
+    if (!pendingAddSlot || !canEditWorkspace) return;
+    setPendingAddSlot(false);
+    setAddSlotKind("vacancy");
+    setAddSlotEmployeeId(nextEmployeeId(allPositions));
+    setAddSlotEmployeeName("");
+    setAddSlotOpen(true);
+  }, [pendingAddSlot, canEditWorkspace, allPositions]);
 
   const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(positions), [positions]);
   const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
@@ -203,6 +358,18 @@ export function PlanningPage() {
   }, [searchParams]);
 
   const journalHighlightPositionId = searchParams.get("position");
+
+  const setWorkspaceMode = (mode: PlanWorkspaceMode) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (mode === "correction") next.set("mode", "correction");
+        else next.delete("mode");
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const setWorkspaceTab = (tab: WorkspaceTab) => {
     const next = new URLSearchParams(searchParams);
@@ -236,7 +403,7 @@ export function PlanningPage() {
     const positionId = searchParams.get("position");
     if (!positionId) return;
     openPositionInDrawer(positionId);
-    if (workspaceTab === "journal" || workspaceTab === "approval") return;
+    if (workspaceTab === "journal") return;
     const next = new URLSearchParams(searchParams);
     next.delete("position");
     setSearchParams(next, { replace: true });
@@ -265,15 +432,17 @@ export function PlanningPage() {
 
   const filtered = useMemo(() => {
     return appliedPositions.filter((position) => {
-      const departmentMatch = department === "All" || position.department === department;
-      const unitMatch = unit === "All" || position.unit === unit;
-      const teamMatch = team === "All" || position.team === team;
       const limitMatch = limitFilter === "All" || position.limitFlag === limitFilter;
       const occupancyMatch = occupancyFilter === "All" || position.status === occupancyFilter;
       const queryText = `${position.positionId} ${position.role} ${position.employeeName ?? ""} ${position.unit} ${position.team}`.toLowerCase();
-      return departmentMatch && unitMatch && teamMatch && limitMatch && occupancyMatch && queryText.includes(query.toLowerCase());
+      return (
+        matchesOrgSlice(position, orgSlice) &&
+        limitMatch &&
+        occupancyMatch &&
+        queryText.includes(query.toLowerCase())
+      );
     });
-  }, [appliedPositions, query, department, unit, team, limitFilter, occupancyFilter]);
+  }, [appliedPositions, query, orgSlice, limitFilter, occupancyFilter]);
 
   const tableCounts = useMemo(() => {
     const open = filtered.filter((position) => position.status !== "Closed");
@@ -287,12 +456,12 @@ export function PlanningPage() {
 
 
   const applyIndexationToFiltered = () => {
-    if (!canEditPlan) {
+    if (!canEditWorkspace) {
       blockEdit();
       return;
     }
     if (!canMassIndexation) {
-      window.alert("Массовая индексация доступна только C&B (администратор) и юнит-лиду.");
+      window.alert("Массовая индексация доступна только C&B и юнит-лиду.");
       return;
     }
     if (!isPlanEventMonthAllowed(idxMonth, correctionWindow)) {
@@ -338,27 +507,25 @@ export function PlanningPage() {
   };
 
   const deleteIndexationBatch = (batchId: string) => {
-    if (!canEditPlan) {
+    if (!canEditWorkspace) {
       blockEdit();
       return;
     }
-    const confirmed = window.confirm("Удалить этот факт индексации и пересчитать значения?");
+    const confirmed = window.confirm("Удалить факт массовой индексации для всех затронутых позиций?");
     if (!confirmed) return;
-
     setPositions((prev) =>
-      prev.map((position) => {
-        const filteredEvents = position.events.filter(
+      prev.map((position) => ({
+        ...position,
+        events: position.events.filter(
           (event) => !(event.type === "INDEXATION" && event.payload.indexationBatchId === batchId),
-        );
-        if (filteredEvents.length === position.events.length) return position;
-        return applyEvents({ ...position, events: filteredEvents });
-      }),
+        ),
+      })),
     );
-    showBulkFeedback("success", "Факт индексации удален. Значения пересчитаны.");
+    showBulkFeedback("success", "Факт массовой индексации удалён.");
   };
 
   const saveDraftPosition = (updated: PositionRecord, sourcePositionId?: string, forceCreate = false) => {
-    if (!canEditPlan) {
+    if (!canEditWorkspace) {
       blockEdit();
       return;
     }
@@ -368,7 +535,7 @@ export function PlanningPage() {
     setPositions((prev) => {
       const existsBySource = prev.some((position) => position.positionId === sourceId);
       if (existsBySource) {
-        return prev.map((position) => (position.positionId === sourceId ? recalculated : position));
+        return prev.map((position) => (position.positionId === sourceId ? withIndexation : position));
       }
       if (forceCreate) {
         return [...prev, withIndexation];
@@ -380,7 +547,7 @@ export function PlanningPage() {
   };
 
   const addEvent = (positionId: string, event: PlannedEvent) => {
-    if (!canEditPlan) {
+    if (!canEditWorkspace) {
       blockEdit();
       return;
     }
@@ -416,27 +583,47 @@ export function PlanningPage() {
   };
 
   const deleteEvent = (positionId: string, eventId: string) => {
-    if (!canEditPlan) {
+    if (!canEditWorkspace) {
       blockEdit();
       return;
     }
     setPositions((prev) => removePlanEvent(prev, positionId, eventId));
   };
-  const deleteVacancy = (positionId: string) => {
-    if (!canEditPlan) {
+  const deletePosition = (positionId: string) => {
+    if (!canEditWorkspace) {
       blockEdit();
       return;
     }
-    const isPersistedVacancy = positions.some((position) => position.positionId === positionId && position.status === "Vacancy");
-    const confirmText = isPersistedVacancy
-      ? `Удалить вакансию ${positionId} из плана? Это действие нельзя отменить.`
-      : "Удалить черновик вакансии?";
-    const confirmed = window.confirm(confirmText);
+    const target = positions.find((position) => position.positionId === positionId) ?? active;
+    const isPersisted = positions.some((position) => position.positionId === positionId);
+    const status = target?.status ?? "Vacancy";
+    const eventCount = target?.events.length ?? 0;
+    const confirmText = !isPersisted
+      ? "Удалить черновик позиции?"
+      : status === "Vacancy"
+        ? `Удалить вакансию ${positionId} из плана?`
+        : status === "Closed"
+          ? `Удалить закрытую позицию ${positionId} из плана?`
+          : `Удалить позицию ${positionId} (${target?.employeeName ?? "занята"}) из плана?${
+              eventCount > 0 ? ` Будут удалены ${eventCount} событий.` : ""
+            }`;
+    const confirmed = window.confirm(`${confirmText}\n\nДействие нельзя отменить.`);
     if (!confirmed) return;
-    setPositions((prev) => prev.filter((position) => position.positionId !== positionId));
+    const result = removePlanPosition(positions, positionId);
+    if (!result.ok) {
+      if (!isPersisted && active?.positionId === positionId) {
+        setActive(null);
+        setActiveSourceId(null);
+        showBulkFeedback("success", "Черновик позиции удалён.");
+        return;
+      }
+      window.alert(result.error);
+      return;
+    }
+    setPositions(result.positions);
     setActive(null);
     setActiveSourceId(null);
-    showBulkFeedback("success", isPersistedVacancy ? `Вакансия ${positionId} удалена.` : "Черновик вакансии удален.");
+    showBulkFeedback("success", `Позиция ${positionId} удалена из плана.`);
   };
   const employeeOptions: EmployeeOption[] = appliedPositions
     .filter((item) => item.status === "Occupied" && item.employeeId && item.employeeName)
@@ -448,104 +635,226 @@ export function PlanningPage() {
     .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "ru"));
 
   const openAddSlotDialog = () => {
-    if (!canEditPlan) {
+    if (canEditWorkspace) {
+      setAddSlotKind("vacancy");
+      setAddSlotEmployeeId(nextEmployeeId(allPositions));
+      setAddSlotEmployeeName("");
+      setAddSlotOpen(true);
+      return;
+    }
+    if (!roleCanEdit(userRole, leadEditFrozen)) {
       blockEdit();
       return;
     }
-    setAddSlotKind("vacancy");
-    setAddSlotEmployeeId(nextEmployeeId(positions));
-    setAddSlotEmployeeName("");
-    setAddSlotOpen(true);
+    const draftId = workingDraft?.id;
+    if (draftId) {
+      if (workspaceMode !== "correction") setWorkspaceMode("correction");
+      if (planVersionId !== draftId) openVersion(draftId);
+      setPendingAddSlot(true);
+      showBulkFeedback("success", "Открываем квартальный черновик для добавления позиции…");
+      return;
+    }
+    const created = createWorkingDraft(latestApproved?.id);
+    if (created.ok) {
+      if (workspaceMode !== "correction") setWorkspaceMode("correction");
+      openVersion(created.draftId);
+      setPendingAddSlot(true);
+      showBulkFeedback("success", "Создан черновик — добавьте позицию.");
+      return;
+    }
+    window.alert(created.error);
   };
 
   const createSlotFromDialog = () => {
-    const newId = nextPositionId(positions);
+    if (!canEditWorkspace) {
+      blockEdit();
+      return;
+    }
+    const newId = nextPositionId(allPositions);
     const activeFromMonth = new Date().getMonth();
     const org = normalizeOrgPath(
-      department === "All" ? "Engineering" : department,
-      unit === "All" ? "" : unit,
-      team === "All" ? "" : team,
+      primaryDepartmentForOrg(orgSlice),
+      primaryUnitForOrg(orgSlice),
+      primaryTeamForOrg(orgSlice),
     );
     const isOccupied = addSlotKind === "occupied";
-    const employeeId = addSlotEmployeeId.trim() || nextEmployeeId(positions);
+    const employeeId = addSlotEmployeeId.trim() || nextEmployeeId(allPositions);
     const employeeName = addSlotEmployeeName.trim();
 
     if (isOccupied && !employeeName) {
-      window.alert("Укажите ФИО сотрудника для занятого слота.");
+      window.alert("Укажите ФИО сотрудника для занятой позиции.");
       return;
     }
 
     const baseSalary = 150_000;
-    const record: PositionRecord = applyExistingIndexationBatches(
-      {
-        positionId: newId,
-        role: isOccupied ? employeeName : "Новая вакансия",
-        department: org.department,
-        unit: org.unit,
-        team: org.team,
-        slotType: "new",
-        limitFlag: defaultLimitFlagForSlotType("new"),
-        activeFromMonth,
-        vacancySinceMonth: isOccupied ? null : activeFromMonth,
-        previousDecemberBase: 0,
-        employeeName: isOccupied ? employeeName : null,
-        employeeId: isOccupied ? employeeId : null,
-        status: isOccupied ? "Occupied" : "Vacancy",
-        seedEmployeeName: isOccupied ? employeeName : null,
-        seedEmployeeId: isOccupied ? employeeId : null,
-        seedStatus: isOccupied ? "Occupied" : "Vacancy",
-        seedVacancySinceMonth: isOccupied ? null : activeFromMonth,
-        monthlySpec: Array.from({ length: 12 }, () => "Engineering"),
-        monthlyLevel: Array.from({ length: 12 }, () => "Middle"),
-        monthlyBase: Array.from({ length: 12 }, () => baseSalary),
-        monthlyBonus: Array.from({ length: 12 }, () => 0),
-        seedMonthlySpec: Array.from({ length: 12 }, () => "Engineering"),
-        seedMonthlyLevel: Array.from({ length: 12 }, () => "Middle"),
-        seedMonthlyBase: Array.from({ length: 12 }, () => baseSalary),
-        seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
-        events: [],
-      },
-      positions,
-    );
+    const record: PositionRecord = {
+      positionId: newId,
+      role: isOccupied ? employeeName : "Новая вакансия",
+      department: org.department,
+      unit: org.unit,
+      team: org.team,
+      slotType: "new",
+      limitFlag: defaultLimitFlagForSlotType("new"),
+      activeFromMonth,
+      vacancySinceMonth: isOccupied ? null : activeFromMonth,
+      previousDecemberBase: 0,
+      employeeName: isOccupied ? employeeName : null,
+      employeeId: isOccupied ? employeeId : null,
+      status: isOccupied ? "Occupied" : "Vacancy",
+      seedEmployeeName: isOccupied ? employeeName : null,
+      seedEmployeeId: isOccupied ? employeeId : null,
+      seedStatus: isOccupied ? "Occupied" : "Vacancy",
+      seedVacancySinceMonth: isOccupied ? null : activeFromMonth,
+      monthlySpec: Array.from({ length: 12 }, () => "Engineering"),
+      monthlyLevel: Array.from({ length: 12 }, () => "Middle"),
+      monthlyBase: Array.from({ length: 12 }, () => baseSalary),
+      monthlyBonus: Array.from({ length: 12 }, () => 0),
+      seedMonthlySpec: Array.from({ length: 12 }, () => "Engineering"),
+      seedMonthlyLevel: Array.from({ length: 12 }, () => "Middle"),
+      seedMonthlyBase: Array.from({ length: 12 }, () => baseSalary),
+      seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
+      events: [],
+    };
+    saveDraftPosition(record, record.positionId, true);
     setAddSlotOpen(false);
-    setActive(record);
-    setActiveSourceId(record.positionId);
+    showBulkFeedback("success", `Позиция ${newId} добавлена в план.`);
   };
 
   return (
     <div className="content-page planning-page">
+      {(userRole === "team_lead" || userRole === "unit_lead") && canEditWorkspace && !leadEditFrozenForRole ? (
+        <WorkflowHint hintId="planning-lead">
+          Выберите позицию в таблице и добавьте событие в карточке позиции.
+        </WorkflowHint>
+      ) : null}
       <header className="page-header">
         <div>
-          <h1>Планирование ФОТ</h1>
+          <h1>{PLAN_WORKSPACE_LABELS[workspaceMode]} ФОТ</h1>
           <p>
-            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} слотов (
+            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} поз. (
             {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии
             {tableCounts.closed > 0 ? `, ${tableCounts.closed} закрыто` : ""})
           </p>
           <p className="muted-line">{roleScopeHint}</p>
         </div>
         <div className="page-header__actions planning-toolbar">
-          {canMassIndexation ? (
-            <div className="planning-indexation-compact" title="По позициям текущего фильтра таблицы (C&B)">
-              <Calculator size={14} strokeWidth={2} aria-hidden />
-              <span className="planning-indexation-compact__label">Индексация</span>
-              <div className="planning-indexation-compact__percent">
-                <input
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  value={idxPercent}
-                  onChange={(event) => setIdxPercent(Number(event.target.value))}
-                  aria-label="Процент"
-                />
-                <span>%</span>
-              </div>
-              <select
-                className="planning-indexation-compact__month"
-                value={idxMonth}
-                onChange={(event) => setIdxMonth(Number(event.target.value))}
-                aria-label="С месяца"
+          <ExportCsvActions
+            positions={filtered}
+            viewMode={viewMode}
+            planVersionId={planVersionId}
+            planYear={activePlan.planYear}
+            userRole={userRole}
+            scope={orgSlice}
+            compact
+          />
+          <div className="planning-toolbar__actions">
+            <Link className="secondary-btn" to="/salary-ranges">
+              Диапазоны
+            </Link>
+            {workspaceTab === "positions" ? (
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={openAddSlotDialog}
+                disabled={!canAddPosition}
+                title={
+                  !canAddPosition
+                    ? !roleCanEdit(userRole, leadEditFrozen)
+                      ? "Нет прав на правку плана для этой роли"
+                      : "Нет базы для правок — откройте «Версии»"
+                    : !canEditWorkspace
+                      ? "Откроет квартальный черновик для добавления"
+                      : undefined
+                }
               >
+                <Plus size={14} /> Добавить позицию
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      <nav className="planning-workspace-tabs planning-mode-tabs" aria-label="Режим планирования">
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceMode === "planning" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceMode("planning")}
+        >
+          Годовое планирование
+        </button>
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceMode === "correction" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceMode("correction")}
+        >
+          Корректировка
+        </button>
+      </nav>
+
+      <nav
+        className="planning-workspace-tabs"
+        aria-label={workspaceMode === "correction" ? "Разделы корректировки" : "Разделы планирования"}
+      >
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "positions" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("positions")}
+          title="Таблица позиций; клик по строке откроет карточку"
+        >
+          Позиции
+        </button>
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "matrix" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("matrix")}
+          title="План и факт на конец месяца; отклонения только для просмотра"
+        >
+          По месяцам
+        </button>
+        <button
+          type="button"
+          className={`planning-workspace-tabs__btn${workspaceTab === "journal" ? " planning-workspace-tabs__btn--active" : ""}`}
+          onClick={() => setWorkspaceTab("journal")}
+          title="Все события версии; клик откроет позицию"
+        >
+          Журнал изменений
+        </button>
+      </nav>
+
+      <PlanContextBar
+        workspaceMode={workspaceMode}
+        correctionWindow={correctionWindow}
+        hasWorkingDraft={Boolean(workingDraft)}
+        isOnWorkingDraft={isOnWorkingDraft}
+        isAnnualDraft={isAnnualDraft}
+        canEditWorkspace={canEditWorkspace}
+        canEditPlan={canEditPlan}
+        leadEditFrozenForRole={leadEditFrozenForRole}
+        leadEditFrozen={leadEditFrozen}
+        canToggleLeadFreeze={canToggleLeadFreeze}
+        indexationBatches={indexationBatches}
+      />
+
+      {canMassIndexation ? (
+        <section className="card mass-indexation-panel">
+          <h2 className="section-title">Массовая индексация</h2>
+          <p className="muted-line">
+            По позициям текущего фильтра · {filtered.filter((item) => item.status !== "Closed").length} активных
+          </p>
+          <div className="mass-indexation-panel__form">
+            <label>
+              Процент
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={idxPercent}
+                onChange={(event) => setIdxPercent(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              С месяца
+              <select value={idxMonth} onChange={(event) => setIdxMonth(Number(event.target.value))}>
                 {MONTHS.map((month, monthIndex) => {
                   const blocked = !isPlanEventMonthAllowed(monthIndex, correctionWindow);
                   return (
@@ -556,95 +865,107 @@ export function PlanningPage() {
                   );
                 })}
               </select>
-              <button
-                type="button"
-                className="primary-btn planning-indexation-compact__btn"
-                onClick={applyIndexationToFiltered}
-                disabled={!canEditPlan}
-              >
-                Применить
-              </button>
+            </label>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={applyIndexationToFiltered}
+              disabled={!canEditWorkspace}
+            >
+              Применить
+            </button>
+          </div>
+          {!isPlanEventMonthAllowed(idxMonth, correctionWindow) ? (
+            <p className="muted-line">{planEventMonthBlockedMessage(correctionWindow)}</p>
+          ) : null}
+          {indexationBatches.length > 0 ? (
+            <div className="table-scroll mass-indexation-panel__batches">
+              <table className="simple-table">
+                <thead>
+                  <tr>
+                    <th>Когда</th>
+                    <th>Месяц</th>
+                    <th>%</th>
+                    <th>Поз.</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {indexationBatches.map((batch) => (
+                    <tr key={batch.id}>
+                      <td>{new Date(batch.createdAt).toLocaleString("ru-RU")}</td>
+                      <td>{monthLabel(batch.month)}</td>
+                      <td>+{batch.percent}%</td>
+                      <td>{batch.affectedCount}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          disabled={!canEditWorkspace}
+                          onClick={() => deleteIndexationBatch(batch.id)}
+                          title="Удалить факт индексации"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : null}
-          <div className="planning-toolbar__actions">
-            <Link className="secondary-btn" to="/salary-ranges">
-              Диапазоны
-            </Link>
-            {workspaceTab === "positions" ? (
-              <button type="button" className="primary-btn" onClick={openAddSlotDialog} disabled={!canEditPlan}>
-                <Plus size={14} /> Добавить слот
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </header>
-
-      <nav className="planning-workspace-tabs" aria-label="Разделы планирования">
-        <button
-          type="button"
-          className={`planning-workspace-tabs__btn${workspaceTab === "positions" ? " planning-workspace-tabs__btn--active" : ""}`}
-          onClick={() => setWorkspaceTab("positions")}
-        >
-          Позиции
-        </button>
-        <button
-          type="button"
-          className={`planning-workspace-tabs__btn${workspaceTab === "matrix" ? " planning-workspace-tabs__btn--active" : ""}`}
-          onClick={() => setWorkspaceTab("matrix")}
-        >
-          По месяцам
-        </button>
-        <button
-          type="button"
-          className={`planning-workspace-tabs__btn${workspaceTab === "journal" ? " planning-workspace-tabs__btn--active" : ""}`}
-          onClick={() => setWorkspaceTab("journal")}
-        >
-          Журнал изменений
-        </button>
-        <button
-          type="button"
-          className={`planning-workspace-tabs__btn${workspaceTab === "approval" ? " planning-workspace-tabs__btn--active" : ""}`}
-          onClick={() => setWorkspaceTab("approval")}
-        >
-          Согласование
-        </button>
-      </nav>
-
-      {workspaceTab === "positions" ? (
-        <p className="planning-workspace-hint">
-          Клик по строке → drawer: «Слот и занятость» · «События и ФОТ». Журнал — вкладка «Журнал изменений».
-        </p>
-      ) : null}
-      {workspaceTab === "matrix" ? (
-        <p className="planning-workspace-hint">
-          Матрица на конец месяца: план (З/В/—) и факт. Отклонения только для просмотра — план из факта не меняется.
-        </p>
-      ) : null}
-      {workspaceTab === "journal" ? (
-        <p className="planning-workspace-hint">
-          Все события текущей версии. Клик по строке откроет позицию для правки.
-        </p>
-      ) : null}
-      {workspaceTab === "approval" ? (
-        <p className="planning-workspace-hint">
-          Маршрут версии бюджета: утверждение v1 → черновик → согласование → публикация v+1.
-        </p>
+        </section>
       ) : null}
 
-      {!canEditPlan ? (
-        <div className="planning-readonly-banner" role="status">
-          Эта версия только для просмотра. Правки:{" "}
-          <Link to="/versions">{workingDraft ? "квартальный черновик" : "создайте черновик на «Версии»"}</Link>
-          {activePlan.versionNumber === 1 && activePlan.status === "DRAFT" ? null : "."}
-        </div>
-      ) : activePlan.versionNumber === 1 && activePlan.status === "DRAFT" ? (
-        <div className="planning-readonly-banner planning-readonly-banner--edit" role="status">
-          Бюджет v1 ещё не утверждён — можно править здесь. Затем «Утвердить» на <Link to="/versions">Версии</Link>.
-        </div>
+      {workspaceTab === "positions" || workspaceTab === "matrix" ? (
+        <SliceToolbar
+          sticky
+          search={query}
+          onSearchChange={setQuery}
+          searchPlaceholder="Роль, позиция или сотрудник…"
+          footer={`${filtered.length} поз. в срезе`}
+        >
+          <OrgSliceMultiSelect
+            layout="toolbar"
+            label="Департамент"
+            options={departmentOptions}
+            value={orgSlice.departments}
+            disabled={orgFilterDefaults?.lockDepartment}
+            onChange={(departments) => setOrgSlice((prev) => updateOrgSliceDepartments(prev, departments))}
+          />
+          <OrgSliceMultiSelect
+            layout="toolbar"
+            label="Юнит"
+            options={unitOptionsList}
+            value={orgSlice.units}
+            disabled={orgFilterDefaults?.lockUnit}
+            onChange={(units) => setOrgSlice((prev) => updateOrgSliceUnits(prev, units))}
+          />
+          <OrgSliceMultiSelect
+            layout="toolbar"
+            label="Команда"
+            options={teamOptionsList}
+            value={orgSlice.teams}
+            disabled={orgFilterDefaults?.lockTeam}
+            onChange={(teams) => setOrgSlice((prev) => updateOrgSliceTeams(prev, teams))}
+          />
+          <SliceToolbarSelect label="Лимит" value={limitFilter} onChange={(value) => setLimitFilter(value as typeof limitFilter)}>
+            <option value="All">Все</option>
+            <option value="IN_LIMIT">{LIMIT_FLAG_LABELS.IN_LIMIT}</option>
+            <option value="OVER_LIMIT">{LIMIT_FLAG_LABELS.OVER_LIMIT}</option>
+          </SliceToolbarSelect>
+          <SliceToolbarSelect
+            label="Статус"
+            value={occupancyFilter}
+            onChange={(value) => setOccupancyFilter(value as typeof occupancyFilter)}
+          >
+            <option value="All">Все</option>
+            <option value="Occupied">Позиция</option>
+            <option value="Vacancy">Вакансия</option>
+            <option value="Closed">Закрыта</option>
+          </SliceToolbarSelect>
+        </SliceToolbar>
       ) : null}
-
-      <PlanCorrectionWindowBanner window={correctionWindow} />
-      <PlanIndexationBanner batches={indexationBatches} />
 
       {workspaceTab === "positions" || workspaceTab === "matrix" ? (
         <>
@@ -657,108 +978,9 @@ export function PlanningPage() {
         showFactYtd={false}
         showAvgCr={false}
         planningLayout
+        planningCompact
       />
       ) : null}
-
-      <section className="card filters-card">
-        <div className="filters-grid filters-grid--toolbar">
-          <label className="search-field">
-            <Search size={14} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Роль, позиция или сотрудник…" />
-          </label>
-          <label>
-            Департамент
-            <select
-              value={department}
-              onChange={(event) => {
-                const nextDepartment = event.target.value;
-                setDepartment(nextDepartment);
-                if (nextDepartment === "All") {
-                  setUnit("All");
-                  setTeam("All");
-                  return;
-                }
-                const units = unitOptions(nextDepartment);
-                const nextUnit = units.includes(unit) ? unit : "All";
-                setUnit(nextUnit);
-                if (nextUnit === "All") {
-                  setTeam("All");
-                } else {
-                  const teams = teamOptions(nextDepartment, nextUnit);
-                  setTeam(teams.includes(team) ? team : "All");
-                }
-              }}
-            >
-              <option value="All">Все</option>
-              {departmentOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Юнит
-            <select
-              value={unit}
-              onChange={(event) => {
-                const nextUnit = event.target.value;
-                setUnit(nextUnit);
-                if (department === "All" || nextUnit === "All") {
-                  setTeam("All");
-                  return;
-                }
-                const teams = teamOptions(department, nextUnit);
-                setTeam(teams.includes(team) ? team : "All");
-              }}
-              disabled={department === "All"}
-            >
-              <option value="All">Все</option>
-              {department !== "All" &&
-                unitOptions(department).map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Команда
-            <select value={team} onChange={(event) => setTeam(event.target.value)} disabled={department === "All" || unit === "All"}>
-              <option value="All">Все</option>
-              {department !== "All" &&
-                unit !== "All" &&
-                teamOptions(department, unit).map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Лимит
-            <select value={limitFilter} onChange={(event) => setLimitFilter(event.target.value as "All" | "IN_LIMIT" | "OVER_LIMIT")}>
-              <option value="All">Все</option>
-              <option value="IN_LIMIT">{LIMIT_FLAG_LABELS.IN_LIMIT}</option>
-              <option value="OVER_LIMIT">{LIMIT_FLAG_LABELS.OVER_LIMIT}</option>
-            </select>
-          </label>
-          <label>
-            Статус
-            <select
-              value={occupancyFilter}
-              onChange={(event) =>
-                setOccupancyFilter(event.target.value as "All" | "Occupied" | "Vacancy" | "Closed")
-              }
-            >
-              <option value="All">Все</option>
-              <option value="Occupied">Позиция</option>
-              <option value="Vacancy">Вакансия</option>
-              <option value="Closed">Закрыта</option>
-            </select>
-          </label>
-        </div>
-      </section>
 
       {bulkFeedback && workspaceTab === "positions" ? (
         <section className={`bulk-feedback bulk-feedback--${bulkFeedback.tone}`}>
@@ -772,47 +994,9 @@ export function PlanningPage() {
             positions={filtered}
             viewMode={viewMode}
             viewModeLabel={viewMode === "total" ? "полный ФОТ" : "тарифный оклад"}
+            correctionWindow={workspaceMode === "correction" ? correctionWindow : null}
             onOpenPosition={openPositionInDrawer}
           />
-        </section>
-      ) : null}
-
-      {workspaceTab === "positions" && indexationBatches.length > 0 ? (
-        <section className="card">
-          <h2 className="section-title">Факты массовой индексации</h2>
-          <p className="muted-line">По событиям текущей версии · {indexationBatches.length} факт(ов)</p>
-          <table className="simple-table">
-            <thead>
-              <tr>
-                <th>Когда</th>
-                <th>Месяц</th>
-                <th>Процент</th>
-                <th>Позиции</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {indexationBatches.map((batch) => (
-                <tr key={batch.id}>
-                  <td>{new Date(batch.createdAt).toLocaleString("ru-RU")}</td>
-                  <td>{monthLabel(batch.month)}</td>
-                  <td>+{batch.percent}%</td>
-                  <td>{batch.affectedCount}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="icon-btn danger"
-                      disabled={!canEditPlan}
-                      title={canEditPlan ? "Удалить факт индексации" : "Только в режиме редактирования"}
-                      onClick={() => deleteIndexationBatch(batch.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </section>
       ) : null}
 
@@ -823,13 +1007,13 @@ export function PlanningPage() {
         <table className="simple-table positions-table positions-table--compact">
           <thead>
             <tr>
-              <th className="positions-table__sticky-col">Роль / ID</th>
-              <th>Занятость / орг.</th>
+              <th className="positions-table__sticky-col">Сотрудник / позиция</th>
               <th>Спец. и уровень</th>
               <th>Дек → дек</th>
               <th>ФОТ год</th>
               <th>CR</th>
               <th>Лимит</th>
+              {canEditWorkspace ? <th className="positions-table__actions" aria-label="Действия" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -838,7 +1022,7 @@ export function PlanningPage() {
               const decDelta = row.monthlyBase[11] - row.previousDecemberBase;
               const decPct = decToDec(row.previousDecemberBase, row.monthlyBase[11]);
               const rowExtra = recentlyIndexedIds.includes(row.positionId) ? "row-updated" : undefined;
-              const eventCount = (positions.find((item) => item.positionId === row.positionId) ?? row).events.length;
+              const eventCount = row.events.length;
               return (
                 <tr
                   key={row.positionId}
@@ -850,10 +1034,15 @@ export function PlanningPage() {
                   title="Открыть карточку позиции"
                 >
                   <td>
-                    <div className="positions-table__role">{row.role}</div>
-                    <div className="muted-line">
-                      {row.positionId} · с {monthLabel(row.activeFromMonth)} ·{" "}
-                      {POSITION_STATUS_LABELS[row.status]}
+                    <div className="positions-table__employee-line">
+                      <span className="position-state-badge position-state-badge--status">
+                        {POSITION_STATUS_LABELS[row.status]}
+                      </span>
+                      <strong className="positions-table__employee-name">{positionEmployeePrimary(row)}</strong>
+                    </div>
+                    <div className="muted-line positions-table__meta">
+                      {row.role} · {row.positionId} · {row.department} / {row.unit}
+                      {row.team ? ` / ${row.team}` : ""}
                       {eventCount > 0 ? (
                         <span className="position-state-badge position-state-badge--events"> · {eventCount} соб.</span>
                       ) : null}
@@ -865,17 +1054,6 @@ export function PlanningPage() {
                     {needsCarryoverEvent(row) && (
                       <span className="scenario-badge scenario-badge--warn">Нет события переноса</span>
                     )}
-                  </td>
-                  <td>
-                    <div className="positions-table__occupancy-line">
-                      <span className="position-state-badge position-state-badge--status">
-                        {POSITION_STATUS_LABELS[row.status]}
-                      </span>
-                      <span>{employeeCellLabel(row)}</span>
-                    </div>
-                    <div className="muted-line">
-                      {row.department} / {row.unit} / {row.team}
-                    </div>
                   </td>
                   <td>
                     {row.monthlySpec[11]}
@@ -892,13 +1070,31 @@ export function PlanningPage() {
                   </td>
                   <td>{annualTotal(row).toLocaleString("ru-RU")} ₽</td>
                   <td>
-                    <span className={`cr-value cr-value--${crTone(cr)}`}>{cr > 0 ? cr.toFixed(2) : "—"}</span>
+                    <span className={`cr-pct cr-pct--${crTone(cr)}`}>
+                      {cr > 0 ? `${(cr * 100).toFixed(1)}%` : "—"}
+                    </span>
                   </td>
                   <td>
                     <span className={`limit-flag-badge limit-flag-badge--${row.limitFlag}`}>
                       {LIMIT_FLAG_LABELS[row.limitFlag]}
                     </span>
                   </td>
+                  {canEditWorkspace ? (
+                    <td className="positions-table__actions">
+                      <button
+                        type="button"
+                        className="icon-btn danger"
+                        aria-label={`Удалить ${row.positionId}`}
+                        title="Удалить из плана"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deletePosition(row.positionId);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}
@@ -921,19 +1117,13 @@ export function PlanningPage() {
         </section>
       ) : null}
 
-      {workspaceTab === "approval" ? (
-        <section className="planning-workspace-panel">
-          <PlanApprovalPanel />
-        </section>
-      ) : null}
-
       {addSlotOpen ? (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="add-slot-title">
-          <div className="modal-card">
+          <div className="modal-card modal-card--add-slot">
             <h2 id="add-slot-title" className="section-title">
-              Новый слот в плане
+              Новая позиция в плане
             </h2>
-            <p className="muted-line">Позиция — штатная единица. Сразу выберите: вакансия или сотрудник на слоте.</p>
+            <p className="muted-line">Штатная единица в плане. Сразу выберите: вакансия или сотрудник на позиции.</p>
             <div className="add-slot-kind">
               <label>
                 <input
@@ -954,27 +1144,28 @@ export function PlanningPage() {
                 С сотрудником
               </label>
             </div>
-            {addSlotKind === "occupied" ? (
-              <div className="add-slot-employee-fields">
-                <label>
-                  ФИО
-                  <input
-                    type="text"
-                    value={addSlotEmployeeName}
-                    onChange={(event) => setAddSlotEmployeeName(event.target.value)}
-                    placeholder="Иванов Иван"
-                  />
-                </label>
-                <label>
-                  ID сотрудника
-                  <input
-                    type="text"
-                    value={addSlotEmployeeId}
-                    onChange={(event) => setAddSlotEmployeeId(event.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
+            <div className="add-slot-employee-fields">
+              <label>
+                ФИО
+                <input
+                  type="text"
+                  value={addSlotKind === "vacancy" ? "" : addSlotEmployeeName}
+                  onChange={(event) => setAddSlotEmployeeName(event.target.value)}
+                  placeholder="—"
+                  disabled={addSlotKind === "vacancy"}
+                />
+              </label>
+              <label>
+                ID сотрудника
+                <input
+                  type="text"
+                  value={addSlotKind === "vacancy" ? "" : addSlotEmployeeId}
+                  onChange={(event) => setAddSlotEmployeeId(event.target.value)}
+                  placeholder="—"
+                  disabled={addSlotKind === "vacancy"}
+                />
+              </label>
+            </div>
             <div className="modal-card__actions">
               <button type="button" className="secondary-btn" onClick={() => setAddSlotOpen(false)}>
                 Отмена
@@ -997,17 +1188,18 @@ export function PlanningPage() {
         onSaveDraft={saveDraftPosition}
         onAddEvent={addEvent}
         onDeleteEvent={deleteEvent}
-        onDeletePosition={deleteVacancy}
-        readOnly={!canEditPlan}
+        onDeletePosition={deletePosition}
+        readOnly={!canEditWorkspace}
         planPositions={planPositionsForDrawer}
         employeeOptions={employeeOptions}
-        suggestedNewEmployeeId={nextEmployeeId(positions)}
+        suggestedNewEmployeeId={nextEmployeeId(allPositions)}
         isPersisted={Boolean(active && positions.some((item) => item.positionId === active.positionId))}
+        correctionWindow={workspaceMode === "correction" ? correctionWindow : undefined}
         departmentOptions={departmentOptions}
         unitOptionsForDepartment={unitOptions}
         teamOptionsForUnit={teamOptions}
-        correctionWindow={correctionWindow}
       />
+
     </div>
   );
 }

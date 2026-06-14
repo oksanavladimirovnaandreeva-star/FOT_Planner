@@ -50,7 +50,7 @@ describe("collectOccupancyMismatches", () => {
   it("находит вакансию в плане и сотрудника в факте по position_id", () => {
     clearFactStore();
     const positions = clonePositions();
-    const vacancy = positions.find((item) => item.positionId === "P004");
+    const vacancy = positions.find((item) => item.status === "Vacancy");
     expect(vacancy).toBeTruthy();
 
     importEmployeeFacts(
@@ -62,10 +62,46 @@ describe("collectOccupancyMismatches", () => {
       },
       "replace",
     );
-    importFactPositionAssignments([{ positionId: "P004", employeeId: "E999", month: 3 }], "replace");
+    importFactPositionAssignments([{ positionId: vacancy!.positionId, employeeId: "E999", month: 3 }], "replace");
 
     const mismatches = collectOccupancyMismatches(positions);
-    expect(mismatches.some((item) => item.kind === "PLAN_VACANCY_FACT_OCCUPIED" && item.positionId === "P004")).toBe(
+    expect(
+      mismatches.some(
+        (item) => item.kind === "PLAN_VACANCY_FACT_OCCUPIED" && item.positionId === vacancy!.positionId,
+      ),
+    ).toBe(true);
+    clearFactStore();
+  });
+
+  it("находит двух сотрудников на одной позиции", () => {
+    clearFactStore();
+    const positions = clonePositions();
+    const occupied = positions.find((item) => item.status === "Occupied");
+    expect(occupied).toBeTruthy();
+
+    importEmployeeFacts(
+      {
+        E901: {
+          monthlyFactBase: Array.from({ length: 12 }, (_, index) => (index === 2 ? 90_000 : 0)),
+          monthlyFactBonus: Array.from({ length: 12 }, () => 0),
+        },
+        E902: {
+          monthlyFactBase: Array.from({ length: 12 }, (_, index) => (index === 2 ? 95_000 : 0)),
+          monthlyFactBonus: Array.from({ length: 12 }, () => 0),
+        },
+      },
+      "replace",
+    );
+    importFactPositionAssignments(
+      [
+        { positionId: occupied!.positionId, employeeId: "E901", month: 2 },
+        { positionId: occupied!.positionId, employeeId: "E902", month: 2 },
+      ],
+      "replace",
+    );
+
+    const mismatches = collectOccupancyMismatches(positions);
+    expect(mismatches.some((item) => item.kind === "MULTI_ON_SEAT" && item.positionId === occupied!.positionId)).toBe(
       true,
     );
     clearFactStore();

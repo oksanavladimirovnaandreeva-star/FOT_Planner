@@ -1,3 +1,4 @@
+import { applyEvents } from "./planningData";
 import { planOccupancyAtMonth } from "./occupancyTimeline";
 import type { PositionRecord } from "../types";
 import type { ViewMode } from "./dashboardMetrics";
@@ -238,22 +239,53 @@ export function monthFactAmountFromStore(
   return monthFactAmountForPosition(position, month, viewMode);
 }
 
-/** Демо: факт = 95% плана — только для проверки UI, не prod. */
-export function seedDemoFactFromPlan(positions: PositionRecord[]): number {
+export type DemoFactSeedResult = {
+  employeeCount: number;
+  assignmentCount: number;
+  throughMonth: number;
+};
+
+/** Демо: факт ≈95% плана + история посадок по месяцам — только для UI, не prod. */
+export function seedDemoFactFromPlan(
+  positions: PositionRecord[],
+  throughMonth = new Date().getMonth(),
+): DemoFactSeedResult {
+  const cappedMonth = Math.max(0, Math.min(11, throughMonth));
+  const applied = positions.map(applyEvents);
   const store: Record<string, EmployeeFactSlice> = {};
-  for (const position of positions) {
-    if (position.status === "Closed" || !position.employeeId) continue;
-    store[position.employeeId] = {
-      monthlyFactBase: position.monthlyBase.map((value, index) =>
-        index < position.activeFromMonth ? 0 : Math.round(value * 0.95),
-      ),
-      monthlyFactBonus: position.monthlyBonus.map((value, index) =>
-        index < position.activeFromMonth ? 0 : Math.round(value * 0.95),
-      ),
-    };
+  const assignments: FactPositionAssignment[] = [];
+
+  for (const position of applied) {
+    for (let month = 0; month <= cappedMonth; month += 1) {
+      const snap = planOccupancyAtMonth(position, month);
+      if (snap.status === "Closed" || !snap.employeeId) continue;
+
+      assignments.push({
+        positionId: position.positionId,
+        employeeId: snap.employeeId,
+        month,
+      });
+
+      if (!store[snap.employeeId]) {
+        store[snap.employeeId] = {
+          monthlyFactBase: Array.from({ length: 12 }, () => 0),
+          monthlyFactBonus: Array.from({ length: 12 }, () => 0),
+        };
+      }
+      const slice = store[snap.employeeId];
+      const planBase = position.monthlyBase[month] ?? 0;
+      const planBonus = position.monthlyBonus[month] ?? 0;
+      slice.monthlyFactBase[month] = Math.round(planBase * 0.95);
+      slice.monthlyFactBonus[month] = Math.round(planBonus * 0.95);
+    }
   }
-  writeEmployeeStore(store);
-  return Object.keys(store).length;
+
+  importEmployeeFacts(store, "replace", assignments);
+  return {
+    employeeCount: Object.keys(store).length,
+    assignmentCount: assignments.length,
+    throughMonth: cappedMonth,
+  };
 }
 
 /** Миграция старого хранилища по positionId → employeeId (если есть сотрудник на позиции). */

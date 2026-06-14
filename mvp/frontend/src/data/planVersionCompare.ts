@@ -53,8 +53,13 @@ export function compareKpis(baseline: PositionRecord[], draft: PositionRecord[])
 export function monthlyCompareSeries(
   baseline: PositionRecord[],
   draft: PositionRecord[],
+  options?: { fromMonth?: number },
 ): MonthlyComparePoint[] {
+  const fromMonth = options?.fromMonth ?? 0;
   return MONTHS.map((label, month) => {
+    if (month < fromMonth) {
+      return { month, label, baseline: 0, draft: 0 };
+    }
     let baselineSum = 0;
     let draftSum = 0;
     for (const position of baseline) {

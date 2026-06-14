@@ -3,6 +3,7 @@ import {
   getFactEmployeeOnPosition,
   hasFactData,
   listFactEmployeeIds,
+  listFactEmployeesOnPosition,
 } from "./factStore";
 import { monthLabel } from "./planningData";
 import { planOccupancyAtMonth } from "./occupancyTimeline";
@@ -12,13 +13,15 @@ export type OccupancyMismatchKind =
   | "PLAN_VACANCY_FACT_OCCUPIED"
   | "PLAN_OCCUPIED_FACT_EMPTY"
   | "PLAN_OCCUPIED_FACT_OTHER_EMPLOYEE"
+  | "MULTI_ON_SEAT"
   | "FACT_EMPLOYEE_NOT_ON_PLAN";
 
 export const OCCUPANCY_MISMATCH_LABELS: Record<OccupancyMismatchKind, string> = {
   PLAN_VACANCY_FACT_OCCUPIED: "В плане вакансия, в факте есть сотрудник",
   PLAN_OCCUPIED_FACT_EMPTY: "В плане сотрудник, в факте нет выплат",
-  PLAN_OCCUPIED_FACT_OTHER_EMPLOYEE: "В факте на слоте другой сотрудник",
-  FACT_EMPLOYEE_NOT_ON_PLAN: "Выплаты есть, в плане не на слоте",
+  PLAN_OCCUPIED_FACT_OTHER_EMPLOYEE: "В факте на позиции другой сотрудник",
+  MULTI_ON_SEAT: "Двое и более на позиции в факте",
+  FACT_EMPLOYEE_NOT_ON_PLAN: "Выплаты есть, в плане не на позиции",
 };
 
 export interface OccupancyMismatch {
@@ -55,10 +58,29 @@ export function collectOccupancyMismatches(positions: PositionRecord[]): Occupan
       if (plan.status === "Closed") continue;
 
       const factFromAssignment = getFactEmployeeOnPosition(position.positionId, month);
+      const factEmployeesOnSeat = listFactEmployeesOnPosition(position.positionId, month);
       const planEmployeeId = plan.employeeId;
       const factViaPlanEmployee =
         planEmployeeId && employeeHasPaymentInMonth(planEmployeeId, month) ? planEmployeeId : null;
       const factEmployeeId = factFromAssignment ?? factViaPlanEmployee;
+
+      if (factEmployeesOnSeat.length >= 2) {
+        mismatches.push({
+          kind: "MULTI_ON_SEAT",
+          positionId: position.positionId,
+          role: position.role,
+          department: position.department,
+          unit: position.unit,
+          team: position.team,
+          month,
+          monthLabel: monthLabel(month),
+          planEmployeeId,
+          planEmployeeName: plan.employeeName,
+          factEmployeeId: factEmployeesOnSeat.join(", "),
+          summary: `${position.positionId}: ${factEmployeesOnSeat.length} сотрудника в факте (${monthLabel(month)})`,
+        });
+        continue;
+      }
 
       if (isPlanVacantAtMonth(plan) && factEmployeeId) {
         mismatches.push({
@@ -107,7 +129,7 @@ export function collectOccupancyMismatches(positions: PositionRecord[]): Occupan
             planEmployeeId,
             planEmployeeName: plan.employeeName,
             factEmployeeId: factFromAssignment,
-            summary: `${position.positionId}: план ${planEmployeeId}, факт на слоте ${factFromAssignment}`,
+            summary: `${position.positionId}: план ${planEmployeeId}, факт на позиции ${factFromAssignment}`,
           });
         }
       }
@@ -138,7 +160,7 @@ export function collectOccupancyMismatches(positions: PositionRecord[]): Occupan
         planEmployeeId: null,
         planEmployeeName: null,
         factEmployeeId: employeeId,
-        summary: `Сотрудник ${employeeId}: выплаты за ${monthLabel(month)}, в плане не занят ни на одном слоте`,
+        summary: `Сотрудник ${employeeId}: выплаты за ${monthLabel(month)}, в плане не занят ни на одной позиции`,
       });
     }
   }

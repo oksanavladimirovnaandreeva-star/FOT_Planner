@@ -3,48 +3,65 @@ import { MONTHS } from "../../types";
 import type { PositionRecord } from "../../types";
 import type { ViewMode } from "../../data/dashboardMetrics";
 import { hasFactData } from "../../data/factStore";
+import { formatMoneyShort } from "../../data/formatDisplay";
+import {
+  isCorrectionMonthLocked,
+  planEventMonthBlockedMessage,
+  type CorrectionWindowInfo,
+} from "../../data/planCorrectionWindow";
 import {
   buildPlanMonthCell,
   MATRIX_DEVIATION_LABEL,
   matrixMonthOccupancyLabel,
-  type MatrixDeviation,
+  type PlanMonthCell,
 } from "../../data/planMonthMatrix";
 
 export type PlanMonthMatrixPanelProps = {
   positions: PositionRecord[];
   viewMode: ViewMode;
   viewModeLabel: string;
+  correctionWindow?: CorrectionWindowInfo | null;
   onOpenPosition: (positionId: string, month?: number) => void;
 };
 
-function formatMoneyShort(value: number): string {
-  if (value === 0) return "—";
-  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(value) >= 1_000) return `${Math.round(value / 1_000)}k`;
-  return String(Math.round(value));
-}
-
-function cellClass(deviation: MatrixDeviation): string {
-  if (deviation === "closed") return "plan-matrix__cell plan-matrix__cell--closed";
-  if (deviation === "none" || deviation === "no_fact_loaded") return "plan-matrix__cell";
-  return `plan-matrix__cell plan-matrix__cell--${deviation}`;
+function cellClass(cell: PlanMonthCell, monthLocked: boolean): string {
+  const parts = ["plan-matrix__cell"];
+  if (monthLocked) parts.push("plan-matrix__cell--month-locked");
+  if (cell.planStatus === "Closed") {
+    parts.push("plan-matrix__cell--status-closed");
+  } else if (cell.planStatus === "Vacancy") {
+    parts.push("plan-matrix__cell--status-vacancy");
+  } else if (cell.planStatus === "Occupied") {
+    parts.push("plan-matrix__cell--status-occupied");
+  }
+  if (
+    cell.deviation === "plan_fact_gap" ||
+    cell.deviation === "fact_over_plan" ||
+    cell.deviation === "multi_on_seat"
+  ) {
+    parts.push(`plan-matrix__cell--${cell.deviation}`);
+  }
+  return parts.join(" ");
 }
 
 export function PlanMonthMatrixPanel({
   positions,
   viewMode,
   viewModeLabel,
+  correctionWindow = null,
   onOpenPosition,
 }: PlanMonthMatrixPanelProps) {
   const factReady = hasFactData();
+  const monthLocked = (month: number) =>
+    correctionWindow != null && isCorrectionMonthLocked(month, correctionWindow);
 
   const rows = useMemo(
     () =>
       positions.map((position) => ({
         position,
-        cells: MONTHS.map((_, month) => buildPlanMonthCell(position, month, viewMode)),
+        cells: MONTHS.map((_, month) => buildPlanMonthCell(position, month, viewMode, factReady)),
       })),
-    [positions, viewMode],
+    [positions, viewMode, factReady],
   );
 
   return (
@@ -54,16 +71,33 @@ export function PlanMonthMatrixPanel({
         {factReady
           ? " · факт только для отклонений (план из факта не меняется)"
           : " · факт не загружен — загрузите в «Данные»"}
-        {" · сокращение: с месяца M — «Закрыта», план 0, без Δ"}
+        {correctionWindow?.enforced ? (
+          <>
+            {" · "}
+            <strong>серые столбцы</strong> — до {correctionWindow.startMonthLabel}: только просмотр (
+            {planEventMonthBlockedMessage(correctionWindow)})
+          </>
+        ) : (
+          " · занятость: зелёный · вакансия · жёлтый · закрыта · розовый"
+        )}
       </p>
       <div className="plan-matrix-scroll">
         <table className="plan-matrix">
           <thead>
             <tr>
               <th className="plan-matrix__sticky">Позиция</th>
-              {MONTHS.map((label) => (
-                <th key={label}>{label.slice(0, 3)}</th>
-              ))}
+              {MONTHS.map((label, month) => {
+                const locked = monthLocked(month);
+                return (
+                  <th
+                    key={label}
+                    className={locked ? "plan-matrix__col--locked" : undefined}
+                    title={locked ? `Месяц закрыт для корректировки (до ${correctionWindow?.startMonthLabel})` : undefined}
+                  >
+                    {label.slice(0, 3)}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -80,8 +114,10 @@ export function PlanMonthMatrixPanel({
                   </button>
                 </td>
                 {cells.map((cell) => {
+                  const locked = monthLocked(cell.month);
                   const devLabel = MATRIX_DEVIATION_LABEL[cell.deviation];
                   const title = [
+                    locked ? `Месяц закрыт для корректировки (до ${correctionWindow?.startMonthLabel})` : null,
                     `План: ${cell.planStatus === "Closed" ? "закрыт" : cell.planStatus}`,
                     cell.planEmployeeName ? `· ${cell.planEmployeeName}` : "",
                     `· ${formatMoneyShort(cell.planAmount)}`,
@@ -95,10 +131,10 @@ export function PlanMonthMatrixPanel({
                     .join(" ");
 
                   return (
-                    <td key={cell.month}>
+                    <td key={cell.month} className={locked ? "plan-matrix__td--locked" : undefined}>
                       <button
                         type="button"
-                        className={cellClass(cell.deviation)}
+                        className={cellClass(cell, locked)}
                         title={title}
                         onClick={() => onOpenPosition(position.positionId, cell.month)}
                       >

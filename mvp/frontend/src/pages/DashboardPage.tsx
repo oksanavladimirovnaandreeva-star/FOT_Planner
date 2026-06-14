@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
+import { OrgSliceMultiSelect } from "../components/OrgSliceMultiSelect";
+import { SliceToolbar, SliceToolbarSelect } from "../components/SliceToolbar";
 import { useMvpApp } from "../context/MvpAppContext";
 import {
   DEFAULT_DASHBOARD_FILTERS,
@@ -11,18 +13,68 @@ import {
   sliceAnalytics,
   type DashboardFilters,
 } from "../data/dashboardMetrics";
+import {
+  availableTeamsForSlice,
+  availableUnitsForSlice,
+  updateOrgSliceDepartments,
+  updateOrgSliceTeams,
+  updateOrgSliceUnits,
+} from "../data/orgSliceFilters";
 import { PlanByLimitDonut, PlanFactMonthlyChart } from "../components/PlanLimitCharts";
 import { mapPositionsWithAppliedEvents } from "../data/planOperations";
-import { departmentOptions, LIMIT_FLAG_LABELS, teamOptions, unitOptions } from "../data/planningData";
+import { departmentOptions, LIMIT_FLAG_LABELS } from "../data/planningData";
+import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
+import { roleOrgFilterDefaults } from "../data/userAccess";
+import { hasFactData } from "../data/factStore";
+import { ExportCsvActions } from "../components/ExportCsvActions";
+import { WorkflowHint } from "../components/WorkflowHint";
+import { formatMoneyPlain } from "../data/formatDisplay";
 import type { LimitFlagKey } from "../types";
 const DISPLAY_LIMIT_FLAGS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT"];
-function formatMoney(value: number): string {
-  return `${Math.round(value).toLocaleString("ru-RU")}`;
-}
 
 export function DashboardPage() {
-  const { positions, viewMode, activePlan, planVersionId, salaryBands } = useMvpApp();
-  const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_DASHBOARD_FILTERS);
+  const { positions, viewMode, activePlan, planVersionId, salaryBands, userRole } = useMvpApp();
+  const orgFilterDefaults = useMemo(() => roleOrgFilterDefaults(userRole), [userRole]);
+  const [filters, setFilters] = useState<DashboardFilters>(() => {
+    const persisted = loadPersistedOrgSlice();
+    if (persisted) {
+      return {
+        ...DEFAULT_DASHBOARD_FILTERS,
+        departments: persisted.departments,
+        units: persisted.units,
+        teams: persisted.teams,
+      };
+    }
+    return DEFAULT_DASHBOARD_FILTERS;
+  });
+
+  useEffect(() => {
+    if (!orgFilterDefaults) return;
+    setFilters((prev) => ({
+      ...prev,
+      departments: orgFilterDefaults.departments,
+      units: orgFilterDefaults.units,
+      teams: orgFilterDefaults.teams,
+    }));
+  }, [orgFilterDefaults]);
+
+  useEffect(() => {
+    if (orgFilterDefaults) return;
+    savePersistedOrgSlice({
+      departments: filters.departments,
+      units: filters.units,
+      teams: filters.teams,
+    });
+  }, [filters.departments, filters.units, filters.teams, orgFilterDefaults]);
+
+  const unitOptionsList = useMemo(
+    () => availableUnitsForSlice({ departments: filters.departments }),
+    [filters.departments],
+  );
+  const teamOptionsList = useMemo(
+    () => availableTeamsForSlice({ departments: filters.departments, units: filters.units }),
+    [filters.departments, filters.units],
+  );
 
   const displayPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
   const filtered = useMemo(
@@ -35,121 +87,112 @@ export function DashboardPage() {
   const limitYear = useMemo(() => planFactByLimitYear(filtered, viewMode), [filtered, viewMode]);
 
   const updateFilter = <K extends keyof DashboardFilters>(key: K, value: DashboardFilters[K]) => {
-    setFilters((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === "department") {
-        const dept = value as string;
-        if (dept === "All") {
-          next.unit = "All";
-          next.team = "All";
-        } else {
-          const units = unitOptions(dept);
-          next.unit = units.includes(prev.unit) ? prev.unit : "All";
-          if (next.unit === "All") next.team = "All";
-          else {
-            const teams = teamOptions(dept, next.unit);
-            next.team = teams.includes(prev.team) ? prev.team : "All";
-          }
-        }
-      }
-      if (key === "unit") {
-        const dept = next.department;
-        const unit = value as string;
-        if (unit === "All" || dept === "All") next.team = "All";
-        else {
-          const teams = teamOptions(dept, unit);
-          next.team = teams.includes(prev.team) ? prev.team : "All";
-        }
-      }
-      return next;
-    });
+    setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
     <div className="content-page dashboard-page">
       <header className="page-header">
         <div>
-          <h1>Обзор и итого</h1>
+          <h1 className="page-header__title-row">Обзор и итого</h1>
           <p>
             {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · план и факт (факт — заглушка до импорта)
           </p>
         </div>
-        <Link className="primary-btn" to="/planning">
-          Планирование
-        </Link>
+        <div className="page-header__actions">
+          <ExportCsvActions
+            positions={filtered}
+            viewMode={viewMode}
+            planVersionId={planVersionId}
+            planYear={activePlan.planYear}
+            userRole={userRole}
+            scope={{
+              departments: filters.departments,
+              units: filters.units,
+              teams: filters.teams,
+            }}
+          />
+          <Link className="primary-btn" to="/planning">
+            Планирование
+          </Link>
+        </div>
       </header>
 
-      <section className="card filters-card">
-        <h2 className="section-title">Срезы</h2>
-        <div className="filters-grid">
-          <label>
-            Департамент
-            <select value={filters.department} onChange={(e) => updateFilter("department", e.target.value)}>
-              <option value="All">Все</option>
-              {departmentOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Юнит
-            <select
-              value={filters.unit}
-              onChange={(e) => updateFilter("unit", e.target.value)}
-              disabled={filters.department === "All"}
-            >
-              <option value="All">Все</option>
-              {filters.department !== "All" &&
-                unitOptions(filters.department).map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Команда
-            <select
-              value={filters.team}
-              onChange={(e) => updateFilter("team", e.target.value)}
-              disabled={filters.department === "All" || filters.unit === "All"}
-            >
-              <option value="All">Все</option>
-              {filters.department !== "All" &&
-                filters.unit !== "All" &&
-                teamOptions(filters.department, filters.unit).map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Признак лимита
-            <select value={filters.limitFlag} onChange={(e) => updateFilter("limitFlag", e.target.value as DashboardFilters["limitFlag"])}>
-              <option value="All">Все</option>
-              <option value="IN_LIMIT">{LIMIT_FLAG_LABELS.IN_LIMIT}</option>
-              <option value="OVER_LIMIT">{LIMIT_FLAG_LABELS.OVER_LIMIT}</option>
-            </select>
-          </label>
-          <label>
-            Статус
-            <select value={filters.status} onChange={(e) => updateFilter("status", e.target.value as DashboardFilters["status"])}>
-              <option value="All">Все</option>
-              <option value="Occupied">Занято</option>
-              <option value="Vacancy">Вакансия</option>
-              <option value="Closed">Закрыта</option>
-            </select>
-          </label>
-        </div>
-        <p className="muted-line">
-          {planVersionId} · {filtered.length} поз. · {!analytics.hasFactData && "факт не загружен — колонки «Факт» пустые"}
-        </p>
-      </section>
+      <SliceToolbar
+        footer={
+          <>
+            {planVersionId} · {filtered.length} поз.
+            {!analytics.hasFactData ? " · факт не загружен" : ""}
+          </>
+        }
+      >
+        <OrgSliceMultiSelect
+          layout="toolbar"
+          label="Департамент"
+          options={departmentOptions}
+          value={filters.departments}
+          disabled={orgFilterDefaults?.lockDepartment}
+          onChange={(departments) =>
+            setFilters((prev) => ({
+              ...prev,
+              ...updateOrgSliceDepartments(prev, departments),
+            }))
+          }
+        />
+        <OrgSliceMultiSelect
+          layout="toolbar"
+          label="Юнит"
+          options={unitOptionsList}
+          value={filters.units}
+          disabled={orgFilterDefaults?.lockUnit}
+          onChange={(units) =>
+            setFilters((prev) => ({
+              ...prev,
+              ...updateOrgSliceUnits(prev, units),
+            }))
+          }
+        />
+        <OrgSliceMultiSelect
+          layout="toolbar"
+          label="Команда"
+          options={teamOptionsList}
+          value={filters.teams}
+          disabled={orgFilterDefaults?.lockTeam}
+          onChange={(teams) =>
+            setFilters((prev) => ({
+              ...prev,
+              ...updateOrgSliceTeams(prev, teams),
+            }))
+          }
+        />
+        <SliceToolbarSelect
+          label="Лимит"
+          value={filters.limitFlag}
+          onChange={(value) => updateFilter("limitFlag", value as DashboardFilters["limitFlag"])}
+        >
+          <option value="All">Все</option>
+          <option value="IN_LIMIT">{LIMIT_FLAG_LABELS.IN_LIMIT}</option>
+          <option value="OVER_LIMIT">{LIMIT_FLAG_LABELS.OVER_LIMIT}</option>
+        </SliceToolbarSelect>
+        <SliceToolbarSelect
+          label="Статус"
+          value={filters.status}
+          onChange={(value) => updateFilter("status", value as DashboardFilters["status"])}
+        >
+          <option value="All">Все</option>
+          <option value="Occupied">Занято</option>
+          <option value="Vacancy">Вакансия</option>
+          <option value="Closed">Закрыта</option>
+        </SliceToolbarSelect>
+      </SliceToolbar>
 
-      <AnalyticsSummaryStrip positions={filtered} viewMode={viewMode} salaryBands={salaryBands} showYtd />
+      {userRole === "admin" && !hasFactData() ? (
+        <WorkflowHint hintId="dashboard-fact" linkTo="/settings" linkLabel="Настройки → Данные">
+          Загрузите факт за месяц в настройках, чтобы увидеть план–факт и прогноз на год.
+        </WorkflowHint>
+      ) : null}
+
+        <AnalyticsSummaryStrip positions={filtered} viewMode={viewMode} salaryBands={salaryBands} showYtd />
 
       <section className="card dashboard-chart-card">
         <h2 className="section-title">План и факт</h2>
@@ -195,7 +238,7 @@ export function DashboardPage() {
                 {monthlyPf.map((row) => (
                   <tr key={row.month}>
                     <td>{row.label}</td>
-                    <td>{formatMoney(row.plan)}</td>
+                    <td>{formatMoneyPlain(row.plan)}</td>
                     <td className="text-muted-strong">—</td>
                     <td className="text-muted-strong">—</td>
                   </tr>
@@ -223,7 +266,7 @@ export function DashboardPage() {
                       <td>
                         <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
                       </td>
-                      <td>{formatMoney(cell.plan)}</td>
+                      <td>{formatMoneyPlain(cell.plan)}</td>
                       <td className="text-muted-strong">—</td>
                       <td className="text-muted-strong">—</td>
                     </tr>

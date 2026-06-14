@@ -7,22 +7,10 @@ import {
   tableRowStatusClass,
 } from "../../data/eventJournal";
 import { mapPositionsWithAppliedEvents } from "../../data/planOperations";
+import { formatIsoDateTime } from "../../data/formatDisplay";
 import { departmentOptions, monthLabel, teamOptions, unitOptions } from "../../data/planningData";
 import { useMvpApp } from "../../context/MvpAppContext";
 import type { EventType } from "../../types";
-
-function formatWhen(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 export type PlanJournalOrgFilter = {
   department: string;
@@ -245,7 +233,7 @@ export function PlanJournalPanel({
                 className={`plan-journal-table__row ${tableRowStatusClass(row.statusAfter)}`}
                 onClick={() => onOpenPosition(row.positionId)}
               >
-                <td>{formatWhen(row.createdAt)}</td>
+                <td>{formatIsoDateTime(row.createdAt)}</td>
                 <td>
                   <strong>{row.positionId}</strong>
                   <div className="muted-line">{row.role}</div>

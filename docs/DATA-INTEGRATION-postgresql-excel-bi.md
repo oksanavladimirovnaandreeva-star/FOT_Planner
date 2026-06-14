@@ -1,8 +1,11 @@
 # Связка Excel → PostgreSQL → приложение → Power BI
 
-Документ для перехода MVP с локальных mock-данных на ваш PostgreSQL и таблицы из Excel.
+Документ для перехода MVP с локальных mock-данных (`mvp/frontend`, localStorage) на PostgreSQL и таблицы из Excel.
 
-Опора: `docs/ARCHITECTURE-v0.1.md`, `apps/api/app/models.py`, шаблоны `docs/templates/*.csv`.
+**Сейчас:** UI в [`mvp/frontend/`](../mvp/frontend/), без БД.  
+**Опора для PG:** `docs/ARCHITECTURE-v0.1.md`, `apps/api/app/models.py`, шаблоны `docs/templates/*.csv`.
+
+> **ИБ:** в проде импорт в приложение — **CSV** (не xlsx), права на импорт по permission, журнал загрузок. Экспорт — только видимый срез + audit. См. [`SECURITY-REQUIREMENTS.md`](SECURITY-REQUIREMENTS.md).
 
 ---
 

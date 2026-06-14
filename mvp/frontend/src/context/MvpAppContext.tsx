@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { applyEvents, initialPositions } from "../data/planningData";
+import { DEMO_SEED_VERSION, DEMO_SEED_VERSION_KEY } from "../data/demoPlanSeed";
 import { diffPlanVersions, type PlanVersionDiffSummary } from "../data/planVersionDiff";
 import {
   archiveApprovedVersion,
@@ -56,10 +57,18 @@ import {
 } from "../data/planApprovalRules";
 import {
   filterPositionsByRole,
+  formatDemoRoleScope,
+  loadLeadEditFrozen,
   loadUserRole,
   mergeScopedPositionUpdates,
   roleCanEdit,
+  roleCanEditSalaryCatalog,
+  roleCanImportFact,
+  roleCanImportPlan,
+  roleCanManageVersions,
+  roleCanToggleLeadFreeze,
   roleScopeDescription,
+  saveLeadEditFrozen,
   saveUserRole,
   type UserRole,
 } from "../data/userAccess";
@@ -83,6 +92,23 @@ function seedVersionData(): Record<string, PositionRecord[]> {
   return { [approvedId]: baseline };
 }
 
+function applyDemoSeedUpgrade(
+  versions: PlanVersionMeta[],
+  dataByVersion: Record<string, PositionRecord[]>,
+): Record<string, PositionRecord[]> | null {
+  try {
+    const stored = localStorage.getItem(DEMO_SEED_VERSION_KEY);
+    if (stored === String(DEMO_SEED_VERSION)) return null;
+  } catch {
+    /* ignore */
+  }
+  const primary = primaryBudgetVersion(versions) ?? versions[0];
+  if (!primary) return null;
+  const fresh = initialPositions().map(applyEvents);
+  localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
+  return { ...dataByVersion, [primary.id]: fresh };
+}
+
 function hydrateState(): {
   versions: PlanVersionMeta[];
   dataByVersion: Record<string, PositionRecord[]>;
@@ -95,10 +121,15 @@ function hydrateState(): {
   }
   if (persistedVersions && persistedData) {
     const repaired = repairDataByVersion(persistedVersions, persistedData);
-    return { versions: persistedVersions, dataByVersion: repaired };
+    const upgraded = applyDemoSeedUpgrade(persistedVersions, repaired);
+    return {
+      versions: persistedVersions,
+      dataByVersion: upgraded ?? repaired,
+    };
   }
   const versions = initialPlanVersions();
   const dataByVersion = repairDataByVersion(versions, seedVersionData());
+  localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
   return { versions, dataByVersion };
 }
 
@@ -115,9 +146,18 @@ type MvpAppContextValue = {
   setPlanVersionId: (id: string) => void;
   activePlan: PlanVersionMeta;
   canEditPlan: boolean;
+  leadEditFrozen: boolean;
+  setLeadEditFrozen: (frozen: boolean) => void;
+  canToggleLeadFreeze: boolean;
+  leadEditFrozenForRole: boolean;
+  canManagePlanVersions: boolean;
+  canImportFact: boolean;
+  canImportPlan: boolean;
   userRole: UserRole;
   setUserRole: (role: UserRole) => void;
   roleScopeHint: string;
+  /** Все позиции текущей версии (без RBAC-фильтра) — для ID новых слотов. */
+  allPositions: PositionRecord[];
   positionsTotalCount: number;
   workingDraft: PlanVersionMeta | null;
   latestApproved: PlanVersionMeta | null;
@@ -162,6 +202,8 @@ type MvpAppContextValue = {
   operationHistory: OperationLogEntry[];
   refreshOperationHistory: () => void;
   resetDevPlanToDraft: () => { ok: true } | { ok: false; error: string };
+  reloadDemoSeed: () => { ok: true; count: number } | { ok: false; error: string };
+  demoRoleScopeLabel: string | null;
 };
 
 const MvpAppContext = createContext<MvpAppContextValue | null>(null);
@@ -186,6 +228,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     return stored === "write" ? "write" : "read";
   });
   const [userRole, setUserRoleState] = useState<UserRole>(() => loadUserRole());
+  const [leadEditFrozen, setLeadEditFrozenState] = useState(() => loadLeadEditFrozen());
 
   useEffect(() => {
     persistVersions(planVersions);
@@ -209,6 +252,11 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     setUserRoleState(role);
   };
 
+  const setLeadEditFrozen = (frozen: boolean) => {
+    saveLeadEditFrozen(frozen);
+    setLeadEditFrozenState(frozen);
+  };
+
   const setPlanVersionId = (id: string) => {
     setPlanVersionIdState(id);
     localStorage.setItem("fot_mvp_plan_version", id);
@@ -220,22 +268,18 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       if (!version) {
         return { ok: false, error: "Версия не найдена." };
       }
-      setDataByVersion((prev) => repairDataByVersion(planVersions, prev));
-      const repaired = repairDataByVersion(planVersions, dataByVersion);
-      const rows = repaired[id];
+      let nextData = repairDataByVersion(planVersions, dataByVersion);
+      const rows = nextData[id];
       if (!rows?.length && version.baselineVersionId) {
-        const baselineRows = repaired[version.baselineVersionId];
-        if (baselineRows?.length) {
-          setDataByVersion((prev) => ({
-            ...repairDataByVersion(planVersions, prev),
-            [id]: clonePositionList(baselineRows),
-          }));
-        } else {
+        const baselineRows = nextData[version.baselineVersionId];
+        if (!baselineRows?.length) {
           return { ok: false, error: "Нет данных для этой версии. Создайте черновик заново." };
         }
+        nextData = { ...nextData, [id]: clonePositionList(baselineRows) };
       } else if (!rows?.length && version.kind === "APPROVED") {
         return { ok: false, error: "Версия пуста — импортируйте план или сбросьте данные." };
       }
+      setDataByVersion(nextData);
       setPlanVersionId(id);
       return { ok: true };
     },
@@ -253,7 +297,12 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     [allPositions, userRole],
   );
   const positionsTotalCount = allPositions.length;
-  const roleScopeHint = useMemo(() => roleScopeDescription(userRole), [userRole]);
+  const roleScopeHint = useMemo(() => roleScopeDescription(userRole, leadEditFrozen), [userRole, leadEditFrozen]);
+  const canToggleLeadFreeze = roleCanToggleLeadFreeze(userRole);
+  const leadEditFrozenForRole = leadEditFrozen && (userRole === "team_lead" || userRole === "unit_lead");
+  const canManagePlanVersions = roleCanManageVersions(userRole);
+  const canImportFact = roleCanImportFact(userRole);
+  const canImportPlan = roleCanImportPlan(userRole);
 
   const setPositions = useCallback<Dispatch<SetStateAction<PositionRecord[]>>>(
     (updater) => {
@@ -274,13 +323,21 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     [planVersions, planVersionId],
   );
 
-  const canEditPlan = canEditVersion(activePlan) && roleCanEdit(userRole);
+  const canEditPlan = canEditVersion(activePlan) && roleCanEdit(userRole, leadEditFrozen);
   const primaryBudget = useMemo(() => primaryBudgetVersion(planVersions) ?? null, [planVersions]);
   const latestApproved = useMemo(() => latestApprovedVersion(planVersions) ?? null, [planVersions]);
-  const planFactBaseline = useMemo(
+  const planFactBaselineRaw = useMemo(
     () => resolvePlanFactBaseline(planVersions, dataByVersion, planVersionId),
     [planVersions, dataByVersion, planVersionId],
   );
+  const planFactBaseline = useMemo(
+    () => ({
+      ...planFactBaselineRaw,
+      positions: filterPositionsByRole(planFactBaselineRaw.positions, userRole),
+    }),
+    [planFactBaselineRaw, userRole],
+  );
+  const demoRoleScopeLabel = useMemo(() => formatDemoRoleScope(userRole), [userRole]);
   const workingDraft = useMemo(() => {
     if (!latestApproved) return null;
     return findWorkingDraftForBaseline(planVersions, latestApproved.id) ?? null;
@@ -433,7 +490,10 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     return { ok: true, versionId: publishedMeta.id, versionLabel: publishedMeta.label };
   }, [workingDraft, planVersions, dataByVersion]);
 
-  const pickAmount = (base: number, bonus = 0) => (viewMode === "total" ? base + bonus : base);
+  const pickAmount = useCallback(
+    (base: number, bonus = 0) => (viewMode === "total" ? base + bonus : base),
+    [viewMode],
+  );
 
   const buildSnapshot = useCallback((): MvpPlanSnapshot => {
     return {
@@ -486,28 +546,70 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     [positions, salaryBands, setPositions],
   );
 
-  const runImport = (
-    payload: unknown,
-    mode: ImportMode = "replace",
-  ): { ok: true; report: ImportReport } | { ok: false; error: string } => {
-    const inspected = validateSnapshot(payload, { currentPlanVersionId: planVersionId });
-    if (!inspected.ok) {
-      return { ok: false, error: inspected.errors.join(" ") };
-    }
-    const draft = payload as MvpPlanSnapshot;
-    const { skippedCount } = extractImportablePositions(payload);
-    try {
-      const report = applySnapshot(draft, mode, skippedCount);
-      return { ok: true, report };
-    } catch (error) {
-      return {
-        ok: false,
-        error: `Не удалось импортировать данные: ${error instanceof Error ? error.message : "неизвестная ошибка"}.`,
-      };
-    }
-  };
+  const runImport = useCallback(
+    (
+      payload: unknown,
+      mode: ImportMode = "replace",
+    ): { ok: true; report: ImportReport } | { ok: false; error: string } => {
+      const inspected = validateSnapshot(payload, { currentPlanVersionId: planVersionId });
+      if (!inspected.ok) {
+        return { ok: false, error: inspected.errors.join(" ") };
+      }
+      const draft = payload as MvpPlanSnapshot;
+      const { skippedCount } = extractImportablePositions(payload);
+      try {
+        const report = applySnapshot(draft, mode, skippedCount);
+        return { ok: true, report };
+      } catch (error) {
+        return {
+          ok: false,
+          error: `Не удалось импортировать данные: ${error instanceof Error ? error.message : "неизвестная ошибка"}.`,
+        };
+      }
+    },
+    [planVersionId, applySnapshot],
+  );
 
-  const restoreFromLastExport = (): { ok: true; importedCount: number } | { ok: false; error: string } => {
+  const exportCurrentSnapshot = useCallback((): MvpPlanSnapshot => {
+    const snapshot = buildSnapshot();
+    saveSnapshot(LAST_EXPORTED_SNAPSHOT_KEY, snapshot);
+    return snapshot;
+  }, [buildSnapshot]);
+
+  const inspectSnapshotForImport = useCallback(
+    (payload: unknown) => inspectSnapshot(payload, { currentPlanVersionId: planVersionId }),
+    [planVersionId],
+  );
+
+  const backupBeforeImport = useCallback(() => {
+    saveSnapshot(PRE_IMPORT_BACKUP_KEY, buildSnapshot());
+  }, [buildSnapshot]);
+
+  const importCurrentSnapshot = useCallback(
+    (
+      payload: unknown,
+      mode: ImportMode = "replace",
+      options?: { recordHistory?: boolean },
+    ): { ok: true; report: ImportReport } | { ok: false; error: string } => {
+      if (!canImportPlan) {
+        return { ok: false, error: "Импорт плана доступен только роли C&B." };
+      }
+      if (!canEditPlan) {
+        return { ok: false, error: "Импорт доступен только в рабочем черновике." };
+      }
+      if (options?.recordHistory !== false) {
+        recordPreImportPoint(buildSnapshot(), mode);
+      }
+      const result = runImport(payload, mode);
+      if (result.ok) {
+        refreshOperationHistory();
+      }
+      return result;
+    },
+    [canImportPlan, canEditPlan, buildSnapshot, runImport, refreshOperationHistory],
+  );
+
+  const restoreFromLastExport = useCallback((): { ok: true; importedCount: number } | { ok: false; error: string } => {
     const raw = loadSnapshotRaw(LAST_EXPORTED_SNAPSHOT_KEY);
     if (!raw) {
       return { ok: false, error: "Нет сохраненного экспорта для отката." };
@@ -523,9 +625,9 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       return { ok: false, error: "Сохраненный экспорт поврежден, откат недоступен." };
     }
-  };
+  }, [buildSnapshot, runImport, refreshOperationHistory]);
 
-  const restoreFromPreImportBackup = (): { ok: true; report: ImportReport } | { ok: false; error: string } => {
+  const restoreFromPreImportBackup = useCallback((): { ok: true; report: ImportReport } | { ok: false; error: string } => {
     const snapshot = loadSnapshot(PRE_IMPORT_BACKUP_KEY);
     if (!snapshot) {
       return { ok: false, error: "Нет авто-бэкапа до импорта." };
@@ -536,9 +638,9 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     recordRollbackPreImport(before);
     refreshOperationHistory();
     return restored;
-  };
+  }, [buildSnapshot, runImport, refreshOperationHistory]);
 
-  const restoreFromHistoryEntry = (entryId: string): { ok: true; report: ImportReport } | { ok: false; error: string } => {
+  const restoreFromHistoryEntry = useCallback((entryId: string): { ok: true; report: ImportReport } | { ok: false; error: string } => {
     const entry = listOperationHistory().find((item) => item.id === entryId);
     if (!entry) {
       return { ok: false, error: "Запись журнала не найдена." };
@@ -547,7 +649,14 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     if (!restored.ok) return restored;
     refreshOperationHistory();
     return restored;
-  };
+  }, [runImport, refreshOperationHistory]);
+
+  const reloadDemoSeed = useCallback((): { ok: true; count: number } | { ok: false; error: string } => {
+    const fresh = initialPositions().map(applyEvents);
+    setDataByVersion((prev) => ({ ...prev, [planVersionId]: fresh }));
+    localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
+    return { ok: true, count: fresh.length };
+  }, [planVersionId]);
 
   const resetDevPlanToDraft = useCallback((): { ok: true } | { ok: false; error: string } => {
     const planYear = primaryBudget?.planYear ?? 2026;
@@ -562,74 +671,109 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     return { ok: true };
   }, [planVersions, dataByVersion, primaryBudget]);
 
-  return (
-    <MvpAppContext.Provider
-      value={{
-        planVersions,
-        planVersionId,
-        setPlanVersionId,
-        activePlan,
-        canEditPlan,
-        userRole,
-        setUserRole,
-        roleScopeHint,
-        positionsTotalCount,
-        workingDraft,
-        latestApproved,
-        primaryBudget,
-        planFactBaseline,
-        approvalRoute,
-        versionDiff,
-        createWorkingDraft,
-        publishWorkingDraft,
-        approvePrimaryBudget,
-        submitDraftForApproval,
-        draftApprovalCheck,
-        openVersion,
-        positions,
-        setPositions,
-        viewMode,
-        setViewMode,
-        pickAmount,
-        salaryBands,
-        setSalaryBands,
-        catalogAccess,
-        setCatalogAccess,
-        canEditSalaryCatalog: catalogAccess === "write",
-        exportCurrentSnapshot: () => {
-          const snapshot = buildSnapshot();
-          saveSnapshot(LAST_EXPORTED_SNAPSHOT_KEY, snapshot);
-          return snapshot;
-        },
-        inspectSnapshot: (payload) => inspectSnapshot(payload, { currentPlanVersionId: planVersionId }),
-        backupBeforeImport: () => {
-          const snapshot = buildSnapshot();
-          saveSnapshot(PRE_IMPORT_BACKUP_KEY, snapshot);
-        },
-        importCurrentSnapshot: (payload, mode = "replace", options) => {
-          if (!canEditPlan) {
-            return { ok: false, error: "Импорт доступен только в рабочем черновике." };
-          }
-          if (options?.recordHistory !== false) {
-            recordPreImportPoint(buildSnapshot(), mode);
-          }
-          const result = runImport(payload, mode);
-          if (result.ok) {
-            refreshOperationHistory();
-          }
-          return result;
-        },
-        restoreFromLastExport,
-        restoreFromPreImportBackup,
-        restoreFromHistoryEntry,
-        operationHistory,
-        refreshOperationHistory,
-        resetDevPlanToDraft,
-      }}
-    >
-      {children}
-    </MvpAppContext.Provider>
+  const contextValue = useMemo(
+    (): MvpAppContextValue => ({
+      planVersions,
+      planVersionId,
+      setPlanVersionId,
+      activePlan,
+      canEditPlan,
+      leadEditFrozen,
+      setLeadEditFrozen,
+      canToggleLeadFreeze,
+      leadEditFrozenForRole,
+      canManagePlanVersions,
+      canImportFact,
+      canImportPlan,
+      userRole,
+      setUserRole,
+      roleScopeHint,
+      allPositions,
+      positionsTotalCount,
+      demoRoleScopeLabel,
+      workingDraft,
+      latestApproved,
+      primaryBudget,
+      planFactBaseline,
+      approvalRoute,
+      versionDiff,
+      createWorkingDraft,
+      publishWorkingDraft,
+      approvePrimaryBudget,
+      submitDraftForApproval,
+      draftApprovalCheck,
+      openVersion,
+      positions,
+      setPositions,
+      viewMode,
+      setViewMode,
+      pickAmount,
+      salaryBands,
+      setSalaryBands,
+      catalogAccess,
+      setCatalogAccess,
+      canEditSalaryCatalog: roleCanEditSalaryCatalog(userRole) && catalogAccess === "write",
+      exportCurrentSnapshot,
+      inspectSnapshot: inspectSnapshotForImport,
+      backupBeforeImport,
+      importCurrentSnapshot,
+      restoreFromLastExport,
+      restoreFromPreImportBackup,
+      restoreFromHistoryEntry,
+      operationHistory,
+      refreshOperationHistory,
+      resetDevPlanToDraft,
+      reloadDemoSeed,
+    }),
+    [
+      planVersions,
+      planVersionId,
+      activePlan,
+      canEditPlan,
+      leadEditFrozen,
+      canToggleLeadFreeze,
+      leadEditFrozenForRole,
+      canManagePlanVersions,
+      canImportFact,
+      canImportPlan,
+      userRole,
+      roleScopeHint,
+      allPositions,
+      positionsTotalCount,
+      demoRoleScopeLabel,
+      workingDraft,
+      latestApproved,
+      primaryBudget,
+      planFactBaseline,
+      approvalRoute,
+      versionDiff,
+      createWorkingDraft,
+      publishWorkingDraft,
+      approvePrimaryBudget,
+      submitDraftForApproval,
+      draftApprovalCheck,
+      openVersion,
+      positions,
+      setPositions,
+      viewMode,
+      pickAmount,
+      salaryBands,
+      catalogAccess,
+      exportCurrentSnapshot,
+      inspectSnapshotForImport,
+      backupBeforeImport,
+      importCurrentSnapshot,
+      restoreFromLastExport,
+      restoreFromPreImportBackup,
+      restoreFromHistoryEntry,
+      operationHistory,
+      refreshOperationHistory,
+      resetDevPlanToDraft,
+      reloadDemoSeed,
+    ],
   );
+
+  return <MvpAppContext.Provider value={contextValue}>{children}</MvpAppContext.Provider>;
 }
 
 export function useMvpApp() {

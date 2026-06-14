@@ -1,15 +1,8 @@
+import { eventTypeLabel } from "../../data/eventLabels";
 import { LIMIT_FLAG_LABELS, monthLabel } from "../../data/planningData";
 import type { PlannedEvent } from "../../types";
 
-const EVENT_TYPE_LABEL: Record<string, string> = {
-  MANUAL_OVERRIDE: "Ручная настройка",
-  TRANSFER: "Перевод",
-  TERMINATION_TO_VACANCY: "Увольнение → вакансия",
-  CLOSE_POSITION: "Сокращение",
-  PLANNED_HIRE: "Плановый найм",
-  POSITION_CARRYOVER: "Перенос бюджета",
-  INDEXATION: "Индексация",
-};
+export { eventTypeLabel };
 
 export function formatEventHuman(event: PlannedEvent): string {
   const p = event.payload;
@@ -46,10 +39,6 @@ export function formatEventCommentPreview(comment: string, maxLength = 120): str
   const trimmed = comment.trim();
   if (trimmed.length <= maxLength) return trimmed;
   return `${trimmed.slice(0, maxLength - 1)}…`;
-}
-
-export function eventTypeLabel(type: string): string {
-  return EVENT_TYPE_LABEL[type] ?? type;
 }
 
 export function limitFlagShort(flag: keyof typeof LIMIT_FLAG_LABELS): string {

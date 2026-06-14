@@ -1,9 +1,13 @@
 # Архитектура ФОТ-планировщика v0.1
 
-Документ для ориентации при разработке. Обновлено: 2026-05-25.
+Документ для ориентации при разработке. Обновлено: 2026-06-07.
+
+> **Текущий код:** [`mvp/frontend/`](../mvp/frontend/) · handoff: [`HANDOFF.md`](HANDOFF.md). Ниже — целевая архитектура (включая legacy `apps/api`).
 
 Связанные документы:
-- `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` — текущее состояние репо, экраны, API
+- [`HANDOFF.md`](HANDOFF.md) — актуальное состояние MVP
+- `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` — исторический roadmap (`apps/*`)
+- `docs/SECURITY-REQUIREMENTS.md` — требования ИБ (RBAC+scope, audit, CSV, MFA, деплой)
 - `mvp/docs/baseline-current-state.md` — зафиксированное поведение MVP (индексация, приоритеты событий)
 
 ---
@@ -41,7 +45,7 @@ UI (дерево, детализация, дашборд, дроверы)
   → только ввод и отображение, без формул ФОТ
 
 Application (версии, права, события, импорт, сравнения)
-  → use-cases, статусы плана, RLS
+  → use-cases, статусы плана, RBAC+scope_org, RLS, audit (см. SECURITY-REQUIREMENTS.md)
 
 Domain (позиция, оргструктура, события, статьи)
   → packages/domain/fot_domain/engine.py
@@ -178,6 +182,41 @@ fot-planner/
 3. ~~Кнопка «Корректировка» → новая версия с `parent_version_id`.~~ — **сделано** (`POST /api/v1/plans/{id}/correction`, копия events + dec).
 4. Заморозить/убрать дубль TS-движка в `mvp/frontend` в пользу API.
 5. Compare versions (read-only diff).
+
+---
+
+## 14. Фаза 3+ — черновик (после UX-4 / пилота)
+
+### 14.1 PostgreSQL, `org_units`, RLS, SSO
+
+```text
+SSO/JWT → API (RBAC + scope_org) → PostgreSQL RLS
+  org_units · positions · plan_versions · plan_events · monthly_fact_lines · users
+```
+
+- `org_units(id, parent_id, type, name, materialized_path)` — дерево dept/unit/team
+- `users(id, role, scope_org_unit_id)` — из IdP + атрибуты среза
+- RLS: строки `positions` видны, если `team_id ∈ visible_teams(user_id)`
+- API минимум: `GET /org-units/tree`, `POST /org-units/import-csv`, `GET/PUT /positions`, `POST /plan-versions/{id}/events`
+- MVP `localStorage` роли и `ORG_STRUCTURE.ts` — заменить на API; контракт CSV оргструктуры: `department, unit, team`
+
+### 14.2 Маршрут согласования (#19)
+
+| Сущность | Назначение |
+|----------|------------|
+| `approval_route_templates` | Граф шагов по типу изменения |
+| `approval_route_instances` | Экземпляр на `plan_version_id` |
+| `approval_step_log` | actor, step, decision, at — append-only |
+
+UI: `GET /plan-versions/{id}/approval-route` → stepper на `/versions` (наблюдение); действия — `submit` / `approve` / `reject` только на API.
+
+Правила назначения шагов — из `planApprovalRules.ts` (transfer, over_limit, mass indexation, headcount_down) + оргструктура.
+
+### 14.3 Настройка доступов и визуализация (MVP+ → prod)
+
+- **Settings → Доступы (C&B):** матрица роль × permission (`plan.edit`, `fact.import`, `export.run`, `approval.submit`)
+- **Versions:** горизонтальный stepper состояний шагов (`pending` / `approved` / `rejected`); журнал из `approval_step_log`
+- Фаза 1 (без API): статический stepper из `evaluateDraftApprovalRules`; фаза 2 — данные с сервера
 
 ---
 

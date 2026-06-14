@@ -4,12 +4,9 @@ import { forecastDecSnapshot, fullForecastTotals, naiveForecastTotals } from "..
 import { formatGrowthDelta, formatGrowthPct } from "../data/planningData";
 import { hasFactData } from "../data/factStore";
 import { useMvpApp } from "../context/MvpAppContext";
+import { formatMoney } from "../data/formatDisplay";
 
-function formatMoney(value: number): string {
-  return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
-}
-
-export function ForecastPage() {
+export function ForecastPage({ embedded = false }: { embedded?: boolean }) {
   const { positions, viewMode, activePlan } = useMvpApp();
   const factReady = hasFactData();
   const throughMonth = new Date().getMonth();
@@ -24,18 +21,8 @@ export function ForecastPage() {
   );
   const dec = useMemo(() => forecastDecSnapshot(positions), [positions]);
 
-  return (
-    <div className="content-page forecast-page">
-      <header className="content-page__header">
-        <div>
-          <h1>Прогноз до конца года</h1>
-          <p className="content-page__lead">
-            {activePlan.label} · <strong>факт</strong> за прошедшие месяцы (если загружен) +{" "}
-            <strong>план с событиями</strong> (индексация, переводы, увольнения) на оставшийся период.
-          </p>
-        </div>
-      </header>
-
+  const body = (
+    <>
       {!factReady ? (
         <section className="card forecast-page__notice">
           <p>
@@ -102,6 +89,23 @@ export function ForecastPage() {
           <li>Загрузка факта из 1С (one-way) на API — после финализации UI.</li>
         </ul>
       </section>
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <div className="content-page forecast-page">
+      <header className="content-page__header">
+        <div>
+          <h1>Прогноз до конца года</h1>
+          <p className="content-page__lead">
+            {activePlan.label} · <strong>факт</strong> за прошедшие месяцы (если загружен) +{" "}
+            <strong>план с событиями</strong> (индексация, переводы, увольнения) на оставшийся период.
+          </p>
+        </div>
+      </header>
+      {body}
     </div>
   );
 }

@@ -15,9 +15,30 @@ export type PlanFactRow = {
   sublabel?: string;
   plan: number;
   fact: number;
+  /** План − факт. Плюс — экономия, минус — перерасход. */
   variance: number;
   variancePct: number;
 };
+
+export type PlanFactPositionRow = {
+  positionId: string;
+  role: string;
+  department: string;
+  unit: string;
+  team: string;
+  planYtd: number;
+  factYtd: number;
+  /** План − факт YTD. */
+  delta: number;
+};
+
+/** Единая формула: план − факт. Плюс — экономия, минус — перерасход. */
+export function planFactDelta(plan: number, fact: number): number {
+  return plan - fact;
+}
+
+/** @deprecated Используйте planFactDelta */
+export const planMinusFactDelta = planFactDelta;
 
 function ytdMonthIndex(): number {
   return new Date().getMonth();
@@ -34,7 +55,7 @@ export function planFactTotals(positions: PositionRecord[], viewMode: ViewMode) 
       fact += monthFactAmount(position, month, viewMode);
     }
   }
-  const variance = fact - plan;
+  const variance = planFactDelta(plan, fact);
   return {
     plan,
     fact,
@@ -59,7 +80,7 @@ export function planFactByDepartment(positions: PositionRecord[], viewMode: View
   }
   return [...acc.entries()]
     .map(([department, cell]) => {
-      const variance = cell.fact - cell.plan;
+      const variance = planFactDelta(cell.plan, cell.fact);
       return {
         id: department,
         label: department,
@@ -95,7 +116,7 @@ export function planFactByLimit(positions: PositionRecord[], viewMode: ViewMode)
   return (Object.keys(acc) as LimitFlagKey[])
     .map((flag) => {
       const cell = acc[flag];
-      const variance = cell.fact - cell.plan;
+      const variance = planFactDelta(cell.plan, cell.fact);
       return {
         id: flag,
         label: labels[flag],
@@ -113,14 +134,57 @@ export function deviationDrivers(rows: PlanFactRow[]): PlanFactRow[] {
   return rows.filter((row) => row.plan > 0).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
 }
 
-export function formatMoney(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} млн ₽`;
-  return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
+export function planFactPositionRows(positions: PositionRecord[], viewMode: ViewMode): PlanFactPositionRow[] {
+  if (!hasFactData()) return [];
+  const applied = mapPositionsWithAppliedEvents(positions);
+  const ytd = ytdMonthIndex();
+  const rows: PlanFactPositionRow[] = [];
+
+  for (const position of applied) {
+    if (position.status === "Closed") continue;
+    let planYtd = 0;
+    let factYtd = 0;
+    for (let month = 0; month <= ytd; month += 1) {
+      planYtd += monthAmountForPosition(position, month, viewMode);
+      factYtd += monthFactAmount(position, month, viewMode);
+    }
+    if (planYtd === 0 && factYtd === 0) continue;
+    const delta = planFactDelta(planYtd, factYtd);
+    rows.push({
+      positionId: position.positionId,
+      role: position.role,
+      department: position.department,
+      unit: position.unit,
+      team: position.team,
+      planYtd,
+      factYtd,
+      delta,
+    });
+  }
+
+  return rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 }
 
-export function varianceTone(variance: number): "over" | "under" | "flat" {
-  if (variance < 0) return "over";
-  if (variance > 0) return "under";
+export function planFactEconomyAndOverspendTotals(positions: PositionRecord[], viewMode: ViewMode) {
+  if (!hasFactData()) {
+    return { economy: 0, overspend: 0, positionCount: 0 };
+  }
+  const rows = planFactPositionRows(positions, viewMode);
+  let economy = 0;
+  let overspend = 0;
+  for (const row of rows) {
+    if (row.delta > 0) economy += row.delta;
+    if (row.delta < 0) overspend += Math.abs(row.delta);
+  }
+  return { economy, overspend, positionCount: rows.length };
+}
+
+export { formatMoney } from "./formatDisplay";
+
+/** Тон для Δ план−факт: плюс — экономия (under), минус — перерасход (over). */
+export function varianceTone(deltaPlanMinusFact: number): "over" | "under" | "flat" {
+  if (deltaPlanMinusFact > 0) return "under";
+  if (deltaPlanMinusFact < 0) return "over";
   return "flat";
 }
 
@@ -144,8 +208,8 @@ export function annualPlanByDepartment(positions: PositionRecord[], viewMode: Vi
       label: department,
       plan,
       fact: 0,
-      variance: -plan,
-      variancePct: -100,
+      variance: plan,
+      variancePct: 100,
     }))
     .sort((a, b) => b.plan - a.plan);
 }

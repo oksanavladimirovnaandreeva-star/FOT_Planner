@@ -1,10 +1,10 @@
-# Запуск фронта ФОТ (порт 5180, не 5173)
+# FOT MVP frontend (port 5174, browser localStorage, no API)
 $ErrorActionPreference = "Stop"
-$WebDir = Join-Path $PSScriptRoot "..\apps\web" | Resolve-Path
+$WebDir = Join-Path $PSScriptRoot "..\mvp\frontend" | Resolve-Path
 Set-Location $WebDir
 
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    Write-Host "npm не найден. Установите Node.js LTS: https://nodejs.org/" -ForegroundColor Red
+    Write-Host "npm not found. Install Node.js LTS: https://nodejs.org/" -ForegroundColor Red
     exit 1
 }
 
@@ -13,5 +13,20 @@ if (-not (Test-Path "node_modules")) {
     npm install
 }
 
-Write-Host "ФОТ UI -> http://localhost:5180" -ForegroundColor Green
+try {
+    $portInUse = Get-NetTCPConnection -LocalPort 5174 -State Listen -ErrorAction SilentlyContinue
+} catch {
+    $portInUse = $null
+}
+
+if ($portInUse) {
+    Write-Host "Stopping old process on port 5174..." -ForegroundColor Yellow
+    $portInUse | ForEach-Object {
+        Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 1
+}
+
+Write-Host "FOT MVP: http://localhost:5174" -ForegroundColor Green
+
 npm run dev

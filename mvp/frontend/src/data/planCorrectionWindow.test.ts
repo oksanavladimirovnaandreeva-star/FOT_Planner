@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   correctionWindowStartMonth,
+  isCorrectionMonthLocked,
   isPlanEventMonthAllowed,
   resolveCorrectionWindow,
 } from "./planCorrectionWindow";
@@ -29,21 +30,36 @@ describe("correctionWindowStartMonth", () => {
 });
 
 describe("resolveCorrectionWindow", () => {
-  it("v1 DRAFT — без ограничения", () => {
-    const w = resolveCorrectionWindow(meta({ status: "DRAFT" }), meta({ status: "DRAFT" }), new Date(2026, 5, 1));
+  it("v1 DRAFT на маршруте planning — без ограничения", () => {
+    const w = resolveCorrectionWindow(meta({ status: "DRAFT" }), meta({ status: "DRAFT" }), {
+      workspaceMode: "planning",
+      refDate: new Date(2026, 5, 1),
+    });
     expect(w.enforced).toBe(false);
     expect(isPlanEventMonthAllowed(0, w)).toBe(true);
   });
 
-  it("квартальный черновик — блок до июля в Q2", () => {
+  it("квартальный черновик на planning — без ограничения (окно только в correction)", () => {
     const w = resolveCorrectionWindow(
       meta({ id: "draft", kind: "WORKING_DRAFT", status: "DRAFT", versionNumber: 2 }),
       meta({ status: "APPROVED" }),
-      new Date(2026, 5, 1),
+      { workspaceMode: "planning", refDate: new Date(2026, 5, 1) },
+    );
+    expect(w.enforced).toBe(false);
+    expect(isPlanEventMonthAllowed(5, w)).toBe(true);
+  });
+
+  it("маршрут correction — блок до июля в Q2", () => {
+    const w = resolveCorrectionWindow(
+      meta({ id: "draft", kind: "WORKING_DRAFT", status: "DRAFT", versionNumber: 2 }),
+      meta({ status: "APPROVED" }),
+      { workspaceMode: "correction", refDate: new Date(2026, 5, 1) },
     );
     expect(w.enforced).toBe(true);
     expect(w.startMonth).toBe(6);
     expect(isPlanEventMonthAllowed(5, w)).toBe(false);
     expect(isPlanEventMonthAllowed(6, w)).toBe(true);
+    expect(isCorrectionMonthLocked(5, w)).toBe(true);
+    expect(isCorrectionMonthLocked(6, w)).toBe(false);
   });
 });

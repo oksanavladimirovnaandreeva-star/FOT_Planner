@@ -12,11 +12,21 @@ type Props = {
   draftLabel: string;
   baselinePositions: PositionRecord[];
   draftPositions: PositionRecord[];
+  /** С месяца окна корректировки — помесячный график только с M<sub>open</sub>. */
+  compareFromMonth?: number;
 };
 
-export function VersionCompareDashboard({ baselineLabel, draftLabel, baselinePositions, draftPositions }: Props) {
+export function VersionCompareDashboard({
+  baselineLabel,
+  draftLabel,
+  baselinePositions,
+  draftPositions,
+  compareFromMonth,
+}: Props) {
   const kpis = compareKpis(baselinePositions, draftPositions);
-  const monthly = monthlyCompareSeries(baselinePositions, draftPositions);
+  const monthly = monthlyCompareSeries(baselinePositions, draftPositions, {
+    fromMonth: compareFromMonth,
+  });
   const byLimit = varianceByLimit(baselinePositions, draftPositions);
   const byDept = varianceByDepartment(baselinePositions, draftPositions);
   const chartMax = Math.max(...monthly.map((point) => Math.max(point.baseline, point.draft)), 1);
@@ -32,7 +42,10 @@ export function VersionCompareDashboard({ baselineLabel, draftLabel, baselinePos
           Сравнение
           <input type="text" readOnly value={draftLabel} />
         </label>
-        <span className="version-compare__filters-note">Режим: итого ФОТ (BASE + премия)</span>
+        <span className="version-compare__filters-note">
+          Итого ФОТ (BASE + премия)
+          {compareFromMonth != null ? ` · график с ${monthly.find((p) => p.month === compareFromMonth)?.label ?? "Mopen"}` : ""}
+        </span>
       </div>
 
       <div className="version-compare__kpi">
@@ -65,7 +78,10 @@ export function VersionCompareDashboard({ baselineLabel, draftLabel, baselinePos
           <h3>План vs черновик по месяцам</h3>
           <div className="version-month-chart">
             {monthly.map((point) => (
-              <div key={point.month} className="version-month-chart__col">
+              <div
+                key={point.month}
+                className={`version-month-chart__col${compareFromMonth != null && point.month < compareFromMonth ? " version-month-chart__col--muted" : ""}`}
+              >
                 <div className="version-month-chart__bars">
                   <div
                     className="version-month-chart__bar version-month-chart__bar--base"

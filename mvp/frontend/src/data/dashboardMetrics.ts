@@ -1,3 +1,4 @@
+import { matchesOrgSlice, type OrgSliceSelection } from "./orgSliceFilters";
 import { annualTotal, decToDec, getMonthlyCR } from "./planningData";
 import { initialSalaryBands } from "./salaryRangeData";
 import { hasFactData, monthFactAmountFromStore } from "./factStore";
@@ -9,19 +10,16 @@ export const LIMIT_FLAG_KEYS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT", "UNLIM
 
 export type ViewMode = "base" | "total";
 
-export type DashboardFilters = {
-  department: string;
-  unit: string;
-  team: string;
+export type DashboardFilters = OrgSliceSelection & {
   limitFlag: "All" | LimitFlagKey;
   status: "All" | PositionRecord["status"];
   slotType: "All" | PositionRecord["slotType"];
 };
 
 export const DEFAULT_DASHBOARD_FILTERS: DashboardFilters = {
-  department: "All",
-  unit: "All",
-  team: "All",
+  departments: [],
+  units: [],
+  teams: [],
   limitFlag: "All",
   status: "All",
   slotType: "All",
@@ -36,9 +34,7 @@ export function filterPositionsForDashboard(
   filters: DashboardFilters,
 ): PositionRecord[] {
   return positions.filter((position) => {
-    if (filters.department !== "All" && position.department !== filters.department) return false;
-    if (filters.unit !== "All" && position.unit !== filters.unit) return false;
-    if (filters.team !== "All" && position.team !== filters.team) return false;
+    if (!matchesOrgSlice(position, filters)) return false;
     if (filters.limitFlag !== "All" && position.limitFlag !== filters.limitFlag) return false;
     if (filters.status !== "All" && position.status !== filters.status) return false;
     if (filters.slotType !== "All" && position.slotType !== filters.slotType) return false;
@@ -108,7 +104,7 @@ export function monthlyPlanFactSeries(positions: PositionRecord[], viewMode: Vie
       plan += monthAmountForPosition(position, month, viewMode);
       fact += monthFactAmount(position, month, viewMode);
     }
-    return { month, label, plan, fact, variance: fact - plan };
+    return { month, label, plan, fact, variance: plan - fact };
   });
 }
 
@@ -125,7 +121,7 @@ export function monthlyPlanFactByLimit(positions: PositionRecord[], viewMode: Vi
       const fact = monthFactAmount(position, month, viewMode);
       byLimit[position.limitFlag].plan += plan;
       byLimit[position.limitFlag].fact += fact;
-      byLimit[position.limitFlag].variance += fact - plan;
+      byLimit[position.limitFlag].variance += plan - fact;
     }
     return { month, label, byLimit };
   });

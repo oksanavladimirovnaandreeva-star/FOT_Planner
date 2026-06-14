@@ -1,4 +1,6 @@
+import { useState, type ReactNode } from "react";
 import { formatGrowthPct, sliceAnalytics } from "../data/dashboardMetrics";
+import { formatMoney } from "../data/formatDisplay";
 import { getMonthlyCR } from "../data/planningData";
 import { LIMIT_FLAG_LABELS } from "../data/planningData";
 import type { LimitFlagKey, PositionRecord, SalaryRangeBand } from "../types";
@@ -6,9 +8,8 @@ import type { ViewMode } from "../data/dashboardMetrics";
 
 const DISPLAY_LIMIT_FLAGS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT"];
 
-function formatMoney(value: number, compact = false): string {
-  if (compact && Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} млн ₽`;
-  return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
+function StripLabel({ children }: { children: ReactNode }) {
+  return <span className="analytics-strip__label">{children}</span>;
 }
 
 export function AnalyticsSummaryStrip({
@@ -20,6 +21,7 @@ export function AnalyticsSummaryStrip({
   showAvgCr = true,
   singleRow = false,
   planningLayout = false,
+  planningCompact = false,
 }: {
   positions: PositionRecord[];
   viewMode: ViewMode;
@@ -30,7 +32,10 @@ export function AnalyticsSummaryStrip({
   singleRow?: boolean;
   /** Планирование: 1-я строка — ФОТ/дек, 2-я — позиции и вакансии */
   planningLayout?: boolean;
+  /** Компактный режим на Планировании: 4 KPI + развернуть */
+  planningCompact?: boolean;
 }) {
+  const [planningExpanded, setPlanningExpanded] = useState(false);
   const a = sliceAnalytics(positions, viewMode);
   const active = positions.filter((position) => position.status !== "Closed");
   const decByLimit = active.reduce(
@@ -140,7 +145,7 @@ export function AnalyticsSummaryStrip({
   const fotCards = (
     <>
       <div className="analytics-strip__item">
-        <span>Итого ФОТ год</span>
+        <StripLabel>Итого ФОТ год</StripLabel>
         <strong>{formatMoney(a.yearPlan, true)}</strong>
         <div className="analytics-strip__rows">
           {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -152,7 +157,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <span>Дек прошл.</span>
+        <StripLabel>Дек прошл.</StripLabel>
         <strong>{formatMoney(a.decPrev)}</strong>
         <div className="analytics-strip__rows">
           {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -164,7 +169,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <span>Дек план</span>
+        <StripLabel>Дек план</StripLabel>
         <strong>{formatMoney(a.decPlan)}</strong>
         <div className="analytics-strip__rows">
           {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -176,7 +181,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <span>Дек → дек (прирост)</span>
+        <StripLabel>Дек → дек (прирост)</StripLabel>
         <strong>
           {formatGrowthPct(a.decPct)} · {formatMoney(a.decPlan - a.decPrev)}
         </strong>
@@ -204,7 +209,7 @@ export function AnalyticsSummaryStrip({
   const headcountCards = (
     <>
       <div className="analytics-strip__item">
-        <span>Позиции</span>
+        <StripLabel>Позиции</StripLabel>
         <strong>
           {active.length} · {formatMoney(a.yearPlan, true)}
         </strong>
@@ -220,7 +225,7 @@ export function AnalyticsSummaryStrip({
         </div>
       </div>
       <div className="analytics-strip__item">
-        <span>Вакансии</span>
+        <StripLabel>Вакансии</StripLabel>
         <strong>
           {totalVacancyCount} · {formatMoney(totalVacancyAmount, true)}
         </strong>
@@ -242,14 +247,14 @@ export function AnalyticsSummaryStrip({
     <>
       {showAvgCr ? (
         <div className="analytics-strip__item">
-          <span>Средний CR</span>
+          <StripLabel>Средний CR</StripLabel>
           <strong>{avgCr.toFixed(2)}</strong>
         </div>
       ) : null}
       {showYtd ? (
         <>
           <div className="analytics-strip__item">
-            <span>План YTD</span>
+            <StripLabel>План YTD</StripLabel>
             <strong>{formatMoney(a.planYtd, true)}</strong>
             <div className="analytics-strip__rows">
               {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -261,7 +266,7 @@ export function AnalyticsSummaryStrip({
             </div>
           </div>
           <div className="analytics-strip__item analytics-strip__item--muted">
-            <span>Факт YTD</span>
+            <StripLabel>Факт YTD</StripLabel>
             <strong>{a.hasFactData ? formatMoney(a.factYtd, true) : "—"}</strong>
             <div className="analytics-strip__rows">
               {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -274,7 +279,7 @@ export function AnalyticsSummaryStrip({
           </div>
           {showFactYtd ? (
             <div className="analytics-strip__item analytics-strip__item--muted">
-              <span>Отклонение YTD</span>
+              <StripLabel>Отклонение YTD</StripLabel>
               <strong>{a.hasFactData ? formatMoney(a.ytdVariance, true) : "—"}</strong>
               <div className="analytics-strip__rows">
                 {DISPLAY_LIMIT_FLAGS.map((flag) => (
@@ -291,9 +296,46 @@ export function AnalyticsSummaryStrip({
     </>
   );
 
+  if (planningLayout && planningCompact && !planningExpanded) {
+    return (
+      <div className="analytics-strip analytics-strip--planning-compact">
+        <div className="analytics-strip__row-group analytics-strip__row-group--compact">
+          <div className="analytics-strip__item">
+            <span>Итого ФОТ год</span>
+            <strong>{formatMoney(a.yearPlan, true)}</strong>
+          </div>
+          <div className="analytics-strip__item">
+            <StripLabel>Позиции</StripLabel>
+            <strong>{active.length}</strong>
+          </div>
+          <div className="analytics-strip__item">
+            <StripLabel>Вакансии</StripLabel>
+            <strong>{totalVacancyCount}</strong>
+          </div>
+          <div className="analytics-strip__item">
+            <StripLabel>Средний CR</StripLabel>
+            <strong>{avgCr > 0 ? avgCr.toFixed(2) : "—"}</strong>
+          </div>
+        </div>
+        <button type="button" className="ghost-btn analytics-strip__expand" onClick={() => setPlanningExpanded(true)}>
+          Показать все метрики
+        </button>
+      </div>
+    );
+  }
+
   if (planningLayout) {
     return (
       <div className={stripClass}>
+        {planningCompact ? (
+          <button
+            type="button"
+            className="ghost-btn analytics-strip__expand analytics-strip__expand--top"
+            onClick={() => setPlanningExpanded(false)}
+          >
+            Свернуть метрики
+          </button>
+        ) : null}
         <div className="analytics-strip__row-group analytics-strip__row-group--fot">{fotCards}</div>
         <div className="analytics-strip__row-group analytics-strip__row-group--hc">{headcountCards}</div>
       </div>

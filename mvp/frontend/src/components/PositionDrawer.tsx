@@ -16,6 +16,7 @@ import {
   removeEvent,
   upsertEvent,
 } from "../data/planningData";
+import { formatMoney } from "../data/formatDisplay";
 import { specializationOptions } from "../data/salaryRangeData";
 import { useMvpApp } from "../context/MvpAppContext";
 import type { LimitFlagKey } from "../types";
@@ -30,7 +31,7 @@ import {
 } from "./drawer/scenarioTypes";
 import { OccupancyTimelineStrip } from "./OccupancyTimelineStrip";
 import { collectOccupancyMismatches, mismatchesForPosition } from "../data/occupancyReconciliation";
-import { formatOccupancyMonthLabel, planOccupancyAtMonth, planOccupancyTimeline } from "../data/occupancyTimeline";
+import { formatOccupancyMonthLabel, planOccupancyAtMonth } from "../data/occupancyTimeline";
 import { hasFactData } from "../data/factStore";
 import {
   isPlanEventMonthAllowed,
@@ -120,7 +121,7 @@ export function PositionDrawer({
   readOnly = false,
   correctionWindow,
 }: PositionDrawerProps) {
-  const { salaryBands, positions: planPositionsAll } = useMvpApp();
+  const { salaryBands, allPositions: planPositionsAll } = useMvpApp();
   const specOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const selected = useMemo(() => record, [record]);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("slot");
@@ -171,10 +172,6 @@ export function PositionDrawer({
     if (open) setDrawerTab("slot");
   }, [open, selected?.positionId]);
 
-  const occupancyTimeline = useMemo(
-    () => (selected ? planOccupancyTimeline(selected) : []),
-    [selected],
-  );
   const positionMismatches = useMemo(() => {
     if (!selected || !hasFactData()) return [];
     return mismatchesForPosition(collectOccupancyMismatches(planPositionsAll), selected.positionId);
@@ -391,22 +388,6 @@ export function PositionDrawer({
   const isInterTransfer = scenarioForm.scenario === "TRANSFER_INTER";
   const isMaternity = scenarioForm.scenario === "MATERNITY";
   const transferButtonDisabled = selected.status !== "Occupied";
-  const classAnchor = selected.activeFromMonth;
-  const slotSpec = selected.monthlySpec[classAnchor] ?? selected.seedMonthlySpec[classAnchor];
-  const slotLevel = selected.monthlyLevel[classAnchor] ?? selected.seedMonthlyLevel[classAnchor];
-  const slotLevels = levelOptionsForSpecialization(slotSpec, salaryBands);
-
-  const updateSlotClassification = (specialization: string, level?: string) => {
-    const levels = levelOptionsForSpecialization(specialization, salaryBands);
-    const chosenLevel = level && levels.includes(level) ? level : levels[0];
-    const next = applyDirectEdit(selected, (draft) => {
-      for (let monthIndex = draft.activeFromMonth; monthIndex < 12; monthIndex += 1) {
-        draft.seedMonthlySpec[monthIndex] = specialization;
-        draft.seedMonthlyLevel[monthIndex] = chosenLevel;
-      }
-    });
-    onSaveDraft(next, selected.positionId);
-  };
 
   const headerTitle =
     selected.status === "Occupied" && selected.employeeName
@@ -506,7 +487,7 @@ export function PositionDrawer({
                   />
                 </label>
                 <label>
-                  Р РѕР»СЊ
+                  Роль
                   <input
                     type="text"
                     value={selected.role}
@@ -518,34 +499,6 @@ export function PositionDrawer({
                       onSaveDraft(next, selected.positionId);
                     }}
                   />
-                </label>
-                <label>
-                  Специализация
-                  <select
-                    value={slotSpec}
-                    disabled={readOnly}
-                    onChange={(event) => updateSlotClassification(event.target.value)}
-                  >
-                    {specOptions.map((specialization) => (
-                      <option key={specialization} value={specialization}>
-                        {specialization}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Уровень
-                  <select
-                    value={slotLevel}
-                    disabled={readOnly}
-                    onChange={(event) => updateSlotClassification(slotSpec, event.target.value)}
-                  >
-                    {slotLevels.map((level) => (
-                      <option key={level} value={level}>
-                        {level}
-                      </option>
-                    ))}
-                  </select>
                 </label>
               </div>
             </div>
@@ -720,7 +673,7 @@ export function PositionDrawer({
               )}
             </div>
             <OccupancyTimelineStrip
-              timeline={occupancyTimeline}
+              record={selected}
               activeFromMonth={selected.activeFromMonth}
               mismatches={positionMismatches}
             />
@@ -1065,15 +1018,15 @@ export function PositionDrawer({
               <table className="monthly-table monthly-table--drawer monthly-table--dense">
             <thead>
               <tr>
-                <th>Мес</th>
+                <th>Месяц</th>
                 <th>На слоте</th>
-                <th>Spec</th>
-                <th>Lvl</th>
-                <th>BASE</th>
-                <th>BON</th>
-                <th>Σ</th>
+                <th>Специализация</th>
+                <th>Уровень</th>
+                <th>Оклад</th>
+                <th>Премия</th>
+                <th>Итого</th>
                 <th>CR</th>
-                <th />
+                <th aria-label="Копировать" />
               </tr>
             </thead>
             <tbody>
@@ -1102,7 +1055,7 @@ export function PositionDrawer({
                         onSaveDraft(next, selected.positionId);
                       }}>
                         {specOptions.map((specialization) => (
-                          <option key={specialization} value={specialization}>{specialization.slice(0, 8)}</option>
+                          <option key={specialization} value={specialization}>{specialization}</option>
                         ))}
                       </select>
                     </td>
@@ -1136,12 +1089,12 @@ export function PositionDrawer({
                         onSaveDraft(next, selected.positionId);
                       }} />
                     </td>
-                    <td className="monthly-table__total">{(total / 1000).toFixed(0)}k</td>
+                    <td className="monthly-table__total">{formatMoney(total, true)}</td>
                     <td>
                       <span className={`cr-value cr-value--${crTone(cr)}`}>{cr.toFixed(2)}</span>
                     </td>
                     <td>
-                      <button type="button" className="icon-btn" disabled={readOnly} title="Copy forward" onClick={() => applyCopyForward(index)}>
+                      <button type="button" className="icon-btn" disabled={readOnly} title="Скопировать на следующие месяцы" onClick={() => applyCopyForward(index)}>
                         <Copy size={12} />
                       </button>
                     </td>

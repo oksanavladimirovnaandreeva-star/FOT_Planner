@@ -70,4 +70,27 @@ describe("teamConsolidation", () => {
   it("возвращает три квартальных дедлайна", () => {
     expect(getQuarterDeadlines(2026)).toHaveLength(3);
   });
+
+  it("unit_lead видит только команды своего юнита", () => {
+    const positions = clonePositions();
+    const full = buildOrgConsolidationReport(positions, {
+      department: "Engineering",
+      planYear: 2026,
+      workingDraft: null,
+      baselinePositions: positions,
+      draftPositions: positions,
+      now: new Date(2026, 4, 1),
+    });
+    const scoped = buildOrgConsolidationReport(positions, {
+      department: "Engineering",
+      unit: "ProductDev",
+      planYear: 2026,
+      workingDraft: null,
+      baselinePositions: positions,
+      draftPositions: positions,
+      now: new Date(2026, 4, 1),
+    });
+    expect(scoped.totals.teams).toBeLessThan(full.totals.teams);
+    expect(scoped.units.every((group) => group.unit === "ProductDev")).toBe(true);
+  });
 });

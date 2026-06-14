@@ -2,14 +2,21 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import { MvpAppProvider } from "./context/MvpAppContext";
 import { DashboardPage } from "./pages/DashboardPage";
+import { CorrectionPage } from "./pages/CorrectionPage";
 import { PlanningPage } from "./pages/PlanningPage";
 import { SalaryRangesPage } from "./pages/SalaryRangesPage";
-import { PlanVsActualPage } from "./pages/PlanVsActualPage";
-import { DeviationPage } from "./pages/DeviationPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { VersionsPage } from "./pages/VersionsPage";
-import { ForecastPage } from "./pages/ForecastPage";
 import { PlanAuditPage } from "./pages/PlanAuditPage";
-import { ConsolidationPage } from "./pages/ConsolidationPage";
+import { SettingsPage } from "./pages/SettingsPage";
+
+function LegacyRedirect({ to }: { to: string }) {
+  return <Navigate to={to} replace />;
+}
+
+function AnalyticsLegacyRedirect({ tab }: { tab: string }) {
+  return <Navigate to={`/analytics?tab=${tab}`} replace />;
+}
 
 function App() {
   return (
@@ -18,13 +25,16 @@ function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/planning" element={<PlanningPage />} />
-          <Route path="/salary-ranges" element={<SalaryRangesPage />} />
-          <Route path="/plan-vs-actual" element={<PlanVsActualPage />} />
-          <Route path="/deviation" element={<DeviationPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/versions" element={<VersionsPage />} />
-          <Route path="/forecast" element={<ForecastPage />} />
-          <Route path="/consolidation" element={<ConsolidationPage />} />
+          <Route path="/salary-ranges" element={<SalaryRangesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/audit" element={<PlanAuditPage />} />
+          <Route path="/correction" element={<CorrectionPage />} />
+          <Route path="/plan-vs-actual" element={<LegacyRedirect to="/analytics" />} />
+          <Route path="/deviation" element={<AnalyticsLegacyRedirect tab="deviation" />} />
+          <Route path="/forecast" element={<AnalyticsLegacyRedirect tab="forecast" />} />
+          <Route path="/consolidation" element={<LegacyRedirect to="/versions?tab=consolidation" />} />
           <Route path="/changes" element={<Navigate to="/audit" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -4,7 +4,7 @@ import {
   listFactEmployeesOnPosition,
   monthFactAmountOnPosition,
 } from "./factStore";
-import { formatOccupancyMonthLabel, isPlanClosedAtMonth, planOccupancyAtMonth } from "./occupancyTimeline";
+import { formatSlotOccupancyAtMonth, isPlanClosedAtMonth, planOccupancyAtMonth } from "./occupancyTimeline";
 import type { PositionRecord } from "../types";
 
 export type MatrixDeviation =
@@ -36,10 +36,10 @@ export function buildPlanMonthCell(
   position: PositionRecord,
   month: number,
   viewMode: ViewMode,
+  factLoaded = hasFactData(),
 ): PlanMonthCell {
   const snap = planOccupancyAtMonth(position, month);
   const planAmount = planAmountAtMonth(position, month, viewMode);
-  const factLoaded = hasFactData();
 
   if (snap.status === "Closed") {
     return {
@@ -107,5 +107,5 @@ export function matrixMonthOccupancyLabel(
   month: number,
   compact = true,
 ): string {
-  return formatOccupancyMonthLabel(planOccupancyAtMonth(position, month), compact);
+  return formatSlotOccupancyAtMonth(position, month, compact);
 }

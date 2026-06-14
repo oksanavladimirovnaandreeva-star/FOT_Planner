@@ -1,28 +1,33 @@
 import { MONTHS } from "../types";
-import { formatOccupancyMonthLabel, type PlanOccupancySnapshot } from "../data/occupancyTimeline";
+import type { PositionRecord } from "../types";
+import {
+  formatSlotOccupancyAtMonth,
+  occupancyTimelineCellTone,
+} from "../data/occupancyTimeline";
 import type { OccupancyMismatch } from "../data/occupancyReconciliation";
 
 type OccupancyTimelineStripProps = {
-  timeline: PlanOccupancySnapshot[];
+  record: PositionRecord;
   activeFromMonth: number;
   mismatches?: OccupancyMismatch[];
   compact?: boolean;
+  /** Нейтральные ячейки без цветных заливок */
+  subtle?: boolean;
 };
 
 export function OccupancyTimelineStrip({
-  timeline,
+  record,
   activeFromMonth,
   mismatches = [],
   compact = false,
+  subtle = false,
 }: OccupancyTimelineStripProps) {
   const mismatchMonths = new Set(mismatches.map((item) => item.month));
 
   return (
-    <div className={`occupancy-timeline${compact ? " occupancy-timeline--compact" : ""}`}>
-      <div className="occupancy-timeline__legend muted-line">
-        <span>ФИО или «Вакансия» / «Закрыта» на конец месяца</span>
-        <span className="occupancy-timeline__legend-warn">! — расхождение с фактом</span>
-      </div>
+    <div
+      className={`occupancy-timeline${compact ? " occupancy-timeline--compact" : ""}${subtle ? " occupancy-timeline--subtle" : ""}`}
+    >
       <div className="occupancy-timeline__months" role="list">
         {MONTHS.map((label, month) => {
           if (month < activeFromMonth) {
@@ -32,19 +37,15 @@ export function OccupancyTimelineStrip({
               </span>
             );
           }
-          const snapshot = timeline[month];
+          const tone = occupancyTimelineCellTone(record, month);
           const warn = mismatchMonths.has(month);
-          const caption = formatOccupancyMonthLabel(snapshot, compact);
+          const caption = formatSlotOccupancyAtMonth(record, month, compact);
           return (
             <span
               key={label}
-              className={`occupancy-timeline__cell occupancy-timeline__cell--${snapshot.status.toLowerCase()}${warn ? " occupancy-timeline__cell--warn" : ""}`}
+              className={`occupancy-timeline__cell occupancy-timeline__cell--${tone}${warn ? " occupancy-timeline__cell--warn" : ""}`}
               role="listitem"
-              title={
-                snapshot.employeeName
-                  ? `${label}: ${snapshot.employeeName} (${snapshot.employeeId})`
-                  : `${label}: ${caption}`
-              }
+              title={`${label}: ${formatSlotOccupancyAtMonth(record, month)}`}
             >
               {compact ? (
                 caption

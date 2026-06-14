@@ -9,10 +9,27 @@ import {
   specializationOptions,
   upsertSalaryBand,
 } from "../data/salaryRangeData";
+import { formatMoney } from "../data/formatDisplay";
 import type { SalaryRangeBand } from "../types";
 
-function formatMoney(value: number): string {
-  return `${Math.round(value).toLocaleString("ru-RU")} ₽`;
+type SortKey = "specialization" | "level" | "minSalary" | "midpoint" | "maxSalary";
+type SortDirection = "asc" | "desc";
+
+function compareBands(a: SalaryRangeBand, b: SalaryRangeBand, key: SortKey, dir: SortDirection): number {
+  const mul = dir === "asc" ? 1 : -1;
+  if (key === "specialization" || key === "level") {
+    return mul * a[key].localeCompare(b[key], "ru");
+  }
+  return mul * (a[key] - b[key]);
+}
+
+function nextSortState(
+  currentKey: SortKey,
+  currentDir: SortDirection,
+  key: SortKey,
+): { sortKey: SortKey; sortDir: SortDirection } {
+  if (currentKey !== key) return { sortKey: key, sortDir: "asc" };
+  return { sortKey: key, sortDir: currentDir === "asc" ? "desc" : "asc" };
 }
 
 const EMPTY_FORM: Omit<SalaryRangeBand, "id" | "currency"> = {
@@ -24,19 +41,23 @@ const EMPTY_FORM: Omit<SalaryRangeBand, "id" | "currency"> = {
 };
 
 export function SalaryRangesPage() {
-  const { activePlan, salaryBands, setSalaryBands, catalogAccess, setCatalogAccess, canEditSalaryCatalog } = useMvpApp();
+  const { activePlan, salaryBands, setSalaryBands, catalogAccess, setCatalogAccess, canEditSalaryCatalog, userRole } =
+    useMvpApp();
+  const showCatalogAccessDemo = userRole === "admin";
   const [specFilter, setSpecFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("specialization");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
 
   const specs = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const levels = useMemo(() => [...new Set(salaryBands.map((band) => band.level))].sort((a, b) => a.localeCompare(b, "ru")), [salaryBands]);
 
   const filtered = useMemo(() => {
-    return salaryBands.filter((band) => {
+    const rows = salaryBands.filter((band) => {
       if (specFilter && band.specialization !== specFilter) return false;
       if (levelFilter && band.level !== levelFilter) return false;
       if (search) {
@@ -45,9 +66,21 @@ export function SalaryRangesPage() {
       }
       return true;
     });
-  }, [salaryBands, specFilter, levelFilter, search]);
+    return [...rows].sort((a, b) => compareBands(a, b, sortKey, sortDir));
+  }, [salaryBands, specFilter, levelFilter, search, sortKey, sortDir]);
 
   const [editorOpen, setEditorOpen] = useState(false);
+
+  const toggleSort = (key: SortKey) => {
+    const next = nextSortState(sortKey, sortDir, key);
+    setSortKey(next.sortKey);
+    setSortDir(next.sortDir);
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? " ↑" : " ↓";
+  };
 
   const startCreate = () => {
     setEditingKey(null);
@@ -182,11 +215,31 @@ export function SalaryRangesPage() {
           <table className="simple-table simple-table--numeric salary-ranges-table">
             <thead>
               <tr>
-                <th>Специализация</th>
-                <th>Уровень</th>
-                <th>Мин</th>
-                <th>Мид</th>
-                <th>Макс</th>
+                <th>
+                  <button type="button" className="salary-ranges-table__sort" onClick={() => toggleSort("specialization")}>
+                    Специализация{sortIndicator("specialization")}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="salary-ranges-table__sort" onClick={() => toggleSort("level")}>
+                    Уровень{sortIndicator("level")}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="salary-ranges-table__sort" onClick={() => toggleSort("minSalary")}>
+                    Мин{sortIndicator("minSalary")}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="salary-ranges-table__sort" onClick={() => toggleSort("midpoint")}>
+                    Мид{sortIndicator("midpoint")}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="salary-ranges-table__sort" onClick={() => toggleSort("maxSalary")}>
+                    Макс{sortIndicator("maxSalary")}
+                  </button>
+                </th>
                 {canEditSalaryCatalog && <th />}
               </tr>
             </thead>
@@ -284,20 +337,24 @@ export function SalaryRangesPage() {
         </section>
       )}
 
-      <CollapsibleSection
-        title="Настройки доступа (демо)"
-        summary={canEditSalaryCatalog ? "Редактирование включено" : "Только просмотр"}
-        defaultOpen={false}
-      >
-        <label>
-          Режим
-          <select value={catalogAccess} onChange={(event) => setCatalogAccess(event.target.value as "read" | "write")}>
-            <option value="read">Только просмотр</option>
-            <option value="write">Редактирование</option>
-          </select>
-        </label>
-        <p className="muted-line">В проде доступ к справочнику задаётся ролью пользователя.</p>
-      </CollapsibleSection>
+      {showCatalogAccessDemo ? (
+        <CollapsibleSection
+          title="Настройки доступа (демо C&B)"
+          summary={canEditSalaryCatalog ? "Редактирование включено" : "Только просмотр"}
+          defaultOpen={false}
+        >
+          <label>
+            Режим
+            <select value={catalogAccess} onChange={(event) => setCatalogAccess(event.target.value as "read" | "write")}>
+              <option value="read">Только просмотр</option>
+              <option value="write">Редактирование</option>
+            </select>
+          </label>
+          <p className="muted-line">Редактирование справочника — только C&B.</p>
+        </CollapsibleSection>
+      ) : (
+        <p className="muted-line">Справочник диапазонов: {canEditSalaryCatalog ? "редактирование" : "только просмотр"}.</p>
+      )}
     </div>
   );
 }
