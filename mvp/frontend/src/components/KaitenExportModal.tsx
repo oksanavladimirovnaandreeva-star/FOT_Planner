@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Download, X } from "lucide-react";
+import { Copy, Download, ExternalLink, X } from "lucide-react";
 import {
   availableKaitenTypesForPosition,
   buildKaitenExportFields,
@@ -22,6 +22,8 @@ type Props = {
   initialType: KaitenRequestType;
   event?: PlannedEvent;
 };
+
+const WIDE_FIELD_KEYS = new Set(["reason", "role"]);
 
 export function KaitenExportModal({
   open,
@@ -79,20 +81,21 @@ export function KaitenExportModal({
         if (clickEvent.target === clickEvent.currentTarget) onClose();
       }}
     >
-      <div className="modal-card modal-card--kaiten">
-        <div className="kaiten-export-modal__head">
+      <div className="modal-card modal-card--kaiten" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+        <header className="kaiten-export-modal__head">
           <div>
-            <h2 id="kaiten-export-title" className="section-title">
-              Выгрузка в Kaiten
+            <h2 id="kaiten-export-title" className="drawer-section__title drawer-section__title--kaiten">
+              <ExternalLink size={14} aria-hidden />
+              Заявка в Kaiten
             </h2>
-            <p className="muted-line">
+            <p className="kaiten-export-modal__meta">
               {position.positionId} · {position.role}
             </p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Закрыть">
             <X size={18} />
           </button>
-        </div>
+        </header>
 
         {availableTypes.length > 1 ? (
           <div className="kaiten-type-toggle" role="tablist" aria-label="Тип заявки">
@@ -110,24 +113,29 @@ export function KaitenExportModal({
             ))}
           </div>
         ) : (
-          <p className="muted-line">Тип заявки: {KAITEN_REQUEST_TYPE_LABEL[requestType]}</p>
+          <p className="kaiten-export-modal__type-label">
+            Тип: <strong>{KAITEN_REQUEST_TYPE_LABEL[requestType]}</strong>
+          </p>
         )}
 
-        <dl className="kaiten-export-fields">
+        <div className="kaiten-export-fields">
           {fields.map((field) => (
-            <div key={field.key} className="kaiten-export-fields__row">
-              <dt>{field.label}</dt>
-              <dd>{field.value}</dd>
+            <div
+              key={field.key}
+              className={`kaiten-export-fields__item${WIDE_FIELD_KEYS.has(field.key) ? " kaiten-export-fields__item--wide" : ""}`}
+            >
+              <span className="kaiten-export-fields__label">{field.label}</span>
+              <span className="kaiten-export-fields__value">{field.value}</span>
             </div>
           ))}
-        </dl>
+        </div>
 
-        <p className="muted-line">
-          Демо: API Kaiten не подключён. Скачайте JSON для ручной передачи в Service Desk.
+        <p className="kaiten-export-modal__hint">
+          Демо: API Kaiten не подключён. Скопируйте JSON или скачайте файл для ручной передачи в Service Desk.
         </p>
         {exportNote ? <p className="kaiten-export-modal__note">{exportNote}</p> : null}
 
-        <div className="modal-card__actions kaiten-export-modal__actions">
+        <footer className="kaiten-export-modal__actions">
           <button type="button" className="secondary-btn" onClick={onClose}>
             Закрыть
           </button>
@@ -139,7 +147,7 @@ export function KaitenExportModal({
             <Download size={14} aria-hidden />
             Скачать заявку
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   );

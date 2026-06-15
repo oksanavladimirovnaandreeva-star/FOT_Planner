@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Trash2, X } from "lucide-react";
+import { ExternalLink, ArrowRight, Briefcase, Calendar, History, Table2, Trash2, User, X } from "lucide-react";
 import {
   annualTotal,
   applyDirectEdit,
+  applyEvents,
+  decToDec,
   defaultLimitFlagForSlotType,
+  formatGrowthDelta,
+  formatGrowthPct,
   getMonthlyCR,
-  hasCarryoverEvent,
+  growthTone,
   isVacantForTransferAtMonth,
   intraTransferVacancyHint,
   levelOptionsForSpecialization,
@@ -28,8 +32,12 @@ import {
   SCENARIO_CARDS,
   type ScenarioType,
 } from "./drawer/scenarioTypes";
-import { formatPositionHireLabel } from "../data/positionDisplay";
-import { formatDecGrowthPctLine, resolveDecGrowthDisplay } from "../data/decGrowthDisplay";
+import {
+  employeeDisplayLine,
+  employeeInitials,
+  formatEmployeeDrawerMeta,
+  formatPositionHireLabel,
+} from "../data/positionDisplay";
 import {
   isPlanEventMonthAllowed,
   planEventMonthBlockedMessage,
@@ -100,6 +108,20 @@ const SCENARIO_OPTION_HINT = Object.fromEntries(
   SCENARIO_CARDS.map((card) => [card.id, card.short]),
 ) as Record<ScenarioType, string>;
 
+function scenarioTitleForPosition(record: PositionRecord, scenario: ScenarioType): string {
+  if (applyEvents(record).status === "Vacancy" && scenario === "REVIEW") {
+    return "Плановый найм (оклад, спец., уровень)";
+  }
+  return SCENARIO_LABEL[scenario];
+}
+
+function scenarioHintForPosition(record: PositionRecord, scenario: ScenarioType): string {
+  if (applyEvents(record).status === "Vacancy" && scenario === "REVIEW") {
+    return "План выхода на вакансию: после сохранения можно оформить заявку на найм в Kaiten.";
+  }
+  return scenarioHelpText(scenario);
+}
+
 export function PositionDrawer({
   open,
   record,
@@ -110,7 +132,7 @@ export function PositionDrawer({
   onDeletePosition,
   planPositions,
   employeeOptions,
-  suggestedNewEmployeeId: _suggestedNewEmployeeId,
+  suggestedNewEmployeeId,
   isPersisted,
   departmentOptions,
   unitOptionsForDepartment,
@@ -209,8 +231,6 @@ export function PositionDrawer({
       : null;
   const replacementEmployeeOptions = employeeOptions.filter((employee) => employee.employeeId !== selected.employeeId);
 
-  const carryoverApplied = hasCarryoverEvent(selected);
-
   const persistVacancyToPlan = () => {
     onSaveDraft(selected, selected.positionId, true);
   };
@@ -275,15 +295,29 @@ export function PositionDrawer({
     }
     switch (scenarioForm.scenario) {
       case "REVIEW":
-        applyEventToRecord(
-          createEvent("MANUAL_OVERRIDE", {
-            month,
-            base,
-            bonus,
-            specialization,
-            level,
-          }),
-        );
+        if (applyEvents(selected).status === "Vacancy") {
+          applyEventWithNudge(
+            createEvent("PLANNED_HIRE", {
+              month,
+              base,
+              bonus,
+              specialization,
+              level,
+              employeeId: suggestedNewEmployeeId,
+              employeeName: "Плановый найм",
+            }),
+          );
+        } else {
+          applyEventToRecord(
+            createEvent("MANUAL_OVERRIDE", {
+              month,
+              base,
+              bonus,
+              specialization,
+              level,
+            }),
+          );
+        }
         break;
       case "TRANSFER_INTRA":
       case "TRANSFER_INTER": {
@@ -389,11 +423,46 @@ export function PositionDrawer({
   const isMaternity = scenarioForm.scenario === "MATERNITY";
   const transferButtonDisabled = selected.status !== "Occupied";
 
+  const renderDrawerMonthRows = (fromMonth: number, toMonth: number) =>
+    Array.from({ length: toMonth - fromMonth }, (_, offset) => {
+      const index = fromMonth + offset;
+      const month = MONTHS[index]!;
+      const closeEvent = selected.events.find((event) => event.type === "CLOSE_POSITION");
+      const closedFrom = closeEvent?.payload.month;
+      const isClosedMonth = closedFrom != null && index >= closedFrom;
+      const total = selected.monthlyBase[index] + selected.monthlyBonus[index];
+      const cr = getMonthlyCR(
+        selected.monthlyBase[index],
+        selected.monthlySpec[index],
+        selected.monthlyLevel[index],
+        salaryBands,
+      );
+      return (
+        <tr key={month} className={isClosedMonth ? "monthly-table__row--closed" : undefined}>
+          <td>{month}</td>
+          <td className="monthly-table__readonly">{selected.monthlySpec[index]}</td>
+          <td className="monthly-table__readonly">{selected.monthlyLevel[index]}</td>
+          <td className="monthly-table__readonly">{selected.monthlyBase[index].toLocaleString("ru-RU")} ₽</td>
+          <td className="monthly-table__readonly">{selected.monthlyBonus[index].toLocaleString("ru-RU")} ₽</td>
+          <td className="monthly-table__total">{formatMoney(total)}</td>
+          <td>
+            <span className={`cr-value cr-value--${crTone(cr)}`}>{cr.toFixed(2)}</span>
+          </td>
+        </tr>
+      );
+    });
+
   const headerTitle =
     selected.status === "Occupied" && selected.employeeName
-      ? `${selected.employeeName} · ${selected.positionId}`
+      ? employeeDisplayLine(selected)
       : selected.role?.trim() || `Позиция ${selected.positionId}`;
-  const decGrowth = resolveDecGrowthDisplay(selected, planYear);
+  const annualFotTotal = annualTotal(selected);
+  const decPrevBase = selected.previousDecemberBase;
+  const decPlanBase = selected.monthlyBase[11] ?? 0;
+  const decDelta = decPlanBase - decPrevBase;
+  const decPct = decToDec(decPrevBase, decPlanBase);
+  const identitySpec = selected.monthlySpec[selected.activeFromMonth] ?? selected.monthlySpec[0] ?? "";
+  const identityLevel = selected.monthlyLevel[selected.activeFromMonth] ?? selected.monthlyLevel[0] ?? "";
   const canExportKaiten = canShowKaitenExport(userRole, leadEditFrozen) && positionKaitenEligible(selected);
   const openKaitenExport = () => {
     const initialType = defaultKaitenTypeForPosition(selected);
@@ -422,12 +491,6 @@ export function PositionDrawer({
         <header className="drawer-header">
           <div className="drawer-header__main">
             <h2>{headerTitle}</h2>
-            <div className="drawer-header__chips">
-              <span className="drawer-header__stat">
-                Дек {decGrowth.prevYear}→{decGrowth.planYear}: {formatDecGrowthPctLine(decGrowth)}
-              </span>
-              <span className="drawer-header__stat">ФОТ {annualTotal(selected).toLocaleString("ru-RU")} ₽</span>
-            </div>
           </div>
           <div className="drawer-header-actions">
             {canExportKaiten ? (
@@ -435,7 +498,7 @@ export function PositionDrawer({
                 type="button"
                 className="secondary-btn drawer-header-actions__kaiten"
                 onClick={openKaitenExport}
-                title="Подготовить заявку в Kaiten (найм или ОТиЗ)"
+                title="Заявка в Kaiten: найм для вакансий, ОТиЗ для сокращения и увольнения"
               >
                 <ExternalLink size={14} aria-hidden />
                 Kaiten
@@ -464,21 +527,163 @@ export function PositionDrawer({
         </header>
 
         <div className="drawer-body drawer-body--wb">
-          <div className="drawer-unified drawer-unified--stack">
-            <section className="drawer-meta-bar drawer-card">
-              <div className="drawer-meta-bar__context">
-                <p className="drawer-meta-bar__role">{selected.role?.trim() || `Позиция ${selected.positionId}`}</p>
-                <p className="drawer-meta-bar__org">
-                  {selected.department} / {selected.unit}
-                  {selected.team ? ` / ${selected.team}` : ""}
-                </p>
-                {selected.status === "Occupied" && selected.employeeName ? (
-                  <p className="drawer-meta-bar__employee">
-                    {selected.employeeName} · {formatPositionHireLabel(selected, planYear)}
-                  </p>
-                ) : null}
+          <div className="drawer-unified--stack">
+            <section className="drawer-identity drawer-card">
+              <div className="drawer-identity__split">
+                <div className="drawer-identity__pane drawer-identity__pane--position">
+                  <div className="drawer-identity__label">
+                    <span className="drawer-identity__icon drawer-identity__icon--position" aria-hidden>
+                      <Briefcase size={14} />
+                    </span>
+                    Позиция
+                  </div>
+                  {selected.status === "Vacancy" ? (
+                    <input
+                      className="drawer-identity__title-input"
+                      type="text"
+                      value={selected.role}
+                      disabled={readOnly}
+                      placeholder="Название позиции"
+                      onChange={(event) => {
+                        const next = applyDirectEdit(selected, (draft) => {
+                          draft.role = event.target.value;
+                        });
+                        onSaveDraft(next, selected.positionId);
+                      }}
+                    />
+                  ) : (
+                    <h3 className="drawer-identity__title">
+                      {selected.role?.trim() || `Позиция ${selected.positionId}`}
+                    </h3>
+                  )}
+                  <div className="drawer-identity__org-line">
+                    {selected.status === "Vacancy" ? (
+                      <>
+                        <select
+                          className="drawer-identity__org-select"
+                          value={selected.department}
+                          disabled={readOnly}
+                          onChange={(event) => {
+                            const nextDepartment = event.target.value;
+                            const units = unitOptionsForDepartment(nextDepartment);
+                            const nextUnit = units[0] ?? "";
+                            const teams = teamOptionsForUnit(nextDepartment, nextUnit);
+                            const nextTeam = teams[0] ?? "";
+                            const next = applyDirectEdit(selected, (draft) => {
+                              draft.department = nextDepartment;
+                              draft.unit = nextUnit;
+                              draft.team = nextTeam;
+                            });
+                            onSaveDraft(next, selected.positionId);
+                          }}
+                        >
+                          {departmentOptions.map((department) => (
+                            <option key={department} value={department}>
+                              {department}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="drawer-identity__sep">/</span>
+                        <select
+                          className="drawer-identity__org-select"
+                          value={selected.unit}
+                          disabled={readOnly}
+                          onChange={(event) => {
+                            const nextUnit = event.target.value;
+                            const teams = teamOptionsForUnit(selected.department, nextUnit);
+                            const nextTeam = teams[0] ?? "";
+                            const next = applyDirectEdit(selected, (draft) => {
+                              draft.unit = nextUnit;
+                              draft.team = nextTeam;
+                            });
+                            onSaveDraft(next, selected.positionId);
+                          }}
+                        >
+                          {unitOptionsForDepartment(selected.department).map((unit) => (
+                            <option key={unit} value={unit}>
+                              {unit}
+                            </option>
+                          ))}
+                        </select>
+                        {selected.team ? (
+                          <>
+                            <span className="drawer-identity__sep">/</span>
+                            <select
+                              className="drawer-identity__org-select"
+                              value={selected.team}
+                              disabled={readOnly}
+                              onChange={(event) => {
+                                const next = applyDirectEdit(selected, (draft) => {
+                                  draft.team = event.target.value;
+                                });
+                                onSaveDraft(next, selected.positionId);
+                              }}
+                            >
+                              {teamOptionsForUnit(selected.department, selected.unit).map((team) => (
+                                <option key={team} value={team}>
+                                  {team}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <span>{selected.department}</span>
+                        <span className="drawer-identity__sep">/</span>
+                        <span>{identitySpec || selected.unit}</span>
+                        {identityLevel ? (
+                          <>
+                            <span className="drawer-identity__sep">·</span>
+                            <span className="drawer-identity__muted">{identityLevel}</span>
+                          </>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                  <p className="drawer-identity__id">{selected.positionId}</p>
+                </div>
+
+                <div className="drawer-identity__bridge" aria-hidden>
+                  <ArrowRight size={18} />
+                </div>
+
+                <div className="drawer-identity__pane drawer-identity__pane--employee">
+                  <div className="drawer-identity__label">
+                    <span className="drawer-identity__icon drawer-identity__icon--employee" aria-hidden>
+                      <User size={14} />
+                    </span>
+                    Сотрудник
+                  </div>
+                  {selected.status === "Occupied" && selected.employeeName ? (
+                    <div className="drawer-identity__employee">
+                      <span className="drawer-identity__avatar" aria-hidden>
+                        {employeeInitials(selected.employeeName)}
+                        <span className="drawer-identity__avatar-dot" />
+                      </span>
+                      <div className="drawer-identity__employee-text">
+                        <p className="drawer-identity__employee-name">{employeeDisplayLine(selected)}</p>
+                        <p className="drawer-identity__employee-meta">{formatEmployeeDrawerMeta(selected, planYear)}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="drawer-identity__employee drawer-identity__employee--empty">
+                      <span className="drawer-identity__avatar drawer-identity__avatar--muted" aria-hidden>
+                        —
+                      </span>
+                      <div className="drawer-identity__employee-text">
+                        <p className="drawer-identity__employee-name">{POSITION_STATUS_LABELS[selected.status]}</p>
+                        <p className="drawer-identity__employee-meta">{formatPositionHireLabel(selected, planYear)}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="drawer-meta-bar__controls">
+            </section>
+
+            <section className="drawer-status-bar drawer-card">
+              <div className="drawer-status-bar__controls">
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">Тип позиции</span>
                   <select
@@ -504,6 +709,7 @@ export function PositionDrawer({
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">Лимит</span>
                   <select
+                    className={`drawer-meta-field__limit drawer-meta-field__limit--${selected.limitFlag}`}
                     value={selected.limitFlag}
                     disabled={readOnly || selected.slotType === "carryover"}
                     onChange={(event) => {
@@ -554,136 +760,137 @@ export function PositionDrawer({
                   </select>
                 </label>
               </div>
-              {selected.status === "Vacancy" ? (
-                <div className="drawer-meta-bar__vacancy">
-                  <label className="drawer-meta-field drawer-meta-field--wide">
-                    <span className="drawer-meta-field__label">Название / роль</span>
-                    <input
-                      type="text"
-                      value={selected.role}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.role = event.target.value;
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    />
-                  </label>
-                  <label className="drawer-meta-field">
-                    <span className="drawer-meta-field__label">Департамент</span>
-                    <select
-                      value={selected.department}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const nextDepartment = event.target.value;
-                        const units = unitOptionsForDepartment(nextDepartment);
-                        const nextUnit = units[0] ?? "";
-                        const teams = teamOptionsForUnit(nextDepartment, nextUnit);
-                        const nextTeam = teams[0] ?? "";
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.department = nextDepartment;
-                          draft.unit = nextUnit;
-                          draft.team = nextTeam;
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    >
-                      {departmentOptions.map((department) => (
-                        <option key={department} value={department}>
-                          {department}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="drawer-meta-field">
-                    <span className="drawer-meta-field__label">Юнит</span>
-                    <select
-                      value={selected.unit}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const nextUnit = event.target.value;
-                        const teams = teamOptionsForUnit(selected.department, nextUnit);
-                        const nextTeam = teams[0] ?? "";
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.unit = nextUnit;
-                          draft.team = nextTeam;
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    >
-                      {unitOptionsForDepartment(selected.department).map((unit) => (
-                        <option key={unit} value={unit}>
-                          {unit}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="drawer-meta-field">
-                    <span className="drawer-meta-field__label">Команда</span>
-                    <select
-                      value={selected.team}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.team = event.target.value;
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    >
-                      {teamOptionsForUnit(selected.department, selected.unit).map((team) => (
-                        <option key={team} value={team}>
-                          {team}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {selected.slotType === "carryover" && !carryoverApplied ? (
-                    <p className="drawer-meta-bar__hint">Перенос бюджета — в «Настройки → Данные».</p>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="drawer-meta-bar__hint muted-line">
-                  Смена оргструктуры — сценарий «Перевод в другой департамент».
-                </p>
-              )}
-              <div className="drawer-december-strip">
-                <label className="drawer-meta-field">
-                  <span className="drawer-meta-field__label">Дек {decGrowth.prevYear}, ₽</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1000}
-                    disabled={readOnly}
-                    value={selected.previousDecemberBase}
-                    onChange={(event) => {
-                      const next = applyDirectEdit(selected, (draft) => {
-                        draft.previousDecemberBase = Math.max(0, Number(event.target.value) || 0);
-                      });
-                      onSaveDraft(next, selected.positionId);
-                    }}
-                  />
-                </label>
-                <div className="drawer-meta-field drawer-meta-field--readonly">
-                  <span className="drawer-meta-field__label">Дек {decGrowth.planYear} (план)</span>
-                  <span className="drawer-meta-field__value">{selected.monthlyBase[11].toLocaleString("ru-RU")} ₽</span>
-                </div>
-                <div className="drawer-meta-field drawer-meta-field--readonly">
-                  <span className="drawer-meta-field__label">Δ дек→дек</span>
-                  <span className="drawer-meta-field__value">{formatDecGrowthPctLine(decGrowth)}</span>
-                </div>
-              </div>
             </section>
 
             <section className="drawer-events-panel drawer-card drawer-card--plan" ref={composerRef}>
-            <h3 className="drawer-section__title drawer-section__title--upper">Плановое изменение</h3>
+            <h3 className="drawer-section__title drawer-section__title--plan">
+              <Calendar size={14} aria-hidden />
+              Плановое изменение
+            </h3>
           <div className="drawer-scenario-form">
-            <div className="drawer-scenario-form__row">
-            <label className="drawer-field drawer-field--wide" title={scenarioHelpText(scenarioForm.scenario)}>
+            {isReview ? (
+              <div className="drawer-scenario-form__row drawer-scenario-form__row--six">
+                <label className="drawer-field" title={scenarioHintForPosition(selected, scenarioForm.scenario)}>
+                  <span className="drawer-field__label">Тип изменения</span>
+                  <select
+                    value={scenarioForm.scenario}
+                    title={scenarioHintForPosition(selected, scenarioForm.scenario)}
+                    onChange={(event) =>
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        scenario: event.target.value as ScenarioType,
+                        transferToPositionId: "",
+                        targetDepartment:
+                          prev.targetDepartment ||
+                          departmentOptions.find((department) => department !== selected.department) ||
+                          departmentOptions[0] ||
+                          "",
+                      }))
+                    }
+                  >
+                    {SCENARIO_GROUPS.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.scenarios.map((scenarioKey) => (
+                          <option key={scenarioKey} value={scenarioKey} title={SCENARIO_OPTION_HINT[scenarioKey]}>
+                            {scenarioTitleForPosition(selected, scenarioKey)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">С месяца</span>
+                  <select
+                    value={scenarioForm.month}
+                    onChange={(event) => {
+                      const month = Number(event.target.value);
+                      const specialization = selected.monthlySpec[month] || scenarioForm.specialization;
+                      const levels = levelOptionsForSpecialization(specialization, salaryBands);
+                      const level = levels.includes(selected.monthlyLevel[month])
+                        ? selected.monthlyLevel[month]
+                        : levels[0];
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        month,
+                        specialization,
+                        level,
+                        base: selected.monthlyBase[month] || prev.base,
+                        bonus: selected.monthlyBonus[month] || prev.bonus,
+                      }));
+                    }}
+                  >
+                    {MONTHS.map((month, index) => {
+                      const blocked =
+                        correctionWindow != null && !isPlanEventMonthAllowed(index, correctionWindow);
+                      return (
+                        <option key={month} value={index} disabled={blocked}>
+                          {month.slice(0, 3)}
+                          {blocked ? " (закрыт)" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Новый оклад, ₽</span>
+                  <input
+                    type="number"
+                    value={scenarioForm.base}
+                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, base: Number(event.target.value) }))}
+                  />
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Новый уровень</span>
+                  <select
+                    value={scenarioForm.level}
+                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}
+                  >
+                    {monthLevels.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Новая специализация</span>
+                  <select
+                    value={scenarioForm.specialization}
+                    onChange={(event) => {
+                      const specialization = event.target.value;
+                      const levels = levelOptionsForSpecialization(specialization, salaryBands);
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        specialization,
+                        level: levels.includes(prev.level) ? prev.level : levels[0],
+                      }));
+                    }}
+                  >
+                    {specOptions.map((specialization) => (
+                      <option key={specialization} value={specialization}>
+                        {specialization}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Премия, ₽</span>
+                  <input
+                    type="number"
+                    value={scenarioForm.bonus}
+                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, bonus: Number(event.target.value) }))}
+                  />
+                </label>
+              </div>
+            ) : (
+              <>
+            <div className="drawer-scenario-form__row drawer-scenario-form__row--primary">
+            <label className="drawer-field drawer-field--type" title={scenarioHintForPosition(selected, scenarioForm.scenario)}>
               <span className="drawer-field__label">Тип изменения</span>
               <select
                 value={scenarioForm.scenario}
-                title={scenarioHelpText(scenarioForm.scenario)}
+                title={scenarioHintForPosition(selected, scenarioForm.scenario)}
                 onChange={(event) =>
                   setScenarioForm((prev) => ({
                     ...prev,
@@ -708,7 +915,7 @@ export function PositionDrawer({
                 ))}
               </select>
             </label>
-            <label className="drawer-field">
+            <label className="drawer-field drawer-field--month">
               <span className="drawer-field__label">С месяца</span>
               <select
                 value={scenarioForm.month}
@@ -739,7 +946,7 @@ export function PositionDrawer({
                 })}
               </select>
             </label>
-            <label className="drawer-field">
+            <label className="drawer-field drawer-field--salary">
               <span className="drawer-field__label">Оклад, ₽</span>
               <input
                 type="number"
@@ -748,7 +955,7 @@ export function PositionDrawer({
               />
             </label>
             {!isMaternity ? (
-              <label className="drawer-field">
+              <label className="drawer-field drawer-field--bonus">
                 <span className="drawer-field__label">Премия, ₽</span>
                 <input
                   type="number"
@@ -758,45 +965,7 @@ export function PositionDrawer({
               </label>
             ) : null}
             </div>
-            {isReview ? (
-              <div className="drawer-scenario-form__row">
-                <label className="drawer-field" title="Специализация с выбранного месяца">
-                  <span className="drawer-field__label">Специализация</span>
-                  <select
-                    value={scenarioForm.specialization}
-                    onChange={(event) => {
-                      const specialization = event.target.value;
-                      const levels = levelOptionsForSpecialization(specialization, salaryBands);
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        specialization,
-                        level: levels.includes(prev.level) ? prev.level : levels[0],
-                      }));
-                    }}
-                  >
-                    {specOptions.map((specialization) => (
-                      <option key={specialization} value={specialization}>
-                        {specialization}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="drawer-field" title="Уровень / грейд с выбранного месяца">
-                  <span className="drawer-field__label">Уровень</span>
-                  <select
-                    value={scenarioForm.level}
-                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}
-                  >
-                    {monthLevels.map((level) => (
-                      <option key={level} value={level}>
-                        {level}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            ) : null}
-            {(isTransfer || isMaternity) && !isReview ? (
+            {(isTransfer || isMaternity) ? (
               <div className="drawer-scenario-form__row">
                 <label className="drawer-field">
                   <span className="drawer-field__label">Специализация</span>
@@ -970,6 +1139,8 @@ export function PositionDrawer({
                 )}
               </>
             )}
+              </>
+            )}
             <div className="drawer-scenario-form__submit-row">
             <label className="drawer-field drawer-field--grow">
               <span className="drawer-field__label">Комментарий / обоснование</span>
@@ -987,7 +1158,7 @@ export function PositionDrawer({
               className="primary-btn drawer-scenario-form__submit"
               disabled={readOnly || (isTransfer && transferButtonDisabled)}
             >
-              Применить
+              Запланировать
             </button>
             </div>
           </div>
@@ -998,7 +1169,11 @@ export function PositionDrawer({
           )}
           {kaitenNudge ? (
             <div className="drawer-kaiten-nudge" role="status">
-              <p className="drawer-kaiten-nudge__text">Событие сохранено. Создать заявку в Kaiten?</p>
+              <p className="drawer-kaiten-nudge__text">
+                {kaitenNudge.type === "hire"
+                  ? "Плановый найм сохранён. Создать заявку на найм в Kaiten?"
+                  : "Событие сохранено. Создать заявку на изменение в ОТиЗ?"}
+              </p>
               <div className="drawer-kaiten-nudge__actions">
                 <button type="button" className="primary-btn" onClick={openKaitenFromNudge}>
                   Создать заявку
@@ -1012,7 +1187,10 @@ export function PositionDrawer({
             </section>
 
             <section className="drawer-history-section drawer-card">
-              <h3 className="drawer-section__title drawer-section__title--upper">История изменений</h3>
+              <h3 className="drawer-section__title drawer-section__title--history">
+                <History size={14} aria-hidden />
+                История изменений
+              </h3>
               <ul className="drawer-history-timeline">
                 {drawerHistoryEvents.length === 0 && (
                   <li className="drawer-history-timeline__empty">Событий пока нет</li>
@@ -1047,51 +1225,66 @@ export function PositionDrawer({
               </ul>
             </section>
 
-          <section className="drawer-monthly-row monthly-table-wrap drawer-section--monthly-tab drawer-card">
-            <h3 className="drawer-section__title">ФОТ по месяцам</h3>
-            <p className="drawer-section__hint muted-line">
-              Расчёт по событиям. Оклад, специализацию и уровень — через «Плановое изменение» → Пересмотр.
-            </p>
-            <table className="monthly-table monthly-table--drawer monthly-table--readonly">
-              <thead>
-                <tr>
-                  <th>Мес.</th>
-                  <th>Спец.</th>
-                  <th>Ур.</th>
-                  <th>Оклад</th>
-                  <th>Прем.</th>
-                  <th>Итого</th>
-                  <th>CR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {MONTHS.map((month, index) => {
-                  const closeEvent = selected.events.find((event) => event.type === "CLOSE_POSITION");
-                  const closedFrom = closeEvent?.payload.month;
-                  const isClosedMonth = closedFrom != null && index >= closedFrom;
-                  const total = selected.monthlyBase[index] + selected.monthlyBonus[index];
-                  const cr = getMonthlyCR(
-                    selected.monthlyBase[index],
-                    selected.monthlySpec[index],
-                    selected.monthlyLevel[index],
-                    salaryBands,
-                  );
-                  return (
-                    <tr key={month} className={isClosedMonth ? "monthly-table__row--closed" : undefined}>
-                      <td>{month.slice(0, 3)}</td>
-                      <td className="monthly-table__readonly">{selected.monthlySpec[index]}</td>
-                      <td className="monthly-table__readonly">{selected.monthlyLevel[index]}</td>
-                      <td className="monthly-table__readonly">{selected.monthlyBase[index].toLocaleString("ru-RU")} ₽</td>
-                      <td className="monthly-table__readonly">{selected.monthlyBonus[index].toLocaleString("ru-RU")} ₽</td>
-                      <td className="monthly-table__total">{formatMoney(total, true)}</td>
-                      <td>
-                        <span className={`cr-value cr-value--${crTone(cr)}`}>{cr.toFixed(2)}</span>
-                      </td>
+          <section className="drawer-fot drawer-card">
+            <h3 className="drawer-section__title drawer-section__title--fot">
+              <Table2 size={14} aria-hidden />
+              ФОТ по месяцам
+            </h3>
+            <div className="drawer-fot__summary" role="group" aria-label="Сводка ФОТ">
+              <div className="drawer-fot__summary-col">
+                <p className="drawer-fot__summary-label">
+                  Декабрь {planYear - 1} к декабрю {planYear}
+                </p>
+                <div className={`drawer-fot__dec dec-cell--${growthTone(decDelta)}`}>
+                  <div className="positions-table__dec-range">
+                    {decPrevBase.toLocaleString("ru-RU")} → {decPlanBase.toLocaleString("ru-RU")} ₽
+                  </div>
+                  <div>
+                    {formatGrowthDelta(decDelta)} · {formatGrowthPct(decPct)}
+                  </div>
+                </div>
+              </div>
+              <div className="drawer-fot__summary-col drawer-fot__summary-col--annual">
+                <p className="drawer-fot__summary-label">Итого за {planYear} год</p>
+                <p className="drawer-fot__annual-value">{formatMoney(annualFotTotal)}</p>
+              </div>
+            </div>
+            <div className="drawer-fot__split">
+              <div className="drawer-fot__half">
+                <p className="drawer-fot__half-title">I полугодие</p>
+                <table className="monthly-table monthly-table--drawer monthly-table--drawer-compact monthly-table--readonly">
+                  <thead>
+                    <tr>
+                      <th>Месяц</th>
+                      <th>Специализация</th>
+                      <th>Уровень</th>
+                      <th>Оклад</th>
+                      <th>Премия</th>
+                      <th>Итого</th>
+                      <th>CR</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>{renderDrawerMonthRows(0, 6)}</tbody>
+                </table>
+              </div>
+              <div className="drawer-fot__half">
+                <p className="drawer-fot__half-title">II полугодие</p>
+                <table className="monthly-table monthly-table--drawer monthly-table--drawer-compact monthly-table--readonly">
+                  <thead>
+                    <tr>
+                      <th>Месяц</th>
+                      <th>Специализация</th>
+                      <th>Уровень</th>
+                      <th>Оклад</th>
+                      <th>Премия</th>
+                      <th>Итого</th>
+                      <th>CR</th>
+                    </tr>
+                  </thead>
+                  <tbody>{renderDrawerMonthRows(6, 12)}</tbody>
+                </table>
+              </div>
+            </div>
           </section>
           </div>
         </div>

@@ -65,6 +65,30 @@ export function formatPositionOrgLine(record: PositionRecord, role: UserRole): s
   return org ? `${org} (${record.positionId})` : `(${record.positionId})`;
 }
 
+export function employeeInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+  }
+  return name.trim().slice(0, 2).toUpperCase() || "—";
+}
+
+/** Короткая дата приёма: MM.YYYY */
+export function formatHireMonthShort(record: PositionRecord, planYear: number): string {
+  const hireEvent = [...record.events]
+    .filter((event) => event.type === "PLANNED_HIRE")
+    .sort((a, b) => a.payload.month - b.payload.month)[0];
+  const month = hireEvent?.payload.month ?? record.activeFromMonth;
+  const safeMonth = Math.max(0, Math.min(11, month));
+  const mm = String(safeMonth + 1).padStart(2, "0");
+  return `${mm}.${planYear}`;
+}
+
+export function formatEmployeeDrawerMeta(record: PositionRecord, planYear: number): string {
+  if (record.status !== "Occupied") return POSITION_STATUS_LABELS[record.status];
+  return `Принят ${formatHireMonthShort(record, planYear)}`;
+}
+
 /** CR как коэффициент (1.00 = midpoint), не проценты. */
 export function formatCrCoefficient(cr: number): string {
   return cr > 0 ? cr.toFixed(2) : "—";

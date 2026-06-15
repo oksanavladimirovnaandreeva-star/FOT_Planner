@@ -128,6 +128,21 @@ describe("kaitenExport", () => {
     expect(fields.find((field) => field.key === "reason")?.value).toContain("Оптимизация");
   });
 
+  it("после увольнения доступны заявки и на найм, и на ОТиЗ", () => {
+    const position = samplePosition({
+      events: [
+        {
+          id: "term-1",
+          type: "TERMINATION_TO_VACANCY",
+          createdAt: "2026-02-01T00:00:00.000Z",
+          createdOrder: 1,
+          payload: { month: 5 },
+        },
+      ],
+    });
+    expect(availableKaitenTypesForPosition(position).sort()).toEqual(["hire", "otiz"]);
+  });
+
   it("kaitenNudgeForEventType и dismiss nudge", () => {
     expect(kaitenNudgeForEventType("CLOSE_POSITION")).toBe("otiz");
     expect(kaitenNudgeForEventType("TERMINATION_TO_VACANCY")).toBe("otiz");

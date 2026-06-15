@@ -44,11 +44,13 @@ export function journalEventKaitenEligible(type: EventType): boolean {
 
 export function availableKaitenTypesForPosition(position: PositionRecord): KaitenRequestType[] {
   const types = new Set<KaitenRequestType>();
-  if (position.status === "Vacancy" || position.events.some((event) => event.type === "PLANNED_HIRE")) {
+  const applied = applyEvents(position);
+
+  if (applied.status === "Vacancy" || position.events.some((event) => event.type === "PLANNED_HIRE")) {
     types.add("hire");
   }
   if (
-    position.status === "Closed" ||
+    applied.status === "Closed" ||
     position.events.some((event) => OTIZ_EVENT_TYPES.has(event.type))
   ) {
     types.add("otiz");

@@ -157,6 +157,7 @@ export function PlanJournalPanel({
                         <button
                           type="button"
                           className="secondary-btn plan-journal-table__kaiten-btn"
+                          title="Создать заявку в Kaiten"
                           onClick={(clickEvent) => {
                             clickEvent.stopPropagation();
                             const initialType = kaitenTypeForEventType(row.event.type);
@@ -169,7 +170,7 @@ export function PlanJournalPanel({
                           }}
                         >
                           <ExternalLink size={12} aria-hidden />
-                          Kaiten
+                          Заявка
                         </button>
                       ) : (
                         "—"
