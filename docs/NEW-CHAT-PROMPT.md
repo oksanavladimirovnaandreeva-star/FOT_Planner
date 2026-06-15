@@ -1,11 +1,11 @@
 # Новый чат — копипаст
 
-**Чекпоинт:** `UX-3-workspace-drawer` · 69 tests · git: `a33d116`
+**Чекпоинт:** `drawer-W-B` + **Фаза 0 deploy** · **94 tests** · `git log -1` → `chore(mvp/frontend): GitHub Pages base path и CI/deploy`
 
 Скопируй блок ниже целиком:
 
 ```
-ФОТ-планировщик — продолжение MVP фронта (checkpoint UX-3-workspace-drawer)
+ФОТ-планировщик — продолжение MVP фронта
 
 Проект: C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
 Код: только mvp/frontend/ (React 19, TS, Vite, localStorage, без API/PG).
@@ -18,46 +18,54 @@
 
 Запуск:
   cd C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
-  npm run dev   → http://localhost:5174 (strictPort; Ctrl+Shift+R после pull)
-  cd mvp\frontend && npm test    # 69 тестов
+  npm run dev          → http://localhost:5174
+  cd mvp\frontend && npm test    # 94 теста
   npm run build
+
+Деплой (GitHub Pages, после push в main):
+  • Settings → Pages → Source: GitHub Actions
+  • base: /{имя-репозитория}/  (VITE_BASE_PATH в CI)
+  • workflow: .github/workflows/deploy-pages.yml
+  • Локальная проверка base:  cd mvp\frontend
+    $env:VITE_BASE_PATH='/fot-planner/'; npm run build; npm run preview
 
 Навигация:
   / — обзор · /planning — план · /analytics — аналитика · /versions — версии
   Корректировка: /planning?mode=correction
   Согласование/сравнение: /versions?tab=approval|compare
-  Консолидация: /versions?tab=consolidation
-  Планирование: ?tab=positions|matrix|journal
+  Drawer: клик по позиции → единый экран (identity, статус, план, история, ФОТ)
 
 Жёстко (не ломать):
-  • факт НЕ правит план; экономия = Δ план − факт (плюс), перерасход = минус
-  • план–факт vs утверждённая версия (resolvePlanFactBaseline)
+  • факт НЕ правит план; экономия = Δ план − факт
+  • план–факт vs утверждённая версия
   • в UI «позиция», не «слот»
-  • массовая индексация: admin + unit_lead (inline на Planning, не модалка)
   • PG/API/Kaiten API — не начинать без явного запроса
 
-Сделано в checkpoint UX-3-workspace-drawer (НЕ откатывать):
-  • PlanContextBar, SliceToolbar, DemoRoleSelect, Versions tabs approval/compare
-  • F1 CSV + audit · F3 consolidation · F4 matrix locked months · F5 variance drivers
-  • PositionDrawer drawer--workspace: вкладки «Слот и занятость» / «События и ФОТ»
-    + история событий + таблица ФОТ по месяцам (оклад, премия, итого, CR)
-  • «Добавить позицию» на утверждённом v1 → квартальный черновик (роль admin)
+Сделано (НЕ откатывать):
+  • F1 CSV + audit · F3 consolidation · F4 matrix locked · F5 variance drivers · UX-3
+  • Position Drawer W-B: stack-layout, форма 6 полей + комментарий, история без inner scroll,
+    ФОТ 2 полугодия, сводка «декабрь к декабрю» + полный итог, CR-подсветка
+  • Фаза 0: vite base (VITE_BASE_PATH), BrowserRouter basename (appBase.ts),
+    GitHub Actions CI + deploy-pages, public/.nojekyll
+  • F2 Kaiten — частично (модалка, найм на вакансии); пользователь просил отложить
 
-НЕ в этом checkpoint (не восстанавливать без запроса):
-  • F2 Kaiten UI · UX-4 (модалка массовых действий, MetricHelp, UnitLead strip, compact drawer)
+Отложено:
+  • F2 Kaiten — довести до приёмки
+  • UX-4 — модалка массовых действий, MetricHelp, UnitLead strip
 
-НЕ делать без запроса:
-  • topbar / sidebar 256px / BudgetFlow visual redesign
-  • docs/archive/PositionDrawer.baseline.tsx — НЕ подменять основной drawer
-
-Следующая задача: F2 Kaiten UI (заявки из позиции/журнала, mock, без API).
+Следующие задачи (на выбор):
+  1. Фаза 1 рефакторинг: storageKeys.ts → один файл ключей localStorage
+  2. Фаза 1: разбить MvpAppContext на usePlanVersions / useUserAccess / useImportExport
+  3. Пилот/демо: пройти сценарии, зафиксировать расхождения с Excel
+  4. DATA-1: боевой CSV-импорт факта
 
 Ключевые файлы:
-  pages/PlanningPage.tsx, components/PositionDrawer.tsx
-  components/planning/PlanContextBar.tsx, components/SliceToolbar.tsx
-  data/planFactVarianceDrivers.ts, data/userAccess.ts, data/exportScopedCsv.ts
+  components/PositionDrawer.tsx, index.css (drawer)
+  context/MvpAppContext.tsx (монолит — кандидат на слайсы)
+  vite.config.ts, src/appBase.ts, src/main.tsx
+  .github/workflows/frontend-ci.yml, deploy-pages.yml
 
 После правок в data/: npm test && npm run build. Коммиты — только по просьбе.
 ```
 
-Подробности — в `docs/HANDOFF.md`. `SESSION-*` и legacy `apps/web` не читать.
+Подробности — `docs/HANDOFF.md`. `SESSION-*` и `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` не читать при старте.

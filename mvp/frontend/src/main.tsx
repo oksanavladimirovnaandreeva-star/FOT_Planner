@@ -1,14 +1,15 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { routerBasename } from "./appBase";
 import "./index.css";
 import "./styles/figma-shell.css";
 import App from "./App";
 
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename()}>
       <App />
     </BrowserRouter>
   </StrictMode>,
-)
+);
