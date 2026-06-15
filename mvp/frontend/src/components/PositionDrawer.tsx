@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Copy, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, Trash2, X } from "lucide-react";
 import {
   annualTotal,
   applyDirectEdit,
-  decToDec,
   defaultLimitFlagForSlotType,
   getMonthlyCR,
   hasCarryoverEvent,
@@ -22,19 +21,23 @@ import { useMvpApp } from "../context/MvpAppContext";
 import type { LimitFlagKey } from "../types";
 import { MONTHS } from "../types";
 import type { PlannedEvent, PositionRecord } from "../types";
-import { eventEmployeeLine } from "../data/eventJournal";
-import { eventTypeLabel, formatEventHuman } from "./drawer/formatEventHistory";
+import { eventsForDrawerHistory } from "../data/eventJournal";
+import { eventTypeLabel, formatEventDrawerTimestamp, formatEventHumanForDrawer } from "./drawer/formatEventHistory";
 import {
   scenarioHelpText,
   SCENARIO_CARDS,
   type ScenarioType,
 } from "./drawer/scenarioTypes";
 import { formatPositionHireLabel } from "../data/positionDisplay";
+import { formatDecGrowthPctLine, resolveDecGrowthDisplay } from "../data/decGrowthDisplay";
 import {
   isPlanEventMonthAllowed,
   planEventMonthBlockedMessage,
   type CorrectionWindowInfo,
 } from "../data/planCorrectionWindow";
+import { defaultKaitenTypeForPosition, dismissKaitenNudge, isKaitenNudgeDismissed, kaitenNudgeForEventType, positionKaitenEligible, type KaitenRequestType } from "../data/kaitenExport";
+import { canShowKaitenExport } from "../data/userAccess";
+import { KaitenExportModal } from "./KaitenExportModal";
 
 interface PositionDrawerProps {
   open: boolean;
@@ -78,12 +81,12 @@ const SCENARIO_LABEL = Object.fromEntries(SCENARIO_CARDS.map((c) => [c.id, c.tit
 
 const SCENARIO_GROUPS: { label: string; scenarios: ScenarioType[] }[] = [
   {
-    label: "Занятость позиции",
-    scenarios: ["TRANSFER_INTRA", "TRANSFER_INTER", "TERMINATION", "REDUCTION", "MATERNITY"],
+    label: "ФОТ и профиль компенсации",
+    scenarios: ["REVIEW"],
   },
   {
-    label: "ФОТ без смены занятости",
-    scenarios: ["REVIEW"],
+    label: "Занятость позиции",
+    scenarios: ["TRANSFER_INTRA", "TRANSFER_INTER", "TERMINATION", "REDUCTION", "MATERNITY"],
   },
 ];
 
@@ -93,12 +96,9 @@ function crTone(value: number): "warn" | "ok" | "danger" {
   return "danger";
 }
 
-type DrawerTab = "profile" | "plan";
-
-const DRAWER_TAB_LABEL: Record<DrawerTab, string> = {
-  profile: "Профиль",
-  plan: "События и ФОТ",
-};
+const SCENARIO_OPTION_HINT = Object.fromEntries(
+  SCENARIO_CARDS.map((card) => [card.id, card.short]),
+) as Record<ScenarioType, string>;
 
 export function PositionDrawer({
   open,
@@ -110,7 +110,7 @@ export function PositionDrawer({
   onDeletePosition,
   planPositions,
   employeeOptions,
-  suggestedNewEmployeeId,
+  suggestedNewEmployeeId: _suggestedNewEmployeeId,
   isPersisted,
   departmentOptions,
   unitOptionsForDepartment,
@@ -118,10 +118,14 @@ export function PositionDrawer({
   readOnly = false,
   correctionWindow,
 }: PositionDrawerProps) {
-  const { salaryBands, activePlan } = useMvpApp();
+  const { salaryBands, activePlan, planVersionId, userRole, leadEditFrozen } = useMvpApp();
   const specOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const selected = useMemo(() => record, [record]);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>("profile");
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [kaitenExportOpen, setKaitenExportOpen] = useState(false);
+  const [kaitenInitialType, setKaitenInitialType] = useState<KaitenRequestType>("hire");
+  const [kaitenModalEvent, setKaitenModalEvent] = useState<PlannedEvent | undefined>(undefined);
+  const [kaitenNudge, setKaitenNudge] = useState<{ type: KaitenRequestType; event: PlannedEvent } | null>(null);
   const [scenarioForm, setScenarioForm] = useState<ScenarioFormState>({
     scenario: "REVIEW",
     month: 0,
@@ -163,13 +167,23 @@ export function PositionDrawer({
       targetTeam: preferredTeam,
       comment: "",
     });
-  }, [selected?.positionId, departmentOptions, unitOptionsForDepartment, teamOptionsForUnit, suggestedNewEmployeeId]);
+  }, [selected?.positionId, salaryBands, specOptions]);
 
   useEffect(() => {
-    if (open) setDrawerTab("profile");
+    if (!open) setKaitenExportOpen(false);
+  }, [open, selected?.positionId]);
+
+  useEffect(() => {
+    setKaitenNudge(null);
+    setKaitenModalEvent(undefined);
   }, [open, selected?.positionId]);
 
   const planYear = activePlan.planYear;
+
+  const drawerHistoryEvents = useMemo(
+    () => eventsForDrawerHistory(selected?.events ?? []),
+    [selected?.events],
+  );
 
   if (!open || !selected) return null;
   const transferMonth = scenarioForm.month;
@@ -195,38 +209,12 @@ export function PositionDrawer({
       : null;
   const replacementEmployeeOptions = employeeOptions.filter((employee) => employee.employeeId !== selected.employeeId);
 
-  const growth = decToDec(selected.previousDecemberBase, selected.monthlyBase[11]);
   const carryoverApplied = hasCarryoverEvent(selected);
 
   const persistVacancyToPlan = () => {
     onSaveDraft(selected, selected.positionId, true);
   };
 
-  const applyCopyForward = (month: number) => {
-    const next = {
-      ...selected,
-      monthlySpec: [...selected.monthlySpec],
-      monthlyLevel: [...selected.monthlyLevel],
-      monthlyBase: [...selected.monthlyBase],
-      monthlyBonus: [...selected.monthlyBonus],
-    };
-
-    for (let index = month + 1; index < 12; index += 1) {
-      next.monthlySpec[index] = next.monthlySpec[month];
-      next.monthlyLevel[index] = next.monthlyLevel[month];
-      next.monthlyBase[index] = next.monthlyBase[month];
-      next.monthlyBonus[index] = next.monthlyBonus[month];
-    }
-    onSaveDraft(
-      applyDirectEdit(next, (draft) => {
-        draft.seedMonthlySpec = [...next.monthlySpec];
-        draft.seedMonthlyLevel = [...next.monthlyLevel];
-        draft.seedMonthlyBase = [...next.monthlyBase];
-        draft.seedMonthlyBonus = [...next.monthlyBonus];
-      }),
-      selected.positionId,
-    );
-  };
   const createEvent = (type: PlannedEvent["type"], payload: PlannedEvent["payload"]): PlannedEvent => {
     const comment = scenarioForm.comment.trim();
     return {
@@ -247,6 +235,20 @@ export function PositionDrawer({
       return;
     }
     onSaveDraft(upsertEvent(selected, event), selected.positionId, false);
+  };
+  const scrollToComposer = () => {
+    composerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const maybeShowKaitenNudge = (event: PlannedEvent) => {
+    if (!canShowKaitenExport(userRole, leadEditFrozen)) return;
+    const nudgeType = kaitenNudgeForEventType(event.type);
+    if (!nudgeType || isKaitenNudgeDismissed(event.id)) return;
+    setKaitenNudge({ type: nudgeType, event });
+    scrollToComposer();
+  };
+  const applyEventWithNudge = (event: PlannedEvent) => {
+    applyEventToRecord(event);
+    maybeShowKaitenNudge(event);
   };
   const deleteEventFromRecord = (eventId: string) => {
     if (readOnly) return;
@@ -316,12 +318,16 @@ export function PositionDrawer({
         );
         break;
       }
-      case "TERMINATION":
-        applyEventToRecord(createEvent("TERMINATION_TO_VACANCY", { month }));
+      case "TERMINATION": {
+        const event = createEvent("TERMINATION_TO_VACANCY", { month });
+        applyEventWithNudge(event);
         break;
-      case "REDUCTION":
-        applyEventToRecord(createEvent("CLOSE_POSITION", { month }));
+      }
+      case "REDUCTION": {
+        const event = createEvent("CLOSE_POSITION", { month });
+        applyEventWithNudge(event);
         break;
+      }
       case "MATERNITY": {
         if (base <= 0 && scenarioForm.replacementMode !== "VACANCY") {
           window.alert("Для замещения в декрете укажите оклад > 0.");
@@ -386,47 +392,55 @@ export function PositionDrawer({
   const headerTitle =
     selected.status === "Occupied" && selected.employeeName
       ? `${selected.employeeName} · ${selected.positionId}`
-      : `Позиция ${selected.positionId}`;
-  const headerEmployeeId =
-    selected.status === "Occupied" && selected.employeeId ? selected.employeeId : null;
+      : selected.role?.trim() || `Позиция ${selected.positionId}`;
+  const decGrowth = resolveDecGrowthDisplay(selected, planYear);
+  const canExportKaiten = canShowKaitenExport(userRole, leadEditFrozen) && positionKaitenEligible(selected);
+  const openKaitenExport = () => {
+    const initialType = defaultKaitenTypeForPosition(selected);
+    if (!initialType) return;
+    setKaitenModalEvent(undefined);
+    setKaitenInitialType(initialType);
+    setKaitenExportOpen(true);
+  };
+  const openKaitenFromNudge = () => {
+    if (!kaitenNudge) return;
+    setKaitenModalEvent(kaitenNudge.event);
+    setKaitenInitialType(kaitenNudge.type);
+    setKaitenExportOpen(true);
+    setKaitenNudge(null);
+  };
+  const dismissKaitenNudgeLater = () => {
+    if (!kaitenNudge) return;
+    dismissKaitenNudge(kaitenNudge.event.id);
+    setKaitenNudge(null);
+  };
 
   return (
-    <div className="drawer-overlay" role="dialog" aria-modal="true">
-      <div className="drawer drawer--workspace drawer--page">
+    <>
+    <div className="drawer-overlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="drawer drawer--workspace-full" onClick={(event) => event.stopPropagation()}>
         <header className="drawer-header">
           <div className="drawer-header__main">
             <h2>{headerTitle}</h2>
-            <p className="drawer-header__meta">
-              <span>{selected.role}</span>
-              {selected.status === "Occupied" && selected.employeeName ? (
-                <>
-                  <span>В·</span>
-                  <span>
-                    {selected.employeeName}
-                    {headerEmployeeId ? ` (${headerEmployeeId})` : ""}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span>В·</span>
-                  <span>{POSITION_STATUS_LABELS[selected.status]}</span>
-                </>
-              )}
-              <span>В·</span>
-              <span>
-                {selected.department} / {selected.unit}
-                {selected.team ? ` / ${selected.team}` : ""}
-              </span>
-            </p>
             <div className="drawer-header__chips">
-              <span className={`limit-flag-badge limit-flag-badge--${selected.limitFlag}`}>
-                {LIMIT_FLAG_LABELS[selected.limitFlag]}
+              <span className="drawer-header__stat">
+                Дек {decGrowth.prevYear}→{decGrowth.planYear}: {formatDecGrowthPctLine(decGrowth)}
               </span>
-              <span className="drawer-header__stat">Дек→дек {growth.toFixed(1)}%</span>
               <span className="drawer-header__stat">ФОТ {annualTotal(selected).toLocaleString("ru-RU")} ₽</span>
             </div>
           </div>
           <div className="drawer-header-actions">
+            {canExportKaiten ? (
+              <button
+                type="button"
+                className="secondary-btn drawer-header-actions__kaiten"
+                onClick={openKaitenExport}
+                title="Подготовить заявку в Kaiten (найм или ОТиЗ)"
+              >
+                <ExternalLink size={14} aria-hidden />
+                Kaiten
+              </button>
+            ) : null}
             {selected.status === "Vacancy" && (
               <button
                 type="button"
@@ -449,51 +463,115 @@ export function PositionDrawer({
           </div>
         </header>
 
-        <nav className="drawer-tabs" aria-label="Р Р°Р·РґРµР»С‹ РєР°СЂС‚РѕС‡РєРё">
-          {(Object.keys(DRAWER_TAB_LABEL) as DrawerTab[]).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={`drawer-tabs__btn${drawerTab === tab ? " drawer-tabs__btn--active" : ""}`}
-              onClick={() => setDrawerTab(tab)}
-            >
-              {DRAWER_TAB_LABEL[tab]}
-              {tab === "plan" && selected.events.length > 0 ? (
-                <span className="drawer-tabs__badge">{selected.events.length}</span>
-              ) : null}
-            </button>
-          ))}
-        </nav>
-
-        <div className="drawer-body drawer-body--tabbed">
-          {drawerTab === "profile" ? (
-          <div className="drawer-profile-page">
-            <div className="drawer-profile-split">
-              <section className="drawer-profile-card">
-                <h3 className="drawer-profile-card__title">Позиция</h3>
-                <div className="drawer-profile-card__hero">
-                  <span className="drawer-profile-card__id">{selected.positionId}</span>
-                  <span className={`position-state-badge position-state-badge--status`}>
-                    {POSITION_STATUS_LABELS[selected.status]}
-                  </span>
-                </div>
-                <label>
-                  Название / роль
-                  <input
-                    type="text"
-                    value={selected.role}
+        <div className="drawer-body drawer-body--wb">
+          <div className="drawer-unified drawer-unified--stack">
+            <section className="drawer-meta-bar drawer-card">
+              <div className="drawer-meta-bar__context">
+                <p className="drawer-meta-bar__role">{selected.role?.trim() || `Позиция ${selected.positionId}`}</p>
+                <p className="drawer-meta-bar__org">
+                  {selected.department} / {selected.unit}
+                  {selected.team ? ` / ${selected.team}` : ""}
+                </p>
+                {selected.status === "Occupied" && selected.employeeName ? (
+                  <p className="drawer-meta-bar__employee">
+                    {selected.employeeName} · {formatPositionHireLabel(selected, planYear)}
+                  </p>
+                ) : null}
+              </div>
+              <div className="drawer-meta-bar__controls">
+                <label className="drawer-meta-field">
+                  <span className="drawer-meta-field__label">Тип позиции</span>
+                  <select
+                    value={selected.slotType}
                     disabled={readOnly}
                     onChange={(event) => {
+                      const slotType = event.target.value as PositionRecord["slotType"];
                       const next = applyDirectEdit(selected, (draft) => {
-                        draft.role = event.target.value;
+                        draft.slotType = slotType;
+                        if (slotType === "carryover") {
+                          draft.limitFlag = "IN_LIMIT";
+                        } else if (draft.limitFlag === "IN_LIMIT" && slotType === "new") {
+                          draft.limitFlag = defaultLimitFlagForSlotType("new");
+                        }
                       });
                       onSaveDraft(next, selected.positionId);
                     }}
-                  />
+                  >
+                    <option value="carryover">Перенос</option>
+                    <option value="new">Новая</option>
+                  </select>
                 </label>
-                <div className="drawer-profile-card__grid">
-                  <label>
-                    Департамент
+                <label className="drawer-meta-field">
+                  <span className="drawer-meta-field__label">Лимит</span>
+                  <select
+                    value={selected.limitFlag}
+                    disabled={readOnly || selected.slotType === "carryover"}
+                    onChange={(event) => {
+                      const limitFlag = event.target.value as LimitFlagKey;
+                      const next = applyDirectEdit(selected, (draft) => {
+                        draft.limitFlag = limitFlag;
+                      });
+                      onSaveDraft(next, selected.positionId);
+                    }}
+                  >
+                    {LIMIT_FLAG_OPTIONS.filter((option) => option.value !== "UNLIMITED").map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {LIMIT_FLAG_LABELS[option.value]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-meta-field">
+                  <span className="drawer-meta-field__label">В плане с</span>
+                  <select
+                    value={selected.activeFromMonth}
+                    disabled={readOnly}
+                    onChange={(event) => {
+                      const month = Number(event.target.value);
+                      const next = applyDirectEdit(selected, (draft) => {
+                        draft.activeFromMonth = month;
+                        if (draft.vacancySinceMonth !== null && draft.vacancySinceMonth < month) {
+                          draft.vacancySinceMonth = month;
+                          draft.seedVacancySinceMonth = month;
+                        }
+                      });
+                      onSaveDraft(next, selected.positionId);
+                    }}
+                  >
+                    {MONTHS.map((month, index) => (
+                      <option key={month} value={index}>
+                        {month}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-meta-field">
+                  <span className="drawer-meta-field__label">Статус</span>
+                  <select value={selected.status} disabled>
+                    <option value="Occupied">{POSITION_STATUS_LABELS.Occupied}</option>
+                    <option value="Vacancy">{POSITION_STATUS_LABELS.Vacancy}</option>
+                    <option value="Closed">{POSITION_STATUS_LABELS.Closed}</option>
+                  </select>
+                </label>
+              </div>
+              {selected.status === "Vacancy" ? (
+                <div className="drawer-meta-bar__vacancy">
+                  <label className="drawer-meta-field drawer-meta-field--wide">
+                    <span className="drawer-meta-field__label">Название / роль</span>
+                    <input
+                      type="text"
+                      value={selected.role}
+                      disabled={readOnly}
+                      onChange={(event) => {
+                        const next = applyDirectEdit(selected, (draft) => {
+                          draft.role = event.target.value;
+                        });
+                        onSaveDraft(next, selected.positionId);
+                      }}
+                    />
+                  </label>
+                  <label className="drawer-meta-field">
+                    <span className="drawer-meta-field__label">Департамент</span>
                     <select
                       value={selected.department}
                       disabled={readOnly}
@@ -518,8 +596,8 @@ export function PositionDrawer({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Юнит
+                  <label className="drawer-meta-field">
+                    <span className="drawer-meta-field__label">Юнит</span>
                     <select
                       value={selected.unit}
                       disabled={readOnly}
@@ -541,8 +619,8 @@ export function PositionDrawer({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Команда
+                  <label className="drawer-meta-field">
+                    <span className="drawer-meta-field__label">Команда</span>
                     <select
                       value={selected.team}
                       disabled={readOnly}
@@ -560,171 +638,52 @@ export function PositionDrawer({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Тип позиции
-                    <select
-                      value={selected.slotType}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const slotType = event.target.value as PositionRecord["slotType"];
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.slotType = slotType;
-                          if (slotType === "carryover") {
-                            draft.limitFlag = "IN_LIMIT";
-                          } else if (draft.limitFlag === "IN_LIMIT" && slotType === "new") {
-                            draft.limitFlag = defaultLimitFlagForSlotType("new");
-                          }
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    >
-                      <option value="carryover">Перенос</option>
-                      <option value="new">Новая</option>
-                    </select>
-                  </label>
-                  <label>
-                    Лимит
-                    <select
-                      value={selected.limitFlag}
-                      disabled={readOnly || selected.slotType === "carryover"}
-                      onChange={(event) => {
-                        const limitFlag = event.target.value as LimitFlagKey;
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.limitFlag = limitFlag;
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    >
-                      {LIMIT_FLAG_OPTIONS.filter((option) => option.value !== "UNLIMITED").map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {LIMIT_FLAG_LABELS[option.value]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    В плане с
-                    <select
-                      value={selected.activeFromMonth}
-                      disabled={readOnly}
-                      onChange={(event) => {
-                        const month = Number(event.target.value);
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.activeFromMonth = month;
-                          if (draft.vacancySinceMonth !== null && draft.vacancySinceMonth < month) {
-                            draft.vacancySinceMonth = month;
-                            draft.seedVacancySinceMonth = month;
-                          }
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}
-                    >
-                      {MONTHS.map((month, index) => (
-                        <option key={month} value={index}>
-                          {month}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {selected.slotType === "carryover" && !carryoverApplied ? (
+                    <p className="drawer-meta-bar__hint">Перенос бюджета — в «Настройки → Данные».</p>
+                  ) : null}
                 </div>
-                {selected.status === "Vacancy" && selected.slotType === "carryover" && !carryoverApplied ? (
-                  <p className="drawer-profile-card__hint">Перенос бюджета — в «Настройки → Данные».</p>
-                ) : null}
-              </section>
-
-              <section className="drawer-profile-card drawer-profile-card--employee">
-                <h3 className="drawer-profile-card__title">Сотрудник</h3>
-                {selected.status === "Occupied" && selected.employeeName ? (
-                  <>
-                    <p className="drawer-profile-card__name">{selected.employeeName}</p>
-                    <dl className="drawer-profile-facts">
-                      <div>
-                        <dt>ID сотрудника</dt>
-                        <dd>{selected.employeeId ?? "—"}</dd>
-                      </div>
-                      <div>
-                        <dt>Дата приёма (план)</dt>
-                        <dd>{formatPositionHireLabel(selected, planYear)}</dd>
-                      </div>
-                      <div>
-                        <dt>Статус на позиции</dt>
-                        <dd>{POSITION_STATUS_LABELS[selected.status]}</dd>
-                      </div>
-                    </dl>
-                  </>
-                ) : (
-                  <>
-                    <p className="drawer-profile-card__name drawer-profile-card__name--muted">
-                      {POSITION_STATUS_LABELS[selected.status]}
-                    </p>
-                    <dl className="drawer-profile-facts">
-                      <div>
-                        <dt>ID сотрудника</dt>
-                        <dd>—</dd>
-                      </div>
-                      <div>
-                        <dt>В плане с</dt>
-                        <dd>{formatPositionHireLabel(selected, planYear)}</dd>
-                      </div>
-                    </dl>
-                    <p className="drawer-profile-card__hint muted-line">
-                      Занятость по месяцам и факт — на вкладке «По месяцам» в планировании.
-                    </p>
-                  </>
-                )}
-              </section>
-            </div>
-          </div>
-          ) : null}
-
-          {drawerTab === "plan" ? (
-          <>
-          <section className="drawer-events-panel">
-          <div className="drawer-events-panel__history">
-            <h3 className="drawer-events-panel__title">История изменений по позиции</h3>
-            <ul className="drawer-history-list drawer-history-list--prominent">
-              {selected.events.length === 0 && (
-                <li className="drawer-history-list__empty">Событий пока нет — добавьте сценарий ниже</li>
+              ) : (
+                <p className="drawer-meta-bar__hint muted-line">
+                  Смена оргструктуры — сценарий «Перевод в другой департамент».
+                </p>
               )}
-              {[...selected.events]
-                .sort((a, b) => b.createdOrder - a.createdOrder)
-                .map((event) => {
-                  const employeeLine = eventEmployeeLine(event, selected);
-                  return (
-                    <li key={event.id} className="drawer-history-item drawer-history-item--prominent">
-                      <div className="drawer-history-item__head">
-                        <strong>{eventTypeLabel(event.type)}</strong>
-                        <button
-                          type="button"
-                          className="icon-btn danger"
-                          aria-label="Удалить"
-                          disabled={readOnly}
-                          onClick={() => deleteEventFromRecord(event.id)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                      {employeeLine ? (
-                        <div className="drawer-history-item__employee">{employeeLine}</div>
-                      ) : null}
-                      <p className="drawer-history-item__details">{formatEventHuman(event)}</p>
-                      {event.payload.comment ? (
-                        <blockquote className="drawer-history-item__comment">{event.payload.comment}</blockquote>
-                      ) : null}
-                    </li>
-                  );
-                })}
-            </ul>
-          </div>
+              <div className="drawer-december-strip">
+                <label className="drawer-meta-field">
+                  <span className="drawer-meta-field__label">Дек {decGrowth.prevYear}, ₽</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1000}
+                    disabled={readOnly}
+                    value={selected.previousDecemberBase}
+                    onChange={(event) => {
+                      const next = applyDirectEdit(selected, (draft) => {
+                        draft.previousDecemberBase = Math.max(0, Number(event.target.value) || 0);
+                      });
+                      onSaveDraft(next, selected.positionId);
+                    }}
+                  />
+                </label>
+                <div className="drawer-meta-field drawer-meta-field--readonly">
+                  <span className="drawer-meta-field__label">Дек {decGrowth.planYear} (план)</span>
+                  <span className="drawer-meta-field__value">{selected.monthlyBase[11].toLocaleString("ru-RU")} ₽</span>
+                </div>
+                <div className="drawer-meta-field drawer-meta-field--readonly">
+                  <span className="drawer-meta-field__label">Δ дек→дек</span>
+                  <span className="drawer-meta-field__value">{formatDecGrowthPctLine(decGrowth)}</span>
+                </div>
+              </div>
+            </section>
 
-          <div className="drawer-events-panel__composer">
-            <h3 className="drawer-events-panel__title">Плановое изменение</h3>
-            <p className="drawer-events-panel__hint">{scenarioHelpText(scenarioForm.scenario)}</p>
-          <div className="drawer-events-block__form event-grid event-grid--drawer">
-            <label>
-              Тип изменения
+            <section className="drawer-events-panel drawer-card drawer-card--plan" ref={composerRef}>
+            <h3 className="drawer-section__title drawer-section__title--upper">Плановое изменение</h3>
+          <div className="drawer-scenario-form">
+            <div className="drawer-scenario-form__row">
+            <label className="drawer-field drawer-field--wide" title={scenarioHelpText(scenarioForm.scenario)}>
+              <span className="drawer-field__label">Тип изменения</span>
               <select
                 value={scenarioForm.scenario}
+                title={scenarioHelpText(scenarioForm.scenario)}
                 onChange={(event) =>
                   setScenarioForm((prev) => ({
                     ...prev,
@@ -741,7 +700,7 @@ export function PositionDrawer({
                 {SCENARIO_GROUPS.map((group) => (
                   <optgroup key={group.label} label={group.label}>
                     {group.scenarios.map((scenarioKey) => (
-                      <option key={scenarioKey} value={scenarioKey}>
+                      <option key={scenarioKey} value={scenarioKey} title={SCENARIO_OPTION_HINT[scenarioKey]}>
                         {SCENARIO_LABEL[scenarioKey]}
                       </option>
                     ))}
@@ -749,8 +708,8 @@ export function PositionDrawer({
                 ))}
               </select>
             </label>
-            <label>
-              С какого месяца
+            <label className="drawer-field">
+              <span className="drawer-field__label">С месяца</span>
               <select
                 value={scenarioForm.month}
                 onChange={(event) => {
@@ -780,28 +739,29 @@ export function PositionDrawer({
                 })}
               </select>
             </label>
-            <label>
-              Оклад
+            <label className="drawer-field">
+              <span className="drawer-field__label">Оклад, ₽</span>
               <input
                 type="number"
                 value={scenarioForm.base}
                 onChange={(event) => setScenarioForm((prev) => ({ ...prev, base: Number(event.target.value) }))}
               />
             </label>
-            {!isMaternity && (
-              <label>
-                Премия
+            {!isMaternity ? (
+              <label className="drawer-field">
+                <span className="drawer-field__label">Премия, ₽</span>
                 <input
                   type="number"
                   value={scenarioForm.bonus}
                   onChange={(event) => setScenarioForm((prev) => ({ ...prev, bonus: Number(event.target.value) }))}
                 />
               </label>
-            )}
-            {(isReview || isTransfer || isMaternity) && (
-              <>
-                <label>
-                  Специализация
+            ) : null}
+            </div>
+            {isReview ? (
+              <div className="drawer-scenario-form__row">
+                <label className="drawer-field" title="Специализация с выбранного месяца">
+                  <span className="drawer-field__label">Специализация</span>
                   <select
                     value={scenarioForm.specialization}
                     onChange={(event) => {
@@ -821,9 +781,12 @@ export function PositionDrawer({
                     ))}
                   </select>
                 </label>
-                <label>
-                  Уровень
-                  <select value={scenarioForm.level} onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}>
+                <label className="drawer-field" title="Уровень / грейд с выбранного месяца">
+                  <span className="drawer-field__label">Уровень</span>
+                  <select
+                    value={scenarioForm.level}
+                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}
+                  >
                     {monthLevels.map((level) => (
                       <option key={level} value={level}>
                         {level}
@@ -831,11 +794,49 @@ export function PositionDrawer({
                     ))}
                   </select>
                 </label>
-              </>
-            )}
-            {isTransfer && (
-              <label>
-                Целевая вакансия
+              </div>
+            ) : null}
+            {(isTransfer || isMaternity) && !isReview ? (
+              <div className="drawer-scenario-form__row">
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Специализация</span>
+                  <select
+                    value={scenarioForm.specialization}
+                    onChange={(event) => {
+                      const specialization = event.target.value;
+                      const levels = levelOptionsForSpecialization(specialization, salaryBands);
+                      setScenarioForm((prev) => ({
+                        ...prev,
+                        specialization,
+                        level: levels.includes(prev.level) ? prev.level : levels[0],
+                      }));
+                    }}
+                  >
+                    {specOptions.map((specialization) => (
+                      <option key={specialization} value={specialization}>
+                        {specialization}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Уровень</span>
+                  <select
+                    value={scenarioForm.level}
+                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, level: event.target.value }))}
+                  >
+                    {monthLevels.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            {isTransfer ? (
+              <label className="drawer-field drawer-field--full">
+                <span className="drawer-field__label">Целевая вакансия</span>
                 <select
                   value={scenarioForm.transferToPositionId}
                   onChange={(event) => setScenarioForm((prev) => ({ ...prev, transferToPositionId: event.target.value }))}
@@ -856,7 +857,7 @@ export function PositionDrawer({
                   ))}
                 </select>
               </label>
-            )}
+            ) : null}
             {intraTransferHint ? (
               <p className="drawer-events-block__hint drawer-events-block__hint--warn">{intraTransferHint}</p>
             ) : null}
@@ -957,7 +958,7 @@ export function PositionDrawer({
                       </option>
                       {replacementEmployeeOptions.map((employee) => (
                         <option key={employee.employeeId} value={employee.employeeId}>
-                          {employee.employeeName} ({employee.employeeId}) В· {employee.positionId}
+                          {employee.employeeName} ({employee.employeeId}) · {employee.positionId}
                         </option>
                       ))}
                     </select>
@@ -969,128 +970,145 @@ export function PositionDrawer({
                 )}
               </>
             )}
-          </div>
-          {selectedTransferTarget && (
-            <p className="drawer-events-block__hint">
-              в†’ {selectedTransferTarget.positionId} ({selectedTransferTarget.team || selectedTransferTarget.unit})
-            </p>
-          )}
-          <label className="drawer-comment-field">
-            <span className="drawer-comment-field__label">Комментарий для согласования</span>
-            <textarea
-              rows={4}
-              value={scenarioForm.comment}
-              disabled={readOnly}
-              placeholder="Зачем меняем: перевод, увольнение, индексация…"
-              onChange={(event) => setScenarioForm((prev) => ({ ...prev, comment: event.target.value }))}
-            />
-          </label>
-          <div className="drawer-events-panel__footer">
+            <div className="drawer-scenario-form__submit-row">
+            <label className="drawer-field drawer-field--grow">
+              <span className="drawer-field__label">Комментарий / обоснование</span>
+              <input
+                type="text"
+                value={scenarioForm.comment}
+                disabled={readOnly}
+                placeholder="Например: по результатам performance review…"
+                onChange={(event) => setScenarioForm((prev) => ({ ...prev, comment: event.target.value }))}
+              />
+            </label>
             <button
               type="button"
               onClick={applyScenario}
-              className="primary-btn"
+              className="primary-btn drawer-scenario-form__submit"
               disabled={readOnly || (isTransfer && transferButtonDisabled)}
             >
-              Применить изменение
+              Применить
             </button>
+            </div>
           </div>
-          </div>
-          </section>
-
-          <section className="drawer-section monthly-table-wrap drawer-section--flush drawer-section--monthly-tab">
-              <h3 className="drawer-section__title">ФОТ по месяцам</h3>
-              <table className="monthly-table monthly-table--drawer monthly-table--compact">
-            <thead>
-              <tr>
-                <th>Мес.</th>
-                <th>Спец.</th>
-                <th>Ур.</th>
-                <th>Оклад</th>
-                <th>Прем.</th>
-                <th>Итого</th>
-                <th>CR</th>
-                <th aria-label="Копировать" />
-              </tr>
-            </thead>
-            <tbody>
-              {MONTHS.map((month, index) => {
-                const closeEvent = selected.events.find((event) => event.type === "CLOSE_POSITION");
-                const closedFrom = closeEvent?.payload.month;
-                const isClosedMonth = closedFrom != null && index >= closedFrom;
-                const total = selected.monthlyBase[index] + selected.monthlyBonus[index];
-                const cr = getMonthlyCR(selected.monthlyBase[index], selected.monthlySpec[index], selected.monthlyLevel[index], salaryBands);
-                return (
-                  <tr key={month} className={isClosedMonth ? "monthly-table__row--closed" : undefined}>
-                    <td>{month.slice(0, 3)}</td>
-                    <td>
-                      <select value={selected.monthlySpec[index]} disabled={readOnly} onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
-                          const specialization = event.target.value;
-                          const levelOptions = levelOptionsForSpecialization(specialization, salaryBands);
-                          const currentLevel = draft.seedMonthlyLevel[index];
-                          const nextLevel = levelOptions.includes(currentLevel) ? currentLevel : levelOptions[0];
-                          for (let monthIndex = index; monthIndex < 12; monthIndex += 1) {
-                            draft.seedMonthlySpec[monthIndex] = specialization;
-                            draft.seedMonthlyLevel[monthIndex] = nextLevel;
-                          }
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}>
-                        {specOptions.map((specialization) => (
-                          <option key={specialization} value={specialization}>{specialization}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select value={selected.monthlyLevel[index]} disabled={readOnly} onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
-                          for (let monthIndex = index; monthIndex < 12; monthIndex += 1) {
-                            draft.seedMonthlyLevel[monthIndex] = event.target.value;
-                          }
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }}>
-                        {levelOptionsForSpecialization(selected.monthlySpec[index], salaryBands).map((level) => (
-                          <option key={level} value={level}>{level}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input type="number" disabled={readOnly} value={selected.monthlyBase[index]} onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.seedMonthlyBase[index] = Number(event.target.value);
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }} />
-                    </td>
-                    <td>
-                      <input type="number" disabled={readOnly} value={selected.monthlyBonus[index]} onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
-                          draft.seedMonthlyBonus[index] = Number(event.target.value);
-                        });
-                        onSaveDraft(next, selected.positionId);
-                      }} />
-                    </td>
-                    <td className="monthly-table__total">{formatMoney(total, true)}</td>
-                    <td>
-                      <span className={`cr-value cr-value--${crTone(cr)}`}>{cr.toFixed(2)}</span>
-                    </td>
-                    <td>
-                      <button type="button" className="icon-btn" disabled={readOnly} title="Скопировать на следующие месяцы" onClick={() => applyCopyForward(index)}>
-                        <Copy size={12} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          </section>
-          </>
+          {selectedTransferTarget && (
+            <p className="drawer-events-block__hint">
+              → {selectedTransferTarget.positionId} ({selectedTransferTarget.team || selectedTransferTarget.unit})
+            </p>
+          )}
+          {kaitenNudge ? (
+            <div className="drawer-kaiten-nudge" role="status">
+              <p className="drawer-kaiten-nudge__text">Событие сохранено. Создать заявку в Kaiten?</p>
+              <div className="drawer-kaiten-nudge__actions">
+                <button type="button" className="primary-btn" onClick={openKaitenFromNudge}>
+                  Создать заявку
+                </button>
+                <button type="button" className="secondary-btn" onClick={dismissKaitenNudgeLater}>
+                  Позже
+                </button>
+              </div>
+            </div>
           ) : null}
+            </section>
+
+            <section className="drawer-history-section drawer-card">
+              <h3 className="drawer-section__title drawer-section__title--upper">История изменений</h3>
+              <ul className="drawer-history-timeline">
+                {drawerHistoryEvents.length === 0 && (
+                  <li className="drawer-history-timeline__empty">Событий пока нет</li>
+                )}
+                {[...drawerHistoryEvents]
+                  .sort((a, b) => b.createdOrder - a.createdOrder)
+                  .map((event) => (
+                    <li key={event.id} className="drawer-history-timeline__item">
+                      <span className="drawer-history-timeline__dot" aria-hidden />
+                      <div className="drawer-history-timeline__body">
+                        <div className="drawer-history-timeline__head">
+                          <p className="drawer-history-timeline__text">
+                            <strong>{eventTypeLabel(event.type)}</strong> · {formatEventHumanForDrawer(event)}
+                          </p>
+                          <button
+                            type="button"
+                            className="icon-btn danger"
+                            aria-label="Удалить"
+                            disabled={readOnly}
+                            onClick={() => deleteEventFromRecord(event.id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        {event.payload.comment ? (
+                          <p className="drawer-history-timeline__comment">{event.payload.comment}</p>
+                        ) : null}
+                        <p className="drawer-history-timeline__meta">{formatEventDrawerTimestamp(event.createdAt)}</p>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            </section>
+
+          <section className="drawer-monthly-row monthly-table-wrap drawer-section--monthly-tab drawer-card">
+            <h3 className="drawer-section__title">ФОТ по месяцам</h3>
+            <p className="drawer-section__hint muted-line">
+              Расчёт по событиям. Оклад, специализацию и уровень — через «Плановое изменение» → Пересмотр.
+            </p>
+            <table className="monthly-table monthly-table--drawer monthly-table--readonly">
+              <thead>
+                <tr>
+                  <th>Мес.</th>
+                  <th>Спец.</th>
+                  <th>Ур.</th>
+                  <th>Оклад</th>
+                  <th>Прем.</th>
+                  <th>Итого</th>
+                  <th>CR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MONTHS.map((month, index) => {
+                  const closeEvent = selected.events.find((event) => event.type === "CLOSE_POSITION");
+                  const closedFrom = closeEvent?.payload.month;
+                  const isClosedMonth = closedFrom != null && index >= closedFrom;
+                  const total = selected.monthlyBase[index] + selected.monthlyBonus[index];
+                  const cr = getMonthlyCR(
+                    selected.monthlyBase[index],
+                    selected.monthlySpec[index],
+                    selected.monthlyLevel[index],
+                    salaryBands,
+                  );
+                  return (
+                    <tr key={month} className={isClosedMonth ? "monthly-table__row--closed" : undefined}>
+                      <td>{month.slice(0, 3)}</td>
+                      <td className="monthly-table__readonly">{selected.monthlySpec[index]}</td>
+                      <td className="monthly-table__readonly">{selected.monthlyLevel[index]}</td>
+                      <td className="monthly-table__readonly">{selected.monthlyBase[index].toLocaleString("ru-RU")} ₽</td>
+                      <td className="monthly-table__readonly">{selected.monthlyBonus[index].toLocaleString("ru-RU")} ₽</td>
+                      <td className="monthly-table__total">{formatMoney(total, true)}</td>
+                      <td>
+                        <span className={`cr-value cr-value--${crTone(cr)}`}>{cr.toFixed(2)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+          </div>
         </div>
       </div>
     </div>
+    {kaitenExportOpen ? (
+      <KaitenExportModal
+        open={kaitenExportOpen}
+        onClose={() => setKaitenExportOpen(false)}
+        position={selected}
+        planVersionId={planVersionId}
+        planYear={planYear}
+        userRole={userRole}
+        initialType={kaitenInitialType}
+        event={kaitenModalEvent}
+      />
+    ) : null}
+    </>
   );
 }

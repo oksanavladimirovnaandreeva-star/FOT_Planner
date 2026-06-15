@@ -165,19 +165,19 @@ export const SLOT_TYPE_LABELS: Record<SlotTypeKey, string> = {
 
 export const LIMIT_FLAG_LABELS: Record<LimitFlagKey, string> = {
   IN_LIMIT: "В лимите (старая позиция)",
-  OVER_LIMIT: "Вне лимита (новая позиция)",
+  OVER_LIMIT: "Сверх лимита (новая позиция)",
   UNLIMITED: "Без ограничения роста",
 };
 
 export const POSITION_STATUS_LABELS: Record<PositionRecord["status"], string> = {
-  Occupied: "Занято",
+  Occupied: "В штате",
   Vacancy: "Вакансия",
   Closed: "Закрыта",
 };
 
 export const LIMIT_FLAG_OPTIONS: { value: LimitFlagKey; label: string }[] = [
   { value: "IN_LIMIT", label: "В лимите (старая позиция)" },
-  { value: "OVER_LIMIT", label: "Вне лимита (новая позиция)" },
+  { value: "OVER_LIMIT", label: "Сверх лимита (новая позиция)" },
   { value: "UNLIMITED", label: "Без ограничения роста" },
 ];
 

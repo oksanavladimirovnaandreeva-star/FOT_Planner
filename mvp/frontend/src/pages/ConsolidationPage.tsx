@@ -1,21 +1,31 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMvpApp } from "../context/MvpAppContext";
+import { ConsolidationProgressDonut } from "../components/planning/ConsolidationProgressDonut";
 import { teamCorrectionHref, unitCorrectionHref } from "../data/consolidationNav";
 import { formatMoney } from "../data/formatDisplay";
-import { DEMO_ROLE_SCOPE } from "../data/userAccess";
+import { demoRoleScope } from "../data/userAccess";
 import {
   buildOrgConsolidationReport,
   formatDeadlineShort,
-  TEAM_LEAD_STATUS_LABELS,
-  type TeamLeadStatus,
+  TEAM_DISPLAY_STATUS_LABELS,
+  type TeamConsolidationRow,
+  type TeamDisplayStatus,
+  type UnitConsolidationGroup,
 } from "../data/teamConsolidation";
+import {
+  markTeamSubmitted,
+  markUnitApproved,
+  markUnitApprovedForAllTeams,
+  returnTeamToEditing,
+} from "../data/teamSubmissionStore";
 import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import { PLAN_VERSION_STATUS_LABELS } from "../data/planVersions";
+import type { UserRole } from "../data/userAccess";
 
-function statusClass(status: TeamLeadStatus): string {
-  return `consolidation-status consolidation-status--${status}`;
+function displayStatusClass(status: TeamDisplayStatus): string {
+  return `consolidation-display-status consolidation-display-status--${status}`;
 }
 
 function formatSignedFotDelta(value: number): string {
@@ -24,26 +34,68 @@ function formatSignedFotDelta(value: number): string {
   return `${sign}${formatMoney(Math.abs(value), true)}`;
 }
 
-function resolveConsolidationScope(userRole: import("../data/userAccess").UserRole) {
+function resolveConsolidationScope(userRole: UserRole) {
   if (userRole === "unit_lead") {
+    const scope = demoRoleScope("unit_lead");
     return {
-      department: DEMO_ROLE_SCOPE.unit_lead.department,
-      unit: DEMO_ROLE_SCOPE.unit_lead.unit ?? null,
+      department: scope.department,
+      unit: scope.unit ?? null,
       team: null,
-      scopeLabel: `юнит ${DEMO_ROLE_SCOPE.unit_lead.unit}`,
+      scopeLabel: `юнит ${scope.unit}`,
     };
   }
   if (userRole === "team_lead") {
+    const scope = demoRoleScope("team_lead");
     return {
-      department: DEMO_ROLE_SCOPE.team_lead.department,
-      unit: DEMO_ROLE_SCOPE.team_lead.unit ?? null,
-      team: DEMO_ROLE_SCOPE.team_lead.team ?? null,
-      scopeLabel: `команда ${DEMO_ROLE_SCOPE.team_lead.team}`,
+      department: scope.department,
+      unit: scope.unit ?? null,
+      team: scope.team ?? null,
+      scopeLabel: `команда ${scope.team}`,
     };
   }
   const department =
-    userRole === "director" ? DEMO_ROLE_SCOPE.director.department : DEMO_ROLE_SCOPE.unit_lead.department;
+    userRole === "director" ? demoRoleScope("director").department : demoRoleScope("unit_lead").department;
   return { department, unit: null, team: null, scopeLabel: `департамент ${department}` };
+}
+
+function canTeamLeadSubmitTeam(
+  userRole: UserRole,
+  team: TeamConsolidationRow,
+  scope: ReturnType<typeof resolveConsolidationScope>,
+  hasDraft: boolean,
+  leadFrozen: boolean,
+): boolean {
+  if (userRole !== "team_lead" || !hasDraft || leadFrozen) return false;
+  if (scope.team !== team.team || scope.unit !== team.unit) return false;
+  if (["cb_submitted", "unit_approved", "team_submitted"].includes(team.displayStatus)) return false;
+  return true;
+}
+
+function canUnitLeadReturnTeam(
+  userRole: UserRole,
+  team: TeamConsolidationRow,
+  scope: ReturnType<typeof resolveConsolidationScope>,
+): boolean {
+  return userRole === "unit_lead" && scope.unit === team.unit && team.displayStatus === "team_submitted";
+}
+
+function canUnitLeadApproveTeam(
+  userRole: UserRole,
+  team: TeamConsolidationRow,
+  scope: ReturnType<typeof resolveConsolidationScope>,
+): boolean {
+  return userRole === "unit_lead" && scope.unit === team.unit && team.displayStatus === "team_submitted";
+}
+
+function canUnitLeadApproveUnit(
+  userRole: UserRole,
+  group: UnitConsolidationGroup,
+  scope: ReturnType<typeof resolveConsolidationScope>,
+): boolean {
+  if (userRole !== "unit_lead" || scope.unit !== group.unit || group.teams.length === 0) return false;
+  return group.teams.every(
+    (team) => team.displayStatus === "team_submitted" || (team.displayStatus === "ready" && team.carryoverGaps === 0),
+  );
 }
 
 export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) {
@@ -55,6 +107,9 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
     userRole,
     roleScopeHint,
     primaryBudget,
+    leadEditFrozen,
+    refreshTeamSubmissions,
+    teamSubmissionRevision,
   } = useMvpApp();
 
   const scope = useMemo(() => resolveConsolidationScope(userRole), [userRole]);
@@ -70,8 +125,9 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
         workingDraft,
         baselinePositions: versionDiff.baselinePositions,
         draftPositions: versionDiff.draftPositions,
+        submissionPlanVersionId: workingDraft?.id ?? null,
       }),
-    [applied, scope, planYear, workingDraft, versionDiff],
+    [applied, scope, planYear, workingDraft, versionDiff, teamSubmissionRevision],
   );
 
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(() => new Set(report.units.map((unit) => unit.unit)));
@@ -86,6 +142,61 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
   };
 
   const now = new Date();
+  const draftId = workingDraft?.id;
+
+  const handleTeamSubmit = (team: TeamConsolidationRow) => {
+    if (!draftId) return;
+    markTeamSubmitted(draftId, team.department, team.unit, team.team);
+    refreshTeamSubmissions();
+  };
+
+  const handleReturnTeam = (team: TeamConsolidationRow) => {
+    if (!draftId) return;
+    const note = window.prompt("Комментарий к возврату (опционально):") ?? undefined;
+    returnTeamToEditing(draftId, team.department, team.unit, team.team, note);
+    refreshTeamSubmissions();
+  };
+
+  const handleApproveTeam = (team: TeamConsolidationRow) => {
+    if (!draftId) return;
+    markUnitApproved(draftId, team.department, team.unit, team.team);
+    refreshTeamSubmissions();
+  };
+
+  const handleApproveUnit = (group: UnitConsolidationGroup) => {
+    if (!draftId) return;
+    markUnitApprovedForAllTeams(
+      draftId,
+      group.teams.map((team) => ({ department: team.department, unit: team.unit, team: team.team })),
+    );
+    refreshTeamSubmissions();
+  };
+
+  const renderTeamActions = (team: TeamConsolidationRow) => {
+    const actions: ReactNode[] = [];
+    if (canTeamLeadSubmitTeam(userRole, team, scope, Boolean(draftId), leadEditFrozen)) {
+      actions.push(
+        <button key="submit" type="button" className="secondary-btn consolidation-team-actions__btn" onClick={() => handleTeamSubmit(team)}>
+          Сдал команду
+        </button>,
+      );
+    }
+    if (canUnitLeadReturnTeam(userRole, team, scope)) {
+      actions.push(
+        <button key="return" type="button" className="secondary-btn consolidation-team-actions__btn" onClick={() => handleReturnTeam(team)}>
+          Вернуть на доработку
+        </button>,
+      );
+    }
+    if (canUnitLeadApproveTeam(userRole, team, scope)) {
+      actions.push(
+        <button key="approve-team" type="button" className="primary-btn consolidation-team-actions__btn" onClick={() => handleApproveTeam(team)}>
+          Согласовать команду
+        </button>,
+      );
+    }
+    return actions.length ? <div className="consolidation-team-actions">{actions}</div> : null;
+  };
 
   const body = (
     <>
@@ -108,6 +219,12 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
         </div>
       )}
 
+      {workingDraft && report.totals.filledTeams < report.totals.teams ? (
+        <div className="consolidation-submit-banner" role="status">
+          Не все команды сдали план: {report.totals.filledTeams} из {report.totals.teams}.
+        </div>
+      ) : null}
+
       {userRole === "unit_lead" || userRole === "team_lead" ? (
         <section className="card consolidation-scope-banner" role="status">
           <strong>Срез: {scope.scopeLabel}</strong>
@@ -123,6 +240,25 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
           ) : null}
         </section>
       ) : null}
+
+      <section className="card consolidation-campaign-head">
+        <h2 className="section-title">Кампания корректировки</h2>
+        <p className="muted-line">
+          {workingDraft ? workingDraft.label : "Черновик не создан"} · {scope.scopeLabel}
+        </p>
+        <div className="consolidation-campaign-head__kpis">
+          <span>{report.totals.headcount} поз.</span>
+          <span>{report.totals.deltaEvents} событий</span>
+          <span>Δ ФОТ {formatSignedFotDelta(report.totals.fotDeltaAnnual)}</span>
+        </div>
+        <div className="consolidation-campaign-head__donuts">
+          <ConsolidationProgressDonut
+            filled={report.totals.filledTeams}
+            total={report.totals.teams}
+            approved={report.totals.approvedTeams}
+          />
+        </div>
+      </section>
 
       <section className="consolidation-deadlines">
         {report.deadlines.map((deadline) => {
@@ -140,55 +276,10 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
         })}
       </section>
 
-      <section className="card consolidation-summary">
-        <h2 className="section-title">
-          Сводка · {scope.scopeLabel}
-        </h2>
-        <div className="consolidation-summary__grid">
-          <div>
-            <span className="consolidation-summary__value">{report.totals.teams}</span>
-            <span className="muted-line">команд</span>
-          </div>
-          <div>
-            <span className="consolidation-summary__value">{report.totals.headcount}</span>
-            <span className="muted-line">позиций</span>
-          </div>
-          <div>
-            <span className="consolidation-summary__value">{report.totals.deltaEvents}</span>
-            <span className="muted-line">новых событий</span>
-          </div>
-          <div>
-            <span className="consolidation-summary__value">{formatSignedFotDelta(report.totals.fotDeltaAnnual)}</span>
-            <span className="muted-line">Δ ФОТ год (черновик)</span>
-          </div>
-          <div>
-            <span className="consolidation-summary__value">{report.totals.readyTeams}</span>
-            <span className="muted-line">готово</span>
-          </div>
-          <div>
-            <span className="consolidation-summary__value">{report.totals.overdueTeams}</span>
-            <span className="muted-line">просрочено</span>
-          </div>
-        </div>
-        <div className="consolidation-summary__status-row">
-          {(["ready", "in_progress", "not_started", "submitted", "overdue"] as TeamLeadStatus[]).map((status) => {
-            const count = report.units
-              .flatMap((unit) => unit.teams)
-              .filter((team) => team.status === status).length;
-            if (count === 0) return null;
-            return (
-              <span key={status} className={statusClass(status)}>
-                {TEAM_LEAD_STATUS_LABELS[status]}: {count}
-              </span>
-            );
-          })}
-        </div>
-      </section>
-
       <section className="card consolidation-tree">
         <h2 className="section-title">Дерево юнитов и команд</h2>
         <p className="muted-line">
-          Статус — по событиям черновика и дедлайну. «Корректировка» откроет срез команды; при событиях — журнал diff.
+          Статус согласования по командам · «Корректировка» откроет срез; при событиях — журнал diff.
         </p>
         <ul className="consolidation-tree__list">
           {report.units.map((group) => {
@@ -203,11 +294,25 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
                   {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   <strong>{group.unit}</strong>
                   <span className="muted-line">
-                    {group.teams.length} команд · {group.headcount} поз. · {group.deltaEvents} соб.
-                    {group.teams.reduce((sum, team) => sum + team.fotDeltaAnnual, 0) !== 0
-                      ? ` · Δ ${formatSignedFotDelta(group.teams.reduce((sum, team) => sum + team.fotDeltaAnnual, 0))}`
-                      : ""}
+                    {group.teamsTotal} команд · {group.headcount} поз. · {group.deltaEvents} соб.
+                    · сдано {group.teamsSubmitted}/{group.teamsTotal}
                   </span>
+                  <span className={displayStatusClass(group.displayStatus)}>
+                    {TEAM_DISPLAY_STATUS_LABELS[group.displayStatus]}
+                  </span>
+                  <span className="muted-line">{group.responsibleLabel}</span>
+                  {canUnitLeadApproveUnit(userRole, group, scope) ? (
+                    <button
+                      type="button"
+                      className="primary-btn consolidation-tree__unit-approve"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleApproveUnit(group);
+                      }}
+                    >
+                      Согласовать юнит
+                    </button>
+                  ) : null}
                   <Link
                     className="consolidation-tree__unit-link secondary-btn"
                     to={unitCorrectionHref(scope.department, group.unit)}
@@ -221,26 +326,31 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
                     <thead>
                       <tr>
                         <th>Команда</th>
+                        <th>Ответственный</th>
                         <th>Позиций</th>
                         <th>События</th>
                         <th>Δ ФОТ год</th>
                         <th>Перенос</th>
                         <th>Статус</th>
-                        <th />
+                        <th>Действия</th>
                       </tr>
                     </thead>
                     <tbody>
                       {group.teams.map((team) => (
                         <tr key={`${team.unit}-${team.team}`}>
                           <td>{team.team}</td>
+                          <td>{team.responsibleLabel}</td>
                           <td>{team.headcount}</td>
                           <td>{team.deltaEvents > 0 ? team.deltaEvents : "—"}</td>
                           <td>{formatSignedFotDelta(team.fotDeltaAnnual)}</td>
                           <td>{team.carryoverGaps > 0 ? team.carryoverGaps : "—"}</td>
                           <td>
-                            <span className={statusClass(team.status)}>{TEAM_LEAD_STATUS_LABELS[team.status]}</span>
+                            <span className={displayStatusClass(team.displayStatus)}>
+                              {TEAM_DISPLAY_STATUS_LABELS[team.displayStatus]}
+                            </span>
                           </td>
                           <td className="consolidation-tree__actions">
+                            {renderTeamActions(team)}
                             <Link className="ghost-btn" to={teamCorrectionHref(team)}>
                               {team.deltaEvents > 0 ? "Журнал diff" : "Корректировка"}
                             </Link>
@@ -287,7 +397,7 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
     <div className="content-page consolidation-page">
       <header className="page-header">
         <div>
-          <h1>Консолидация тимлидов</h1>
+          <h1>Ход планирования</h1>
           <p>
             {activePlan.label} · {scope.scopeLabel}
           </p>

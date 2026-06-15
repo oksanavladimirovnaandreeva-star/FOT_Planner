@@ -21,6 +21,15 @@ const TABLE_EVENT_TYPES = new Set<EventType>([
   "CANCEL_VACANCY",
 ]);
 
+/** В drawer не показываем массовую индексацию — только панель на Planning. */
+const DRAWER_HIDDEN_EVENT_TYPES = new Set<EventType>(["INDEXATION"]);
+
+export function eventsForDrawerHistory(events: PlannedEvent[]): PlannedEvent[] {
+  return sortEventsForApply(events).filter(
+    (event) => TABLE_EVENT_TYPES.has(event.type) && !DRAWER_HIDDEN_EVENT_TYPES.has(event.type),
+  );
+}
+
 export type EventChangeSummary = {
   month: number;
   monthLabel: string;
@@ -85,6 +94,11 @@ export function eventEmployeeLine(event: PlannedEvent, position: PositionRecord)
     return position.employeeId ? `${position.employeeName} (${position.employeeId})` : position.employeeName;
   }
   return null;
+}
+
+/** В drawer — только ФИО, без технического ID. */
+export function eventEmployeeNameForDrawer(event: PlannedEvent, position: PositionRecord): string | null {
+  return event.payload.employeeName?.trim() || position.employeeName?.trim() || null;
 }
 
 export function eventCommentTooltip(event: PlannedEvent): string | null {

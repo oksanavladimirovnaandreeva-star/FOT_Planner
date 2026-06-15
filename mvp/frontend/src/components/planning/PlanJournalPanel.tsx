@@ -1,31 +1,29 @@
 import { useMemo, useState } from "react";
-import { MessageSquare, Search } from "lucide-react";
+import { ExternalLink, MessageSquare } from "lucide-react";
 import {
   collectPlanEventJournalRows,
   formatEventChangeLine,
-  JOURNAL_EVENT_TYPE_OPTIONS,
   tableRowStatusClass,
 } from "../../data/eventJournal";
 import { mapPositionsWithAppliedEvents } from "../../data/planOperations";
 import { formatIsoDateTime } from "../../data/formatDisplay";
-import { departmentOptions, monthLabel, teamOptions, unitOptions } from "../../data/planningData";
+import { matchesOrgSlice, type OrgSliceSelection } from "../../data/orgSliceFilters";
 import { useMvpApp } from "../../context/MvpAppContext";
+import { journalEventKaitenEligible, kaitenTypeForEventType, type KaitenRequestType } from "../../data/kaitenExport";
+import { canShowKaitenExport } from "../../data/userAccess";
+import { KaitenExportModal } from "../KaitenExportModal";
+import { PositionIdentityCell } from "./PositionIdentityCell";
 import type { EventType } from "../../types";
-
-export type PlanJournalOrgFilter = {
-  department: string;
-  unit: string;
-  team: string;
-};
 
 export type PlanJournalPanelProps = {
   onOpenPosition: (positionId: string) => void;
   highlightPositionId?: string | null;
   filterPositionIds?: Set<string>;
-  /** Полный журнал (вкладка) или компактная колонка рядом с таблицей позиций. */
   variant?: "full" | "sidebar";
-  /** Синхронизация с фильтрами таблицы планирования (department/unit/team = All — без ограничения). */
-  orgFilter?: PlanJournalOrgFilter;
+  orgSlice: OrgSliceSelection;
+  query: string;
+  monthFilter: string;
+  typeFilter: EventType | "All";
 };
 
 export function PlanJournalPanel({
@@ -33,18 +31,24 @@ export function PlanJournalPanel({
   highlightPositionId,
   filterPositionIds,
   variant = "full",
-  orgFilter,
+  orgSlice,
+  query,
+  monthFilter,
+  typeFilter,
 }: PlanJournalPanelProps) {
   const isSidebar = variant === "sidebar";
-  const { positions, activePlan } = useMvpApp();
-  const [query, setQuery] = useState("");
-  const [department, setDepartment] = useState("All");
-  const [unit, setUnit] = useState("All");
-  const [team, setTeam] = useState("All");
-  const [monthFilter, setMonthFilter] = useState("All");
-  const [typeFilter, setTypeFilter] = useState<EventType | "All">("All");
+  const { positions, activePlan, planVersionId, userRole, leadEditFrozen } = useMvpApp();
+  const [kaitenTarget, setKaitenTarget] = useState<{
+    positionId: string;
+    eventId: string;
+    initialType: KaitenRequestType;
+  } | null>(null);
 
   const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
+  const positionsById = useMemo(
+    () => new Map(appliedPositions.map((position) => [position.positionId, position])),
+    [appliedPositions],
+  );
   const allRows = useMemo(() => collectPlanEventJournalRows(appliedPositions), [appliedPositions]);
 
   const filtered = useMemo(() => {
@@ -55,14 +59,14 @@ export function PlanJournalPanel({
       if (highlightPositionId && row.positionId !== highlightPositionId) {
         return false;
       }
-      if (orgFilter) {
-        if (orgFilter.department !== "All" && row.department !== orgFilter.department) return false;
-        if (orgFilter.unit !== "All" && row.unit !== orgFilter.unit) return false;
-        if (orgFilter.team !== "All" && row.team !== orgFilter.team) return false;
+      if (
+        !matchesOrgSlice(
+          { department: row.department, unit: row.unit, team: row.team },
+          orgSlice,
+        )
+      ) {
+        return false;
       }
-      if (department !== "All" && row.department !== department) return false;
-      if (unit !== "All" && row.unit !== unit) return false;
-      if (team !== "All" && row.team !== team) return false;
       if (monthFilter !== "All" && row.change.month !== Number(monthFilter)) return false;
       if (typeFilter !== "All" && row.event.type !== typeFilter) return false;
       const haystack = [
@@ -79,138 +83,32 @@ export function PlanJournalPanel({
         .toLowerCase();
       return haystack.includes(query.toLowerCase());
     });
-  }, [
-    allRows,
-    department,
-    unit,
-    team,
-    monthFilter,
-    typeFilter,
-    query,
-    filterPositionIds,
-    highlightPositionId,
-    orgFilter,
-  ]);
+  }, [allRows, orgSlice, monthFilter, typeFilter, query, filterPositionIds, highlightPositionId]);
 
   const displayRows = isSidebar ? filtered.slice(0, 40) : filtered;
+  const kaitenPosition = kaitenTarget ? positionsById.get(kaitenTarget.positionId) ?? null : null;
+  const kaitenEvent =
+    kaitenPosition && kaitenTarget
+      ? kaitenPosition.events.find((event) => event.id === kaitenTarget.eventId)
+      : undefined;
+  const canExportKaiten = canShowKaitenExport(userRole, leadEditFrozen);
 
   return (
     <div className={`plan-journal-panel${isSidebar ? " plan-journal-panel--sidebar" : ""}`}>
       {!isSidebar ? (
         <p className="plan-journal-panel__lead">
-          Все события версии <strong>{activePlan.label}</strong>. Клик по строке откроет карточку позиции на вкладке
-          «Позиции».
+          События версии <strong>{activePlan.label}</strong> в текущем срезе. Клик по строке → карточка позиции.
         </p>
       ) : (
         <div className="plan-journal-panel__sidebar-head">
           <h3 className="section-title">Журнал</h3>
-          <p className="muted-line">По фильтрам таблицы · клик → позиция</p>
+          <p className="muted-line">По срезу таблицы · клик → позиция</p>
         </div>
-      )}
-
-      {!isSidebar ? (
-      <div className="filters-grid filters-grid--toolbar">
-        <label className="search-field">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Позиция, сотрудник, комментарий…"
-          />
-        </label>
-        <label>
-          Департамент
-          <select
-            value={department}
-            onChange={(event) => {
-              setDepartment(event.target.value);
-              setUnit("All");
-              setTeam("All");
-            }}
-          >
-            <option value="All">Все</option>
-            {departmentOptions().map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Юнит
-          <select
-            value={unit}
-            onChange={(event) => {
-              setUnit(event.target.value);
-              setTeam("All");
-            }}
-            disabled={department === "All"}
-          >
-            <option value="All">Все</option>
-            {department !== "All" &&
-              unitOptions(department).map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          Команда
-          <select
-            value={team}
-            onChange={(event) => setTeam(event.target.value)}
-            disabled={department === "All" || unit === "All"}
-          >
-            <option value="All">Все</option>
-            {department !== "All" &&
-              unit !== "All" &&
-              teamOptions(department, unit).map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          Месяц
-          <select value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)}>
-            <option value="All">Все</option>
-            {Array.from({ length: 12 }, (_, index) => (
-              <option key={index} value={index}>
-                {monthLabel(index)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Тип
-          <select
-            value={typeFilter}
-            onChange={(event) => setTypeFilter(event.target.value as EventType | "All")}
-          >
-            {JOURNAL_EVENT_TYPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      ) : (
-        <label className="search-field plan-journal-panel__sidebar-search">
-          <Search size={14} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Поиск в журнале…"
-          />
-        </label>
       )}
 
       {highlightPositionId ? (
         <div className="plan-journal-panel__chip">
-          Показаны события позиции {highlightPositionId}. Откройте строку, чтобы перейти к карточке.
+          Показаны события позиции {highlightPositionId}.
         </div>
       ) : null}
 
@@ -220,41 +118,77 @@ export function PlanJournalPanel({
             <tr>
               <th>Когда</th>
               <th>Позиция</th>
-              {!isSidebar ? <th>Сотрудник</th> : null}
-              <th>Событие</th>
               {!isSidebar ? <th>Было → стало</th> : null}
+              <th>Событие</th>
+              {!isSidebar && canExportKaiten ? <th>Kaiten</th> : null}
               <th>{isSidebar ? "Комм." : "Комментарий"}</th>
             </tr>
           </thead>
           <tbody>
-            {displayRows.map((row) => (
-              <tr
-                key={`${row.positionId}-${row.event.id}`}
-                className={`plan-journal-table__row ${tableRowStatusClass(row.statusAfter)}`}
-                onClick={() => onOpenPosition(row.positionId)}
-              >
-                <td>{formatIsoDateTime(row.createdAt)}</td>
-                <td>
-                  <strong>{row.positionId}</strong>
-                  <div className="muted-line">{row.role}</div>
-                </td>
-                {!isSidebar ? <td>{row.employeeLine ?? "—"}</td> : null}
-                <td>
-                  <span className={`event-type-pill${isSidebar ? "" : " event-type-pill--lg"}`}>{row.typeLabel}</span>
-                </td>
-                {!isSidebar ? <td>{formatEventChangeLine(row.change)}</td> : null}
-                <td>
-                  {row.comment ? (
-                    <span className="plan-journal-table__comment">
-                      <MessageSquare size={14} aria-hidden />
-                      {row.comment}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-              </tr>
-            ))}
+            {displayRows.map((row) => {
+              const position = positionsById.get(row.positionId);
+              return (
+                <tr
+                  key={`${row.positionId}-${row.event.id}`}
+                  className={`plan-journal-table__row ${tableRowStatusClass(row.statusAfter)}`}
+                  onClick={() => onOpenPosition(row.positionId)}
+                >
+                  <td>{formatIsoDateTime(row.createdAt)}</td>
+                  <td>
+                    {position ? (
+                      <PositionIdentityCell record={position} userRole={userRole} compact />
+                    ) : (
+                      <>
+                        <strong>{row.positionId}</strong>
+                        <div className="muted-line">{row.role}</div>
+                      </>
+                    )}
+                  </td>
+                  {!isSidebar ? <td>{formatEventChangeLine(row.change)}</td> : null}
+                  <td>
+                    <span className={`event-type-pill${isSidebar ? "" : " event-type-pill--lg"}`}>{row.typeLabel}</span>
+                    {!isSidebar && row.employeeLine ? (
+                      <div className="muted-line plan-journal-table__employee">{row.employeeLine}</div>
+                    ) : null}
+                  </td>
+                  {!isSidebar && canExportKaiten ? (
+                    <td>
+                      {journalEventKaitenEligible(row.event.type) ? (
+                        <button
+                          type="button"
+                          className="secondary-btn plan-journal-table__kaiten-btn"
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            const initialType = kaitenTypeForEventType(row.event.type);
+                            if (!initialType) return;
+                            setKaitenTarget({
+                              positionId: row.positionId,
+                              eventId: row.event.id,
+                              initialType,
+                            });
+                          }}
+                        >
+                          <ExternalLink size={12} aria-hidden />
+                          Kaiten
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  ) : null}
+                  <td>
+                    {row.comment ? (
+                      <span className="plan-journal-table__comment">
+                        <MessageSquare size={14} aria-hidden />
+                        {row.comment}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -264,6 +198,18 @@ export function PlanJournalPanel({
           ? `Показано ${displayRows.length} из ${filtered.length} (всего ${allRows.length})`
           : `Показано ${filtered.length} из ${allRows.length} событий`}
       </p>
+      {kaitenPosition && kaitenEvent && kaitenTarget ? (
+        <KaitenExportModal
+          open
+          onClose={() => setKaitenTarget(null)}
+          position={kaitenPosition}
+          planVersionId={planVersionId}
+          planYear={activePlan.planYear}
+          userRole={userRole}
+          initialType={kaitenTarget.initialType}
+          event={kaitenEvent}
+        />
+      ) : null}
     </div>
   );
 }

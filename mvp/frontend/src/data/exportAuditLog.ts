@@ -1,6 +1,6 @@
 import type { UserRole } from "./userAccess";
 
-export type ExportAuditFormat = "plan_csv" | "fact_csv";
+export type ExportAuditFormat = "plan_csv" | "fact_csv" | "kaiten_hire" | "kaiten_otiz";
 
 export type ExportAuditEntry = {
   id: string;

@@ -206,7 +206,7 @@ export function VersionsPage() {
             className={`planning-workspace-tabs__btn${tab === "consolidation" ? " planning-workspace-tabs__btn--active" : ""}`}
             onClick={() => setTab("consolidation")}
           >
-            Консолидация
+            Ход планирования
           </button>
         ) : null}
         <button

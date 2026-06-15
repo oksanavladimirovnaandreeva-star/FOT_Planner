@@ -7,11 +7,27 @@ import { USER_ROLE_LABELS, useMvpApp } from "../context/MvpAppContext";
 import { listExportAuditLog } from "../data/exportAuditLog";
 import { resetWorkflowHints } from "../data/workflowHints";
 import { formatIsoDateTime } from "../data/formatDisplay";
+import type { ExportAuditFormat } from "../data/exportAuditLog";
 import {
   formatDemoRoleScope,
   roleScopeDescription,
   roleSettingsAccess,
 } from "../data/userAccess";
+
+function exportAuditFormatLabel(format: ExportAuditFormat): string {
+  switch (format) {
+    case "plan_csv":
+      return "План CSV";
+    case "fact_csv":
+      return "Факт CSV";
+    case "kaiten_hire":
+      return "Kaiten · найм";
+    case "kaiten_otiz":
+      return "Kaiten · ОТиЗ";
+    default:
+      return format;
+  }
+}
 
 export function SettingsPage() {
   const {
@@ -114,7 +130,7 @@ export function SettingsPage() {
         <section className="card settings-section">
           <h2 className="section-title">Журнал экспорта (демо)</h2>
           <p className="muted-line">
-            Локальный audit CSV-экспортов: роль, срез, версия, число строк. В проде — серверный export_log.
+            Локальный audit CSV- и Kaiten-экспортов: роль, срез/позиция, версия, число строк. В проде — серверный export_log.
           </p>
           {exportAuditLog.length === 0 ? (
             <p className="muted-line">Экспортов пока не было.</p>
@@ -136,7 +152,7 @@ export function SettingsPage() {
                     <tr key={entry.id}>
                       <td>{formatIsoDateTime(entry.at)}</td>
                       <td>{USER_ROLE_LABELS[entry.userRole]}</td>
-                      <td>{entry.format === "plan_csv" ? "План CSV" : "Факт CSV"}</td>
+                      <td>{exportAuditFormatLabel(entry.format)}</td>
                       <td>{entry.rowCount}</td>
                       <td>{entry.planVersionId}</td>
                       <td title={`hash: ${entry.scopeHash}`}>{entry.scopeLabel}</td>

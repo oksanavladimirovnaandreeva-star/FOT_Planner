@@ -180,7 +180,7 @@ export function DashboardPage() {
           onChange={(value) => updateFilter("status", value as DashboardFilters["status"])}
         >
           <option value="All">Все</option>
-          <option value="Occupied">Занято</option>
+          <option value="Occupied">В штате</option>
           <option value="Vacancy">Вакансия</option>
           <option value="Closed">Закрыта</option>
         </SliceToolbarSelect>

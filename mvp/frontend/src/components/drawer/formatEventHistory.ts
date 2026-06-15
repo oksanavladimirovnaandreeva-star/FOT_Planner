@@ -35,6 +35,45 @@ export function formatEventHuman(event: PlannedEvent): string {
   return `${month ? month.charAt(0).toUpperCase() + month.slice(1) : "Год"}: ${body}`;
 }
 
+/** В drawer — без ФИО/ID (контекст позиции уже известен). */
+export function formatEventHumanForDrawer(event: PlannedEvent): string {
+  const p = event.payload;
+  const parts: string[] = [];
+  const month = p.month !== undefined ? `с ${monthLabel(p.month)}` : "";
+
+  if (typeof p.percent === "number") parts.push(`индексация ${p.percent}%`);
+  if (typeof p.base === "number") parts.push(`оклад ${p.base.toLocaleString("ru-RU")} ₽`);
+  if (typeof p.bonus === "number") parts.push(`премия ${p.bonus.toLocaleString("ru-RU")} ₽`);
+  if (p.specialization) parts.push(p.specialization);
+  if (p.level) parts.push(p.level);
+  if (p.transferToPositionId) parts.push(`→ позиция ${p.transferToPositionId}`);
+  if (p.targetDepartment) {
+    const org = [p.targetDepartment, p.targetUnit, p.targetTeam].filter(Boolean).join(" / ");
+    parts.push(`цель: ${org}`);
+  }
+  if (p.maternityMode === "SHARED_POSITION") {
+    const primary = p.maternityPrimaryEmployeeName || "основной";
+    const repl =
+      p.maternityReplacementKind === "VACANCY"
+        ? "вакансия (замещение)"
+        : "замещение из списка";
+    parts.push(`декрет: ${primary}, ${repl}`);
+  }
+  if (event.type === "POSITION_CARRYOVER") parts.push("перенос в план года");
+
+  const body = parts.length ? parts.join(" · ") : "без деталей";
+  return `${month ? month.charAt(0).toUpperCase() + month.slice(1) : "Год"}: ${body}`;
+}
+
+export function formatEventDrawerTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString("ru-RU", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function formatEventCommentPreview(comment: string, maxLength = 120): string {
   const trimmed = comment.trim();
   if (trimmed.length <= maxLength) return trimmed;

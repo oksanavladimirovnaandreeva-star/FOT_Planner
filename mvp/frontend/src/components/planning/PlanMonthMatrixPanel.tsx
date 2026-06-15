@@ -15,11 +15,14 @@ import {
   matrixMonthOccupancyLabel,
   type PlanMonthCell,
 } from "../../data/planMonthMatrix";
+import { PositionIdentityCell } from "./PositionIdentityCell";
+import type { UserRole } from "../../data/userAccess";
 
 export type PlanMonthMatrixPanelProps = {
   positions: PositionRecord[];
   viewMode: ViewMode;
   viewModeLabel: string;
+  userRole: UserRole;
   correctionWindow?: CorrectionWindowInfo | null;
   onOpenPosition: (positionId: string, month?: number) => void;
 };
@@ -48,6 +51,7 @@ export function PlanMonthMatrixPanel({
   positions,
   viewMode,
   viewModeLabel,
+  userRole,
   correctionWindow = null,
   onOpenPosition,
 }: PlanMonthMatrixPanelProps) {
@@ -85,7 +89,7 @@ export function PlanMonthMatrixPanel({
         <table className="plan-matrix">
           <thead>
             <tr>
-              <th className="plan-matrix__sticky">Позиция</th>
+              <th className="plan-matrix__sticky">Сотрудник / позиция</th>
               {MONTHS.map((label, month) => {
                 const locked = monthLocked(month);
                 return (
@@ -109,8 +113,7 @@ export function PlanMonthMatrixPanel({
                     className="plan-matrix__pos-btn"
                     onClick={() => onOpenPosition(position.positionId)}
                   >
-                    <strong>{position.positionId}</strong>
-                    <span className="muted-line">{position.role}</span>
+                    <PositionIdentityCell record={position} userRole={userRole} compact />
                   </button>
                 </td>
                 {cells.map((cell) => {

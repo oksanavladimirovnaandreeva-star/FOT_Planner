@@ -58,6 +58,7 @@ import {
 import {
   filterPositionsByRole,
   formatDemoRoleScope,
+  demoRoleScope,
   loadLeadEditFrozen,
   loadUserRole,
   mergeScopedPositionUpdates,
@@ -75,6 +76,7 @@ import {
 import type { ViewMode } from "../data/dashboardMetrics";
 import { resolvePlanFactBaseline, type PlanFactBaseline } from "../data/planFactBaseline";
 import { deletePlanVersionState } from "../data/planVersionDelete";
+import { clearSubmissionsForPlan, getTeamSubmission, isTeamEditingLocked } from "../data/teamSubmissionStore";
 import type { PositionRecord, SalaryCatalogAccess, SalaryRangeBand } from "../types";
 
 export type { UserRole };
@@ -208,6 +210,10 @@ type MvpAppContextValue = {
   demoRoleScopeLabel: string | null;
   refreshAppConfig: () => void;
   appConfigRevision: number;
+  teamSubmissionRevision: number;
+  refreshTeamSubmissions: () => void;
+  /** team_lead: правки заблокированы после «Сдал команду». */
+  isTeamSliceReadOnly: boolean;
 };
 
 const MvpAppContext = createContext<MvpAppContextValue | null>(null);
@@ -234,9 +240,14 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const [userRole, setUserRoleState] = useState<UserRole>(() => loadUserRole());
   const [leadEditFrozen, setLeadEditFrozenState] = useState(() => loadLeadEditFrozen());
   const [configRevision, setConfigRevision] = useState(0);
+  const [teamSubmissionRevision, setTeamSubmissionRevision] = useState(0);
 
   const refreshAppConfig = useCallback(() => {
     setConfigRevision((value) => value + 1);
+  }, []);
+
+  const refreshTeamSubmissions = useCallback(() => {
+    setTeamSubmissionRevision((value) => value + 1);
   }, []);
 
   useEffect(() => {
@@ -351,6 +362,14 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     if (!latestApproved) return null;
     return findWorkingDraftForBaseline(planVersions, latestApproved.id) ?? null;
   }, [planVersions, latestApproved]);
+
+  const isTeamSliceReadOnly = useMemo(() => {
+    if (userRole !== "team_lead" || !workingDraft) return false;
+    const scope = demoRoleScope("team_lead");
+    if (!scope.team || !scope.unit) return false;
+    const submission = getTeamSubmission(workingDraft.id, scope.department, scope.unit, scope.team);
+    return isTeamEditingLocked(submission);
+  }, [userRole, workingDraft, teamSubmissionRevision]);
   const approvalRoute = useMemo(
     () => buildApprovalRoute(planVersions, workingDraft),
     [planVersions, workingDraft],
@@ -508,12 +527,14 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       if (!result.ok) return result;
       setPlanVersions(result.versions);
       setDataByVersion(result.dataByVersion);
+      clearSubmissionsForPlan(versionId);
+      refreshTeamSubmissions();
       if (planVersionId === versionId) {
         setPlanVersionId(result.fallbackVersionId);
       }
       return { ok: true, deletedLabel: result.deletedLabel };
     },
-    [userRole, planVersions, dataByVersion, planVersionId],
+    [userRole, planVersions, dataByVersion, planVersionId, refreshTeamSubmissions],
   );
 
   const pickAmount = useCallback(
@@ -753,6 +774,9 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       reloadDemoSeed,
       refreshAppConfig,
       appConfigRevision: configRevision,
+      teamSubmissionRevision,
+      refreshTeamSubmissions,
+      isTeamSliceReadOnly,
     }),
     [
       planVersions,
@@ -802,6 +826,9 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       reloadDemoSeed,
       refreshAppConfig,
       configRevision,
+      teamSubmissionRevision,
+      refreshTeamSubmissions,
+      isTeamSliceReadOnly,
     ],
   );
 

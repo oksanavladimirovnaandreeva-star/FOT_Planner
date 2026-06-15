@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyEvents, initialPositions } from "./planningData";
-import { buildOrgConsolidationReport, getQuarterDeadlines } from "./teamConsolidation";
+import { buildOrgConsolidationReport, getQuarterDeadlines, resolveTeamDisplayStatus } from "./teamConsolidation";
+import { markTeamSubmitted, markUnitApproved, clearSubmissionsForPlan } from "./teamSubmissionStore";
 import type { PlanVersionMeta } from "./planVersions";
 import type { PositionRecord } from "../types";
 
@@ -21,6 +22,19 @@ const draftMeta: PlanVersionMeta = {
 };
 
 describe("teamConsolidation", () => {
+  beforeEach(() => {
+    const memory = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        memory.set(key, value);
+      },
+      removeItem: (key: string) => {
+        memory.delete(key);
+      },
+    });
+  });
+
   it("группирует команды департамента Engineering", () => {
     const positions = clonePositions();
     const report = buildOrgConsolidationReport(positions, {
@@ -92,5 +106,44 @@ describe("teamConsolidation", () => {
     });
     expect(scoped.totals.teams).toBeLessThan(full.totals.teams);
     expect(scoped.units.every((group) => group.unit === "ProductDev")).toBe(true);
+  });
+
+  it("resolveTeamDisplayStatus — приоритет cb_submitted и submission", () => {
+    expect(resolveTeamDisplayStatus("ready", null, true)).toBe("cb_submitted");
+    expect(resolveTeamDisplayStatus("ready", { phase: "team_submitted" }, false)).toBe("team_submitted");
+    expect(resolveTeamDisplayStatus("ready", { phase: "unit_approved" }, false)).toBe("unit_approved");
+    expect(resolveTeamDisplayStatus("ready", { phase: "returned" }, false)).toBe("returned");
+    expect(resolveTeamDisplayStatus("in_progress", null, false)).toBe("in_progress");
+  });
+
+  it("totals filled/approved для donut", () => {
+    const positions = clonePositions();
+    clearSubmissionsForPlan(draftMeta.id);
+    const source = positions.find((item) => item.team === "Frontend Web")!;
+    markTeamSubmitted(draftMeta.id, source.department, source.unit, source.team);
+
+    const report = buildOrgConsolidationReport(positions, {
+      department: "Engineering",
+      planYear: 2026,
+      workingDraft: draftMeta,
+      baselinePositions: positions,
+      draftPositions: positions,
+      now: new Date(2026, 4, 1),
+      submissionPlanVersionId: draftMeta.id,
+    });
+    expect(report.totals.filledTeams).toBeGreaterThan(0);
+    expect(report.totals.approvedTeams).toBe(0);
+
+    markUnitApproved(draftMeta.id, source.department, source.unit, source.team);
+    const approved = buildOrgConsolidationReport(positions, {
+      department: "Engineering",
+      planYear: 2026,
+      workingDraft: draftMeta,
+      baselinePositions: positions,
+      draftPositions: positions,
+      now: new Date(2026, 4, 1),
+      submissionPlanVersionId: draftMeta.id,
+    });
+    expect(approved.totals.approvedTeams).toBeGreaterThan(0);
   });
 });

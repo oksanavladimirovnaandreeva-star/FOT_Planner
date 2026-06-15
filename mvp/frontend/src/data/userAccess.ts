@@ -122,6 +122,16 @@ export function roleCanApplyMassIndexation(role: UserRole): boolean {
   return role === "admin" || role === "unit_lead";
 }
 
+/** Выгрузка заявок Kaiten (демо UI) — все роли кроме viewer. */
+export function roleCanExportKaiten(role: UserRole): boolean {
+  return role !== "viewer";
+}
+
+/** Kaiten UI: экспорт + nudge — не viewer и не freeze лидов. */
+export function canShowKaitenExport(role: UserRole, leadEditFrozen: boolean): boolean {
+  return roleCanExportKaiten(role) && roleCanEdit(role, leadEditFrozen);
+}
+
 /**
  * Правки плана по роли. Директор может «закрыть» правки тимлидов и юнит-лидов (freeze).
  */

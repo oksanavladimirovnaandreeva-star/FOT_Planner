@@ -90,6 +90,6 @@ export function formatOccupancyMonthLabel(snapshot: PlanOccupancySnapshot, compa
   if (snapshot.status === "Closed") return "Закрыта";
   if (snapshot.status === "Vacancy" || !snapshot.employeeId) return "Вакансия";
   const name = snapshot.employeeName?.trim();
-  if (!name) return "Занято";
+  if (!name) return "В штате";
   return shortenPersonName(name, compact);
 }

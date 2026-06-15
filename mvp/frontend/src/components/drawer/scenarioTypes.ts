@@ -34,7 +34,7 @@ export const SCENARIO_CARDS: {
   short: string;
   occupiedOnly?: boolean;
 }[] = [
-  { id: "REVIEW", title: "Пересмотр", short: "Оклад, уровень, специализация с месяца" },
+  { id: "REVIEW", title: "Пересмотр (оклад, спец., уровень)", short: "Оклад, уровень, специализация с месяца" },
   { id: "TRANSFER_INTRA", title: "Перевод внутри юнита", short: "На другую вакансию в том же юните", occupiedOnly: true },
   { id: "TRANSFER_INTER", title: "Перевод в другой департамент", short: "Смена оргструктуры", occupiedOnly: true },
   { id: "TERMINATION", title: "Увольнение", short: "Позиция станет вакансией", occupiedOnly: true },

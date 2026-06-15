@@ -45,12 +45,11 @@ import {
   LIMIT_FLAG_LABELS,
   monthLabel,
   normalizeOrgPath,
-  POSITION_STATUS_LABELS,
   teamOptions,
   unitOptions,
   upsertEvent,
 } from "../data/planningData";
-import { positionTableRowClass } from "../data/eventJournal";
+import { positionTableRowClass, JOURNAL_EVENT_TYPE_OPTIONS } from "../data/eventJournal";
 import {
   applyPlanTransferFromDrawerEvent,
   applyTerminationToVacancy,
@@ -62,9 +61,11 @@ import {
 import { useMvpApp } from "../context/MvpAppContext";
 import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
 import { ExportCsvActions } from "../components/ExportCsvActions";
+import { PositionIdentityCell } from "../components/planning/PositionIdentityCell";
 import { PositionDrawer } from "../components/PositionDrawer";
+import { formatCrCoefficient } from "../data/positionDisplay";
 import { WorkflowHint } from "../components/WorkflowHint";
-import type { PlannedEvent, PositionRecord, SalaryRangeBand } from "../types";
+import type { PlannedEvent, PositionRecord, SalaryRangeBand, EventType } from "../types";
 import { MONTHS } from "../types";
 
 type EmployeeOption = {
@@ -123,22 +124,6 @@ function needsCarryoverEvent(record: PositionRecord): boolean {
   return record.status === "Vacancy" && record.slotType === "carryover" && !hasCarryoverEvent(record);
 }
 
-function employeeCellLabel(record: PositionRecord): string {
-  const maternityEvent = [...record.events]
-    .filter((event) => event.type === "MANUAL_OVERRIDE" && event.payload.maternityMode === "SHARED_POSITION")
-    .sort((a, b) => b.createdOrder - a.createdOrder)[0];
-  if (!maternityEvent) {
-    return record.employeeName ? `${record.employeeName} (${record.employeeId ?? "-"})` : "-";
-  }
-  const primaryName = maternityEvent.payload.maternityPrimaryEmployeeName || record.employeeName || "Сотрудник";
-  const primaryId = maternityEvent.payload.maternityPrimaryEmployeeId || record.employeeId || "—";
-  const replacementLabel =
-    maternityEvent.payload.maternityReplacementKind === "VACANCY"
-      ? "Вакансия (замещение)"
-      : `${maternityEvent.payload.employeeName || "Замещение"} (${maternityEvent.payload.employeeId || "—"})`;
-  return `${primaryName} (${primaryId}) [декрет] + ${replacementLabel} [замещение]`;
-}
-
 type WorkspaceTab = "positions" | "matrix" | "journal";
 
 function parseWorkspaceTab(value: string | null): WorkspaceTab {
@@ -148,14 +133,6 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
 
 function parseWorkspaceMode(value: string | null): PlanWorkspaceMode {
   return value === "correction" ? "correction" : "planning";
-}
-
-function positionEmployeePrimary(row: PositionRecord): string {
-  const label = employeeCellLabel(row);
-  if (label !== "-") return label;
-  if (row.status === "Vacancy") return "Вакансия";
-  if (row.status === "Closed") return "Закрыта";
-  return "—";
 }
 
 export function PlanningPage() {
@@ -192,6 +169,7 @@ export function PlanningPage() {
     canToggleLeadFreeze,
     openVersion,
     planVersionId,
+    isTeamSliceReadOnly,
   } = useMvpApp();
 
   const orgFilterDefaults = useMemo(() => roleOrgFilterDefaults(userRole), [userRole]);
@@ -204,11 +182,11 @@ export function PlanningPage() {
   const isAnnualDraft = isAnnualPlanningDraft(activePlan);
   const canEditWorkspace = useMemo(() => {
     if (!canEditPlan) return false;
-    if (workspaceMode === "correction") {
-      return isQuarterWorkingDraft(activePlan, primaryBudget);
-    }
+    if (isTeamSliceReadOnly) return false;
+    if (isQuarterWorkingDraft(activePlan, primaryBudget)) return true;
+    if (workspaceMode === "correction") return false;
     return isAnnualDraft;
-  }, [canEditPlan, workspaceMode, activePlan, primaryBudget, isAnnualDraft]);
+  }, [canEditPlan, isTeamSliceReadOnly, workspaceMode, activePlan, primaryBudget, isAnnualDraft]);
 
   useEffect(() => {
     if (workspaceMode !== "correction" || !workingDraft) return;
@@ -217,9 +195,7 @@ export function PlanningPage() {
     }
   }, [workspaceMode, workingDraft, planVersionId, openVersion]);
 
-  const canMassIndexation =
-    roleCanApplyMassIndexation(userRole) &&
-    (workspaceMode === "correction" ? canEditWorkspace : isAnnualDraft);
+  const canMassIndexation = roleCanApplyMassIndexation(userRole) && canEditWorkspace;
 
   const canAddPosition =
     roleCanEdit(userRole, leadEditFrozen) &&
@@ -296,6 +272,8 @@ export function PlanningPage() {
 
   const [limitFilter, setLimitFilter] = useState<"All" | "IN_LIMIT" | "OVER_LIMIT">("All");
   const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy" | "Closed">("All");
+  const [journalMonthFilter, setJournalMonthFilter] = useState("All");
+  const [journalTypeFilter, setJournalTypeFilter] = useState<EventType | "All">("All");
   const [active, setActive] = useState<PositionRecord | null>(null);
   const [idxPercent, setIdxPercent] = useState(5);
   const [idxMonth, setIdxMonth] = useState(8);
@@ -917,13 +895,19 @@ export function PlanningPage() {
         </section>
       ) : null}
 
-      {workspaceTab === "positions" || workspaceTab === "matrix" ? (
+      {workspaceTab === "positions" || workspaceTab === "matrix" || workspaceTab === "journal" ? (
         <SliceToolbar
           sticky
           search={query}
           onSearchChange={setQuery}
-          searchPlaceholder="Роль, позиция или сотрудник…"
-          footer={`${filtered.length} поз. в срезе`}
+          searchPlaceholder={
+            workspaceTab === "journal" ? "Позиция, сотрудник, комментарий…" : "Роль, позиция или сотрудник…"
+          }
+          footer={
+            workspaceTab === "journal"
+              ? `Журнал · срез применён`
+              : `${filtered.length} поз. в срезе`
+          }
         >
           <OrgSliceMultiSelect
             layout="toolbar"
@@ -949,6 +933,8 @@ export function PlanningPage() {
             disabled={orgFilterDefaults?.lockTeam}
             onChange={(teams) => setOrgSlice((prev) => updateOrgSliceTeams(prev, teams))}
           />
+          {workspaceTab !== "journal" ? (
+            <>
           <SliceToolbarSelect label="Лимит" value={limitFilter} onChange={(value) => setLimitFilter(value as typeof limitFilter)}>
             <option value="All">Все</option>
             <option value="IN_LIMIT">{LIMIT_FLAG_LABELS.IN_LIMIT}</option>
@@ -960,10 +946,35 @@ export function PlanningPage() {
             onChange={(value) => setOccupancyFilter(value as typeof occupancyFilter)}
           >
             <option value="All">Все</option>
-            <option value="Occupied">Позиция</option>
+            <option value="Occupied">В штате</option>
             <option value="Vacancy">Вакансия</option>
             <option value="Closed">Закрыта</option>
           </SliceToolbarSelect>
+            </>
+          ) : null}
+          {workspaceTab === "journal" ? (
+            <>
+              <SliceToolbarSelect label="Месяц" value={journalMonthFilter} onChange={setJournalMonthFilter}>
+                <option value="All">Все</option>
+                {MONTHS.map((month, index) => (
+                  <option key={month} value={index}>
+                    {monthLabel(index)}
+                  </option>
+                ))}
+              </SliceToolbarSelect>
+              <SliceToolbarSelect
+                label="Тип"
+                value={journalTypeFilter}
+                onChange={(value) => setJournalTypeFilter(value as EventType | "All")}
+              >
+                {JOURNAL_EVENT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </SliceToolbarSelect>
+            </>
+          ) : null}
         </SliceToolbar>
       ) : null}
 
@@ -994,6 +1005,7 @@ export function PlanningPage() {
             positions={filtered}
             viewMode={viewMode}
             viewModeLabel={viewMode === "total" ? "полный ФОТ" : "тарифный оклад"}
+            userRole={userRole}
             correctionWindow={workspaceMode === "correction" ? correctionWindow : null}
             onOpenPosition={openPositionInDrawer}
           />
@@ -1034,26 +1046,24 @@ export function PlanningPage() {
                   title="Открыть карточку позиции"
                 >
                   <td>
-                    <div className="positions-table__employee-line">
-                      <span className="position-state-badge position-state-badge--status">
-                        {POSITION_STATUS_LABELS[row.status]}
-                      </span>
-                      <strong className="positions-table__employee-name">{positionEmployeePrimary(row)}</strong>
-                    </div>
-                    <div className="muted-line positions-table__meta">
-                      {row.role} · {row.positionId} · {row.department} / {row.unit}
-                      {row.team ? ` / ${row.team}` : ""}
-                      {eventCount > 0 ? (
-                        <span className="position-state-badge position-state-badge--events"> · {eventCount} соб.</span>
-                      ) : null}
-                      {active?.positionId === row.positionId && !positions.some((p) => p.positionId === row.positionId) ? (
-                        <span className="position-state-badge position-state-badge--draft"> · черновик</span>
-                      ) : null}
-                    </div>
-                    {isTemporaryReplacementVacancy(row) && <span className="scenario-badge">Временная замена</span>}
-                    {needsCarryoverEvent(row) && (
-                      <span className="scenario-badge scenario-badge--warn">Нет события переноса</span>
-                    )}
+                    <PositionIdentityCell
+                      record={row}
+                      userRole={userRole}
+                      metaExtra={
+                        <>
+                          {eventCount > 0 ? (
+                            <span className="position-state-badge position-state-badge--events">{eventCount} соб.</span>
+                          ) : null}
+                          {active?.positionId === row.positionId && !positions.some((p) => p.positionId === row.positionId) ? (
+                            <span className="position-state-badge position-state-badge--draft">черновик</span>
+                          ) : null}
+                          {isTemporaryReplacementVacancy(row) && <span className="scenario-badge">Временная замена</span>}
+                          {needsCarryoverEvent(row) && (
+                            <span className="scenario-badge scenario-badge--warn">Нет события переноса</span>
+                          )}
+                        </>
+                      }
+                    />
                   </td>
                   <td>
                     {row.monthlySpec[11]}
@@ -1070,9 +1080,7 @@ export function PlanningPage() {
                   </td>
                   <td>{annualTotal(row).toLocaleString("ru-RU")} ₽</td>
                   <td>
-                    <span className={`cr-pct cr-pct--${crTone(cr)}`}>
-                      {cr > 0 ? `${(cr * 100).toFixed(1)}%` : "—"}
-                    </span>
+                    <span className={`cr-coef cr-coef--${crTone(cr)}`}>{formatCrCoefficient(cr)}</span>
                   </td>
                   <td>
                     <span className={`limit-flag-badge limit-flag-badge--${row.limitFlag}`}>
@@ -1113,6 +1121,10 @@ export function PlanningPage() {
             onOpenPosition={openPositionFromJournal}
             highlightPositionId={journalHighlightPositionId}
             filterPositionIds={journalDiffPositionIds}
+            orgSlice={orgSlice}
+            query={query}
+            monthFilter={journalMonthFilter}
+            typeFilter={journalTypeFilter}
           />
         </section>
       ) : null}
