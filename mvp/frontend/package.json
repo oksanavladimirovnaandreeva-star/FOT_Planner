@@ -7,7 +7,11 @@
     "dev": "vite --host --port 5174",
     "start": "npm run dev",
     "build": "tsc -b && vite build",
+    "postbuild": "node ./scripts/copy-404.mjs",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:all": "npm test && npm run test:e2e",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -19,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.0",
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
