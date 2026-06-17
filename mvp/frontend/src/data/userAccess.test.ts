@@ -72,7 +72,8 @@ describe("userAccess RBAC", () => {
     expect(roleCanEdit("team_lead", true)).toBe(false);
     expect(roleCanEdit("unit_lead", true)).toBe(false);
     expect(roleCanEdit("director", true)).toBe(true);
-    expect(roleCanEdit("admin", true)).toBe(true);
+    expect(roleCanEdit("cb_admin", true)).toBe(true);
+    expect(roleCanEdit("gd", true)).toBe(true);
   });
 
   it("viewer не редактирует", () => {
@@ -80,23 +81,24 @@ describe("userAccess RBAC", () => {
   });
 
   it("C&B admin: версии и факт", () => {
-    expect(roleCanManageVersions("admin")).toBe(true);
+    expect(roleCanManageVersions("cb_admin")).toBe(true);
     expect(roleCanManageVersions("director")).toBe(false);
-    expect(roleCanImportFact("admin")).toBe(true);
+    expect(roleCanImportFact("cb_admin")).toBe(true);
     expect(roleCanImportFact("unit_lead")).toBe(false);
   });
 
   it("freeze toggle — director и admin", () => {
     expect(roleCanToggleLeadFreeze("director")).toBe(true);
-    expect(roleCanToggleLeadFreeze("admin")).toBe(true);
+    expect(roleCanToggleLeadFreeze("cb_admin")).toBe(true);
+    expect(roleCanToggleLeadFreeze("gd")).toBe(true);
     expect(roleCanToggleLeadFreeze("team_lead")).toBe(false);
   });
 
-  it("массовая индексация для C&B и unit_lead", () => {
+  it("массовая индексация только для C&B", () => {
     expect(roleCanApplyMassIndexation("team_lead")).toBe(false);
     expect(roleCanApplyMassIndexation("director")).toBe(false);
-    expect(roleCanApplyMassIndexation("unit_lead")).toBe(true);
-    expect(roleCanApplyMassIndexation("admin")).toBe(true);
+    expect(roleCanApplyMassIndexation("unit_lead")).toBe(false);
+    expect(roleCanApplyMassIndexation("cb_admin")).toBe(true);
   });
 
   it("team_lead и unit_lead фиксируют фильтры оргструктуры", () => {

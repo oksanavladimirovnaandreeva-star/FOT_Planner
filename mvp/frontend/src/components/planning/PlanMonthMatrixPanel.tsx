@@ -96,7 +96,7 @@ export function PlanMonthMatrixPanel({
                   <th
                     key={label}
                     className={locked ? "plan-matrix__col--locked" : undefined}
-                    title={locked ? `Месяц закрыт для корректировки (до ${correctionWindow?.startMonthLabel})` : undefined}
+                    data-hint={locked ? `Месяц закрыт для корректировки (до ${correctionWindow?.startMonthLabel})` : undefined}
                   >
                     {label.slice(0, 3)}
                   </th>
@@ -138,7 +138,7 @@ export function PlanMonthMatrixPanel({
                       <button
                         type="button"
                         className={cellClass(cell, locked)}
-                        title={title}
+                        data-hint={title}
                         onClick={() => onOpenPosition(position.positionId, cell.month)}
                       >
                         <span className="plan-matrix__occupancy">

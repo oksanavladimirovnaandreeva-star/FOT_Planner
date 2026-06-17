@@ -40,7 +40,7 @@ describe("positionDisplay", () => {
     expect(formatPositionOrgLine(row, "team_lead")).toBe("Frontend Web (P001)");
     expect(formatPositionOrgLine(row, "unit_lead")).toBe("Frontend Web (P001)");
     expect(formatPositionOrgLine(row, "director")).toBe("ProductDev / Frontend Web (P001)");
-    expect(formatPositionOrgLine(row, "admin")).toBe("Engineering / ProductDev / Frontend Web (P001)");
+    expect(formatPositionOrgLine(row, "cb_admin")).toBe("Engineering / ProductDev / Frontend Web (P001)");
   });
 
   it("positionEmployeePrimaryName для занятой", () => {

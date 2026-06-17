@@ -86,12 +86,12 @@ export function VersionCompareDashboard({
                   <div
                     className="version-month-chart__bar version-month-chart__bar--base"
                     style={{ height: `${(point.baseline / chartMax) * 100}%` }}
-                    title={`База: ${formatMln(point.baseline)}`}
+                    data-hint={`База: ${formatMln(point.baseline)}`}
                   />
                   <div
                     className="version-month-chart__bar version-month-chart__bar--draft"
                     style={{ height: `${(point.draft / chartMax) * 100}%` }}
-                    title={`Черновик: ${formatMln(point.draft)}`}
+                    data-hint={`Черновик: ${formatMln(point.draft)}`}
                   />
                 </div>
                 <span>{point.label.slice(0, 3)}</span>

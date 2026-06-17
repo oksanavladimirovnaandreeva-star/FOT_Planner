@@ -213,7 +213,11 @@ P3  PG    PostgreSQL + API (критерии входа — §8)
 
 ### 5.4 Индексация в шапке
 
-Блок `planning-indexation-compact` в header — **только** `admin` и `unit_lead` (как сейчас по роли), для `team_lead` **не рендерить**.
+Блок `MassIndexationCompact` (`planning-indexation-compact`) в header страницы Planning — **только** роль **C&B** (`cb_admin`), вкладка **«Позиции»**. См. `PRODUCT-MODEL.md` §3, §5: глобальная индексация — операция C&B, не юнит-лида и не тимлида.
+
+- На вкладках «По месяцам» и «Журнал изменений» блок **не рендерить** (журнал — только просмотр событий).
+- В `PlanContextBar` остаётся **информационная** строка о применённых пакетах (баннер), без формы применения.
+- RBAC: `roleCanApplyMassIndexation` → только `cb_admin` (`userAccess.ts`).
 
 Опционально: перенести в floating action «Массовые действия» на Versions — по согласованию с дизайном.
 

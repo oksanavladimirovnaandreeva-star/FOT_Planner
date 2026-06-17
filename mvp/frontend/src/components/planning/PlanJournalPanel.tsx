@@ -96,8 +96,8 @@ export function PlanJournalPanel({
   return (
     <div className={`plan-journal-panel${isSidebar ? " plan-journal-panel--sidebar" : ""}`}>
       {!isSidebar ? (
-        <p className="plan-journal-panel__lead">
-          События версии <strong>{activePlan.label}</strong> в текущем срезе. Клик по строке → карточка позиции.
+        <p className="plan-journal-panel__lead muted-line">
+          События версии <strong>{activePlan.label}</strong> · клик по строке откроет карточку позиции
         </p>
       ) : (
         <div className="plan-journal-panel__sidebar-head">
@@ -157,7 +157,7 @@ export function PlanJournalPanel({
                         <button
                           type="button"
                           className="secondary-btn plan-journal-table__kaiten-btn"
-                          title="Создать заявку в Kaiten"
+                          data-hint="Создать заявку в Kaiten"
                           onClick={(clickEvent) => {
                             clickEvent.stopPropagation();
                             const initialType = kaitenTypeForEventType(row.event.type);

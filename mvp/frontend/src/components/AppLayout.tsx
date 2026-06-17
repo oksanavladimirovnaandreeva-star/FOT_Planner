@@ -12,6 +12,7 @@ import { useMvpApp } from "../context/MvpAppContext";
 import { formatPlanVersionOptionLabel } from "../data/planVersionDisplay";
 import { resolvePlanWorkspaceStatus } from "../data/planWorkspaceStatus";
 import { roleSettingsNavVisible } from "../data/userAccess";
+import { HintTooltipLayer } from "./HintTooltipLayer";
 
 const NAV: {
   to: string;
@@ -119,6 +120,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <div className="app-main">
         <div className="app-page-scroll">{children}</div>
       </div>
+      <HintTooltipLayer />
     </div>
   );
 }

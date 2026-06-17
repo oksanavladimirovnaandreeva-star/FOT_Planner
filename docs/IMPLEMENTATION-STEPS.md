@@ -61,7 +61,7 @@
 |---|--------|---|
 | UX-4 | Модалка массовых действий, MetricHelp, UnitLead strip, compact drawer | `[ ]` отложено |
 
-**В checkpoint:** inline массовая индексация на Planning; drawer `drawer--workspace` с таблицей месяцев (см. HANDOFF).
+**В checkpoint:** массовая индексация на Planning — **только C&B** (`roleCanApplyMassIndexation`), компактный блок в шапке на вкладке «Позиции»; drawer `drawer--workspace` с таблицей месяцев (см. HANDOFF).
 
 ## Фаза 3+ — PG, ИБ, инфра
 

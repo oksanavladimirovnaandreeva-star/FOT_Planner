@@ -41,7 +41,12 @@ export function ExportCsvActions({
 
   return (
     <div className={`export-csv-actions${compact ? " export-csv-actions--compact" : ""}`}>
-      <button type="button" className="secondary-btn" onClick={() => handleExport("plan")} title="CSV плана в видимом срезе">
+      <button
+        type="button"
+        className="secondary-btn"
+        onClick={() => handleExport("plan")}
+        data-hint="CSV плана в видимом срезе"
+      >
         {compact ? "CSV план" : "Экспорт плана CSV"}
       </button>
       <button
@@ -49,7 +54,7 @@ export function ExportCsvActions({
         className="secondary-btn"
         onClick={() => handleExport("fact")}
         disabled={!factReady}
-        title={factReady ? "CSV факта в видимом срезе" : "Сначала загрузите факт в «Данные»"}
+        data-hint={factReady ? "CSV факта в видимом срезе" : "Сначала загрузите факт в «Данные»"}
       >
         {compact ? "CSV факт" : "Экспорт факта CSV"}
       </button>

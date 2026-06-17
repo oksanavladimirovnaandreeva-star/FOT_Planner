@@ -98,8 +98,8 @@ function buildLines(props: Props): ContextLine[] {
     lines.push({
       id: "annual-draft",
       tone: "readonly",
-      title: "Бюджет v1 ещё не утверждён",
-      body: "После правок — утвердите на «Версии».",
+      title: "Версия 1 ещё не утверждена",
+      body: "После правок — утвердите Версию 1 на «Версии».",
       link: { to: "/versions?tab=approval", label: "Утвердить" },
     });
   }

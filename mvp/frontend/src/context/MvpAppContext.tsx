@@ -76,6 +76,7 @@ import {
 import type { ViewMode } from "../data/dashboardMetrics";
 import { resolvePlanFactBaseline, type PlanFactBaseline } from "../data/planFactBaseline";
 import { deletePlanVersionState } from "../data/planVersionDelete";
+import { buildPilotTestBundle, type PilotBundleResult } from "../data/pilotTestBundle";
 import { clearSubmissionsForPlan, getTeamSubmission, isTeamEditingLocked } from "../data/teamSubmissionStore";
 import type { PositionRecord, SalaryCatalogAccess, SalaryRangeBand } from "../types";
 
@@ -207,6 +208,7 @@ type MvpAppContextValue = {
   refreshOperationHistory: () => void;
   resetDevPlanToDraft: () => { ok: true } | { ok: false; error: string };
   reloadDemoSeed: () => { ok: true; count: number } | { ok: false; error: string };
+  loadPilotTestBundle: () => { ok: true; summary: string } & PilotBundleResult | { ok: false; error: string };
   demoRoleScopeLabel: string | null;
   refreshAppConfig: () => void;
   appConfigRevision: number;
@@ -343,7 +345,10 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     [planVersions, planVersionId],
   );
 
-  const canEditPlan = canEditVersion(activePlan) && roleCanEdit(userRole, leadEditFrozen);
+  const canEditPlan =
+    canEditVersion(activePlan) &&
+    roleCanEdit(userRole, leadEditFrozen) &&
+    !(userRole === "team_lead" && activePlan.kind === "APPROVED" && activePlan.status !== "DRAFT");
   const primaryBudget = useMemo(() => primaryBudgetVersion(planVersions) ?? null, [planVersions]);
   const latestApproved = useMemo(() => latestApprovedVersion(planVersions) ?? null, [planVersions]);
   const planFactBaselineRaw = useMemo(
@@ -705,6 +710,31 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     return { ok: true, count: fresh.length };
   }, [planVersionId]);
 
+  const loadPilotTestBundle = useCallback((): ReturnType<MvpAppContextValue["loadPilotTestBundle"]> => {
+    if (!roleCanManageVersions(userRole)) {
+      return { ok: false, error: "Пилотный набор доступен только роли C&B." };
+    }
+    try {
+      const bundle = buildPilotTestBundle();
+      setPlanVersions(bundle.versions);
+      setDataByVersion(bundle.dataByVersion);
+      setPlanVersionId(bundle.planVersionId);
+      setLeadEditFrozenState(false);
+      refreshAppConfig();
+      refreshTeamSubmissions();
+      const summary =
+        `Пилот: ${bundle.positionCount} поз. · ${bundle.orgTeamCount} команд · ` +
+        `факт ${bundle.fact.employeeCount} сотр. · Версия 1 утверждена. ` +
+        `Смените роль в сайдбаре для проверки срезов.`;
+      return { ok: true, summary, ...bundle };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Не удалось загрузить пилотный набор.",
+      };
+    }
+  }, [userRole, refreshAppConfig, refreshTeamSubmissions]);
+
   const resetDevPlanToDraft = useCallback((): { ok: true } | { ok: false; error: string } => {
     const planYear = primaryBudget?.planYear ?? 2026;
     const freshVersions = initialPlanVersions(planYear);
@@ -772,6 +802,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       refreshOperationHistory,
       resetDevPlanToDraft,
       reloadDemoSeed,
+      loadPilotTestBundle,
       refreshAppConfig,
       appConfigRevision: configRevision,
       teamSubmissionRevision,
@@ -824,6 +855,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       refreshOperationHistory,
       resetDevPlanToDraft,
       reloadDemoSeed,
+      loadPilotTestBundle,
       refreshAppConfig,
       configRevision,
       teamSubmissionRevision,

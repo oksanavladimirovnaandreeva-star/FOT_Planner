@@ -33,6 +33,7 @@ export function DataSettingsPanel() {
     refreshOperationHistory,
     resetDevPlanToDraft,
     reloadDemoSeed,
+    loadPilotTestBundle,
   } = useMvpApp();
 
   const [dataMessage, setDataMessage] = useState<string | null>(null);
@@ -490,8 +491,36 @@ export function DataSettingsPanel() {
       ) : null}
 
       {canImportPlan ? (
+        <div className="app-data-panel__block app-data-panel__block--pilot">
+          <strong>Пилотный набор (всё сразу)</strong>
+          <p className="muted-line">
+            Оргструктура, пресеты доступов (директор / юнит-лид / тимлид), 500+ позиций, утверждённая Версия 1 и демо-факт
+            — для теста ролей на GitHub Pages.
+          </p>
+          <div className="app-data-panel__actions">
+            <button
+              type="button"
+              className="app-btn app-btn--primary"
+              onClick={() => {
+                const confirmed = window.confirm(
+                  "Загрузить пилотный набор? Текущие версии, план и факт в браузере будут заменены.",
+                );
+                if (!confirmed) return;
+                const result = loadPilotTestBundle();
+                setFactLoaded(true);
+                setFactStats(factStoreStats());
+                setDataMessage(result.ok ? result.summary : result.error);
+              }}
+            >
+              Загрузить пилотный набор
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {canImportPlan ? (
         <div className="app-data-panel__block">
-          <strong>Демо-данные</strong>
+          <strong>Демо-данные (по частям)</strong>
           <p className="muted-line">
             500+ позиций, декабрьский перенос в январь, события на части позиций. Затем — демо-факт.
           </p>
@@ -532,7 +561,7 @@ export function DataSettingsPanel() {
       {canManagePlanVersions ? (
         <details className="app-data-panel__demo">
           <summary>Инструменты разработчика</summary>
-          <p className="muted-line">Сброс версий к одному черновику бюджета (данные v1 сохраняются).</p>
+          <p className="muted-line">Сброс версий к одному черновику бюджета (данные Версии 1 сохраняются).</p>
           <button type="button" className="app-btn app-btn--ghost app-btn--sm" onClick={handleDevResetV1}>
             Сбросить бюджет к черновику
           </button>

@@ -6,21 +6,22 @@ import type { PositionRecord } from "../types";
  * Прод (ИБ): роль + атрибуты среза на бэкенде (RLS), не доверять localStorage.
  * См. docs/SECURITY-REQUIREMENTS.md
  */
-export type UserRole = "admin" | "director" | "unit_lead" | "team_lead" | "viewer";
+export type UserRole = "cb_admin" | "gd" | "director" | "unit_lead" | "team_lead" | "viewer";
 
 const ROLE_STORAGE_KEY = "fot_mvp_user_role";
 const FREEZE_STORAGE_KEY = "fot_mvp_lead_edit_frozen";
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
-  admin: "C&B (администратор)",
+  cb_admin: "C&B (администратор)",
+  gd: "Генеральный директор",
   director: "Директор (департамент)",
   unit_lead: "Юнит-лид (юнит)",
   team_lead: "Тимлид (команда)",
-  viewer: "Просмотр (аудит)",
+  viewer: "Финменеджер (просмотр)",
 };
 
 /** Демо-срез для ролей — читается из localStorage (Настройки → Доступы). */
-export function demoRoleScope(role: Exclude<UserRole, "admin" | "viewer">): RoleScopeRecord {
+export function demoRoleScope(role: Exclude<UserRole, "cb_admin" | "gd" | "viewer">): RoleScopeRecord {
   return roleScopeFor(role);
 }
 
@@ -50,7 +51,8 @@ export function loadUserRole(): UserRole {
   try {
     const stored = localStorage.getItem(ROLE_STORAGE_KEY);
     if (
-      stored === "admin" ||
+      stored === "cb_admin" ||
+      stored === "gd" ||
       stored === "director" ||
       stored === "unit_lead" ||
       stored === "team_lead" ||
@@ -58,10 +60,11 @@ export function loadUserRole(): UserRole {
     ) {
       return stored;
     }
+    if (stored === "admin") return "cb_admin";
   } catch {
     /* ignore */
   }
-  return "admin";
+  return "cb_admin";
 }
 
 export function saveUserRole(role: UserRole): void {
@@ -81,45 +84,45 @@ export function saveLeadEditFrozen(frozen: boolean): void {
 }
 
 export function roleIsCbAdmin(role: UserRole): boolean {
-  return role === "admin";
+  return role === "cb_admin";
 }
 
 export function roleCanToggleLeadFreeze(role: UserRole): boolean {
-  return role === "admin" || role === "director";
+  return role === "cb_admin" || role === "gd" || role === "director";
 }
 
 export type SettingsAccess = "full" | "stub";
 
 /** Полный доступ к настройкам — C&B и директор; остальные видят заглушку. */
 export function roleSettingsAccess(role: UserRole): SettingsAccess {
-  return role === "admin" || role === "director" ? "full" : "stub";
+  return role === "cb_admin" || role === "gd" || role === "director" ? "full" : "stub";
 }
 
 /** Пункт «Настройки» в навигации — только C&B и директор. */
 export function roleSettingsNavVisible(role: UserRole): boolean {
-  return role === "admin" || role === "director";
+  return role === "cb_admin" || role === "gd" || role === "director";
 }
 
 /** Жизненный цикл версий, импорт факта, админ-операции — только C&B. */
 export function roleCanManageVersions(role: UserRole): boolean {
-  return role === "admin";
+  return role === "cb_admin";
 }
 
 export function roleCanImportFact(role: UserRole): boolean {
-  return role === "admin";
+  return role === "cb_admin";
 }
 
 export function roleCanImportPlan(role: UserRole): boolean {
-  return role === "admin";
+  return role === "cb_admin";
 }
 
 export function roleCanEditSalaryCatalog(role: UserRole): boolean {
-  return role === "admin";
+  return role === "cb_admin";
 }
 
-/** Массовая индексация — C&B и юнит-лид (brief UX-3 §8.4). */
+/** Массовая индексация — только C&B (PRODUCT-MODEL §3, §5). */
 export function roleCanApplyMassIndexation(role: UserRole): boolean {
-  return role === "admin" || role === "unit_lead";
+  return role === "cb_admin";
 }
 
 /** Выгрузка заявок Kaiten (демо UI) — все роли кроме viewer. */
@@ -144,10 +147,12 @@ export function roleCanEdit(role: UserRole, leadFrozen: boolean): boolean {
 /** Краткая строка org-среза для UI (сайдбар, заголовки). */
 export function formatDemoRoleScope(role: UserRole): string | null {
   switch (role) {
-    case "admin":
+    case "cb_admin":
       return "Вся оргструктура";
     case "viewer":
-      return "Просмотр всей оргструктуры";
+      return "Просмотр по всей компании";
+    case "gd":
+      return "Вся оргструктура (компания)";
     case "director": {
       const scope = demoRoleScope("director");
       return `Департамент: ${scope.department}`;
@@ -173,8 +178,10 @@ export function roleScopeDescription(role: UserRole, leadFrozen: boolean): strin
         ? " Правки тимлидов и юнит-лидов закрыты."
         : "";
   switch (role) {
-    case "admin":
+    case "cb_admin":
       return "Видны все позиции. Полный доступ: версии, факт, справочники." + freezeNote;
+    case "gd":
+      return "Видны все позиции. Права директора по компании: редактирование и freeze лидов." + freezeNote;
     case "viewer":
       return "Только просмотр и аудит по всей оргструктуре, без правок.";
     case "director": {
@@ -195,7 +202,7 @@ export function roleScopeDescription(role: UserRole, leadFrozen: boolean): strin
 }
 
 export function positionMatchesRole(position: PositionRecord, role: UserRole): boolean {
-  if (role === "admin" || role === "viewer") return true;
+  if (role === "cb_admin" || role === "gd" || role === "viewer") return true;
   if (role === "director") {
     return position.department === demoRoleScope("director").department;
   }
@@ -212,7 +219,7 @@ export function positionMatchesRole(position: PositionRecord, role: UserRole): b
 }
 
 export function filterPositionsByRole(positions: PositionRecord[], role: UserRole): PositionRecord[] {
-  if (role === "admin" || role === "viewer") return positions;
+  if (role === "cb_admin" || role === "gd" || role === "viewer") return positions;
   return positions.filter((position) => positionMatchesRole(position, role));
 }
 

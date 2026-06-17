@@ -14,8 +14,19 @@ import { useMvpApp } from "../context/MvpAppContext";
 import { ConsolidationPage } from "./ConsolidationPage";
 import type { UserRole } from "../data/userAccess";
 import { planWorkspacePath } from "../data/planWorkspaceMode";
+import {
+  listSubmissionEntriesForPlan,
+  applySubmissionAction,
+} from "../data/teamSubmissionStore";
+import {
+  canRolePerformSubmissionAction,
+  submissionActionLabel,
+  submissionPhaseLabel,
+  type SubmissionWorkflowAction,
+} from "../data/submissionWorkflowPolicy";
+import { demoRoleScope } from "../data/userAccess";
 
-const CONSOLIDATION_ROLES: UserRole[] = ["admin", "director", "unit_lead", "team_lead"];
+const CONSOLIDATION_ROLES: UserRole[] = ["cb_admin", "gd", "director", "unit_lead", "team_lead"];
 
 type VersionsTab = "versions" | "consolidation" | "approval" | "compare";
 
@@ -49,9 +60,17 @@ export function VersionsPage() {
     deletePlanVersion,
     versionDiff,
     userRole,
+    refreshTeamSubmissions,
+    teamSubmissionRevision,
   } = useMvpApp();
 
   const showConsolidation = CONSOLIDATION_ROLES.includes(userRole);
+  const canManageSubmissionWorkflow = userRole !== "viewer";
+  const submissionRows = useMemo(() => {
+    if (!workingDraft) return [];
+    void teamSubmissionRevision;
+    return listSubmissionEntriesForPlan(workingDraft.id);
+  }, [workingDraft, teamSubmissionRevision]);
 
   const correctionWindow = useMemo(
     () => resolveCorrectionWindow(activePlan, primaryBudget, { workspaceMode: "correction" }),
@@ -71,9 +90,9 @@ export function VersionsPage() {
   };
 
   const { rows, summary, baselinePositions, draftPositions } = versionDiff;
-  const v1Locked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
-  const canApproveV1 = primaryBudget && !v1Locked && canManagePlanVersions && canEditPlan;
-  const canCreateDraft = Boolean(latestApproved && v1Locked && !workingDraft && canManagePlanVersions && canEditPlan);
+  const firstVersionLocked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
+  const canApproveFirstVersion = primaryBudget && !firstVersionLocked && canManagePlanVersions && canEditPlan;
+  const canCreateDraft = Boolean(latestApproved && firstVersionLocked && !workingDraft && canManagePlanVersions && canEditPlan);
   const canSubmitApproval =
     canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
   const canPublish =
@@ -101,7 +120,7 @@ export function VersionsPage() {
   };
 
   const handleApproveV1 = () => {
-    const confirmed = window.confirm("Утвердить бюджет v1? После этого правки только через квартальный черновик.");
+    const confirmed = window.confirm("Утвердить Версию 1? После этого правки только через квартальный черновик.");
     if (!confirmed) return;
     const result = approvePrimaryBudget();
     if (!result.ok) window.alert(result.error);
@@ -115,7 +134,7 @@ export function VersionsPage() {
   };
 
   const handlePublish = () => {
-    const confirmed = window.confirm("Создать новую утверждённую версию (v+1) из черновика?");
+    const confirmed = window.confirm("Создать следующую утверждённую версию из черновика?");
     if (!confirmed) return;
     const result = publishWorkingDraft();
     if (!result.ok) {
@@ -144,21 +163,58 @@ export function VersionsPage() {
     window.alert(`Версия «${result.deletedLabel}» удалена.`);
   };
 
+  const updateSubmissionWorkflow = (
+    action: SubmissionWorkflowAction,
+    row: { department: string; unit: string; team: string },
+  ) => {
+    if (!workingDraft) return;
+    if (action === "return") {
+      const note = window.prompt("Комментарий к возврату (опционально):") ?? undefined;
+      const result = applySubmissionAction({
+        planVersionId: workingDraft.id,
+        department: row.department,
+        unit: row.unit,
+        team: row.team,
+        action,
+        actor: { role: userRole },
+        note,
+      });
+      if (!result.ok) {
+        window.alert(result.error);
+        return;
+      }
+    } else {
+      const result = applySubmissionAction({
+        planVersionId: workingDraft.id,
+        department: row.department,
+        unit: row.unit,
+        team: row.team,
+        action,
+        actor: { role: userRole },
+      });
+      if (!result.ok) {
+        window.alert(result.error);
+        return;
+      }
+    }
+    refreshTeamSubmissions();
+  };
+
   return (
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
         <div>
           <h1>Версии и согласование</h1>
           <p className="content-page__lead">
-            Жизненный цикл: v1 → утверждение → квартальный черновик → согласование → v+1. События по позициям — в{" "}
+            Жизненный цикл: Версия 1 → утверждение → квартальный черновик → согласование → следующая версия. События по позициям — в{" "}
             <Link to="/audit">аудите</Link>, правки — в <Link to="/planning">планировании</Link>.
           </p>
         </div>
         {tab === "versions" ? (
         <div className="versions-page__actions">
-          {canApproveV1 ? (
+          {canApproveFirstVersion ? (
             <button type="button" className="primary-btn" onClick={handleApproveV1}>
-              Утвердить бюджет v1
+              Утвердить Версию 1
             </button>
           ) : null}
           {canCreateDraft ? (
@@ -185,7 +241,7 @@ export function VersionsPage() {
           ) : null}
           {canPublish ? (
             <button type="button" className="primary-btn" onClick={handlePublish}>
-              Опубликовать v+1
+              Опубликовать следующую версию
             </button>
           ) : null}
         </div>
@@ -232,6 +288,73 @@ export function VersionsPage() {
       {tab === "approval" ? (
         <section className="card planning-workspace-panel">
           <PlanApprovalPanel />
+          {workingDraft ? (
+            <div className="versions-page__submission-workflow">
+              <h3>Сдача и согласование по командам</h3>
+              {submissionRows.length === 0 ? (
+                <p className="muted-text">Записей пока нет. Отправка начинается с вкладки «Ход планирования».</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="simple-table">
+                    <thead>
+                      <tr>
+                        <th>Департамент</th>
+                        <th>Юнит</th>
+                        <th>Команда</th>
+                        <th>Статус</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {submissionRows.map((row) => (
+                        <tr key={`${row.department}-${row.unit}-${row.team}`}>
+                          <td>{row.department}</td>
+                          <td>{row.unit}</td>
+                          <td>{row.team}</td>
+                          <td>{submissionPhaseLabel(row.record.phase)}</td>
+                          <td>
+                            {canManageSubmissionWorkflow ? (
+                              <div className="versions-page__row-actions">
+                                {(["unit_approve", "director_approve", "cb_review", "return", "reopen_editing"] as SubmissionWorkflowAction[])
+                                  .filter((action) =>
+                                    canRolePerformSubmissionAction(action, {
+                                      actorRole: userRole,
+                                      actorDepartment:
+                                        userRole === "director"
+                                          ? demoRoleScope("director").department
+                                          : userRole === "unit_lead"
+                                            ? demoRoleScope("unit_lead").department
+                                            : userRole === "team_lead"
+                                              ? demoRoleScope("team_lead").department
+                                              : undefined,
+                                      actorUnit:
+                                        userRole === "unit_lead"
+                                          ? demoRoleScope("unit_lead").unit ?? null
+                                          : userRole === "team_lead"
+                                            ? demoRoleScope("team_lead").unit ?? null
+                                            : null,
+                                      actorTeam: userRole === "team_lead" ? demoRoleScope("team_lead").team ?? null : null,
+                                      targetDepartment: row.department,
+                                      targetUnit: row.unit,
+                                      targetTeam: row.team,
+                                    }),
+                                  )
+                                  .map((action) => (
+                                    <button key={action} type="button" className="app-btn app-btn--ghost app-btn--sm" onClick={() => updateSubmissionWorkflow(action, row)}>
+                                      {submissionActionLabel(action)}
+                                    </button>
+                                  ))}
+                              </div>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -298,7 +421,7 @@ export function VersionsPage() {
                           type="button"
                           className="icon-btn danger"
                           aria-label={`Удалить ${version.label}`}
-                          title={deletePolicy.ok ? "Удалить версию" : deletePolicy.error}
+                          data-hint={deletePolicy.ok ? "Удалить версию" : deletePolicy.error}
                           disabled={!deletePolicy.ok}
                           onClick={() => handleDeleteVersion(version.id, version.label)}
                         >
@@ -351,11 +474,11 @@ export function VersionsPage() {
         </>
       ) : (
         <section className="versions-page__empty card">
-          {v1Locked ? (
+          {firstVersionLocked ? (
             <p>Создайте квартальный черновик от {latestApproved?.label}, чтобы сравнить и править план.</p>
           ) : (
             <p>
-              Сначала утвердите бюджет v1 или правьте его на{" "}
+              Сначала утвердите Версию 1 или правьте её на{" "}
               <Link to="/planning">планировании</Link>.
             </p>
           )}

@@ -1,11 +1,28 @@
-export type TeamSubmissionPhase = "editing" | "team_submitted" | "returned" | "unit_approved";
+import type { UserRole } from "./userAccess";
+import { demoRoleScope } from "./userAccess";
+import { canRolePerformSubmissionAction, type SubmissionWorkflowAction } from "./submissionWorkflowPolicy";
+
+export type TeamSubmissionPhase =
+  | "editing"
+  | "team_submitted"
+  | "returned"
+  | "unit_approved"
+  | "director_approved"
+  | "cb_review";
 
 export type TeamSubmissionRecord = {
   phase: TeamSubmissionPhase;
   teamSubmittedAt?: string;
   unitApprovedAt?: string;
+  directorApprovedAt?: string;
+  cbReviewAt?: string;
   returnedAt?: string;
   returnedNote?: string;
+};
+
+type ActionActor = {
+  role: UserRole;
+  leadEditFrozen?: boolean;
 };
 
 const STORAGE_KEY = "mvp.teamSubmissions";
@@ -34,6 +51,132 @@ function writeAll(data: StoredSubmissions): void {
   } catch {
     /* ignore quota */
   }
+}
+
+const ALLOWED_PHASE_TRANSITIONS: Record<TeamSubmissionPhase, TeamSubmissionPhase[]> = {
+  editing: ["team_submitted"],
+  team_submitted: ["unit_approved", "returned"],
+  unit_approved: ["director_approved", "returned"],
+  director_approved: ["cb_review", "returned"],
+  cb_review: ["returned"],
+  returned: ["editing", "team_submitted"],
+};
+
+function canTransition(from: TeamSubmissionPhase, to: TeamSubmissionPhase): boolean {
+  return ALLOWED_PHASE_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+function upsertSubmissionPhase(
+  all: StoredSubmissions,
+  key: string,
+  nextPhase: TeamSubmissionPhase,
+  patch: Partial<TeamSubmissionRecord>,
+): void {
+  const existing = all[key];
+  const currentPhase = existing?.phase ?? "editing";
+  if (!canTransition(currentPhase, nextPhase)) return;
+  all[key] = {
+    ...existing,
+    phase: nextPhase,
+    ...patch,
+  };
+}
+
+function phaseForAction(action: SubmissionWorkflowAction): TeamSubmissionPhase {
+  switch (action) {
+    case "team_submit":
+      return "team_submitted";
+    case "unit_approve":
+      return "unit_approved";
+    case "director_approve":
+      return "director_approved";
+    case "cb_review":
+      return "cb_review";
+    case "return":
+      return "returned";
+    case "reopen_editing":
+      return "editing";
+    default:
+      return "editing";
+  }
+}
+
+function actorScope(role: UserRole): { department?: string; unit?: string | null; team?: string | null } {
+  if (role === "director") {
+    const scope = demoRoleScope("director");
+    return { department: scope.department };
+  }
+  if (role === "unit_lead") {
+    const scope = demoRoleScope("unit_lead");
+    return { department: scope.department, unit: scope.unit ?? null };
+  }
+  if (role === "team_lead") {
+    const scope = demoRoleScope("team_lead");
+    return { department: scope.department, unit: scope.unit ?? null, team: scope.team ?? null };
+  }
+  return {};
+}
+
+export function applySubmissionAction(input: {
+  planVersionId: string;
+  department: string;
+  unit: string;
+  team: string;
+  action: SubmissionWorkflowAction;
+  actor: ActionActor;
+  note?: string;
+}): { ok: true } | { ok: false; error: string } {
+  const { planVersionId, department, unit, team, action, actor, note } = input;
+  const all = readAll();
+  const key = submissionKey(planVersionId, department, unit, team);
+  const nextPhase = phaseForAction(action);
+  const existing = all[key];
+  const current = existing?.phase ?? "editing";
+
+  if (!canTransition(current, nextPhase)) {
+    return { ok: false, error: "Недопустимый переход статуса для выбранного действия." };
+  }
+
+  const actorOrg = actorScope(actor.role);
+  const allowed = canRolePerformSubmissionAction(action, {
+    actorRole: actor.role,
+    actorDepartment: actorOrg.department,
+    actorUnit: actorOrg.unit,
+    actorTeam: actorOrg.team,
+    targetDepartment: department,
+    targetUnit: unit,
+    targetTeam: team,
+    leadEditFrozen: actor.leadEditFrozen,
+  });
+  if (!allowed) {
+    return { ok: false, error: "Недостаточно прав для этого действия." };
+  }
+
+  if (action === "return") {
+    all[key] = {
+      ...existing,
+      phase: "returned",
+      returnedAt: new Date().toISOString(),
+      returnedNote: note?.trim() || undefined,
+    };
+  } else if (action === "reopen_editing") {
+    all[key] = {
+      ...existing,
+      phase: "editing",
+      returnedAt: undefined,
+      returnedNote: undefined,
+    };
+  } else {
+    const patch: Partial<TeamSubmissionRecord> = {};
+    const now = new Date().toISOString();
+    if (action === "team_submit") patch.teamSubmittedAt = now;
+    if (action === "unit_approve") patch.unitApprovedAt = now;
+    if (action === "director_approve") patch.directorApprovedAt = now;
+    if (action === "cb_review") patch.cbReviewAt = now;
+    upsertSubmissionPhase(all, key, nextPhase, patch);
+  }
+  writeAll(all);
+  return { ok: true };
 }
 
 export function getTeamSubmission(
@@ -66,42 +209,63 @@ export function listSubmissionEntriesForPlan(
 }
 
 export function markTeamSubmitted(planVersionId: string, department: string, unit: string, team: string): void {
-  const all = readAll();
-  all[submissionKey(planVersionId, department, unit, team)] = {
-    phase: "team_submitted",
-    teamSubmittedAt: new Date().toISOString(),
-  };
-  writeAll(all);
+  applySubmissionAction({
+    planVersionId,
+    department,
+    unit,
+    team,
+    action: "team_submit",
+    actor: { role: "cb_admin" },
+  });
 }
 
 export function markUnitApproved(planVersionId: string, department: string, unit: string, team: string): void {
-  const all = readAll();
-  const key = submissionKey(planVersionId, department, unit, team);
-  const existing = all[key];
-  all[key] = {
-    ...existing,
-    phase: "unit_approved",
-    unitApprovedAt: new Date().toISOString(),
-  };
-  writeAll(all);
+  applySubmissionAction({
+    planVersionId,
+    department,
+    unit,
+    team,
+    action: "unit_approve",
+    actor: { role: "cb_admin" },
+  });
+}
+
+export function markDirectorApproved(planVersionId: string, department: string, unit: string, team: string): void {
+  applySubmissionAction({
+    planVersionId,
+    department,
+    unit,
+    team,
+    action: "director_approve",
+    actor: { role: "cb_admin" },
+  });
+}
+
+export function markCbReview(planVersionId: string, department: string, unit: string, team: string): void {
+  applySubmissionAction({
+    planVersionId,
+    department,
+    unit,
+    team,
+    action: "cb_review",
+    actor: { role: "cb_admin" },
+  });
 }
 
 export function markUnitApprovedForAllTeams(
   planVersionId: string,
   teams: { department: string; unit: string; team: string }[],
 ): void {
-  const all = readAll();
-  const now = new Date().toISOString();
   for (const item of teams) {
-    const key = submissionKey(planVersionId, item.department, item.unit, item.team);
-    const existing = all[key];
-    all[key] = {
-      ...existing,
-      phase: "unit_approved",
-      unitApprovedAt: now,
-    };
+    applySubmissionAction({
+      planVersionId,
+      department: item.department,
+      unit: item.unit,
+      team: item.team,
+      action: "unit_approve",
+      actor: { role: "cb_admin" },
+    });
   }
-  writeAll(all);
 }
 
 export function returnTeamToEditing(
@@ -111,13 +275,26 @@ export function returnTeamToEditing(
   team: string,
   note?: string,
 ): void {
-  const all = readAll();
-  all[submissionKey(planVersionId, department, unit, team)] = {
-    phase: "returned",
-    returnedAt: new Date().toISOString(),
-    returnedNote: note?.trim() || undefined,
-  };
-  writeAll(all);
+  applySubmissionAction({
+    planVersionId,
+    department,
+    unit,
+    team,
+    action: "return",
+    actor: { role: "cb_admin" },
+    note,
+  });
+}
+
+export function reopenTeamEditing(planVersionId: string, department: string, unit: string, team: string): void {
+  applySubmissionAction({
+    planVersionId,
+    department,
+    unit,
+    team,
+    action: "reopen_editing",
+    actor: { role: "cb_admin" },
+  });
 }
 
 export function clearSubmissionsForPlan(planVersionId: string): void {
@@ -131,5 +308,10 @@ export function clearSubmissionsForPlan(planVersionId: string): void {
 }
 
 export function isTeamEditingLocked(record: TeamSubmissionRecord | null): boolean {
-  return record?.phase === "team_submitted" || record?.phase === "unit_approved";
+  return (
+    record?.phase === "team_submitted" ||
+    record?.phase === "unit_approved" ||
+    record?.phase === "director_approved" ||
+    record?.phase === "cb_review"
+  );
 }

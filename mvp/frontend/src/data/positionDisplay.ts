@@ -55,7 +55,7 @@ export function positionEmployeePrimaryName(record: PositionRecord): string {
 /** Вторая строка: org по уровню доступа + (position_id). */
 export function formatPositionOrgLine(record: PositionRecord, role: UserRole): string {
   const parts: string[] = [];
-  if (role === "admin" || role === "viewer") {
+  if (role === "cb_admin" || role === "gd" || role === "viewer") {
     parts.push(record.department, record.unit);
   } else if (role === "director") {
     parts.push(record.unit);

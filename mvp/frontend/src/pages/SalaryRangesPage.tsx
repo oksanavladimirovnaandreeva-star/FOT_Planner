@@ -43,7 +43,7 @@ const EMPTY_FORM: Omit<SalaryRangeBand, "id" | "currency"> = {
 export function SalaryRangesPage() {
   const { activePlan, salaryBands, setSalaryBands, catalogAccess, setCatalogAccess, canEditSalaryCatalog, userRole } =
     useMvpApp();
-  const showCatalogAccessDemo = userRole === "admin";
+  const showCatalogAccessDemo = userRole === "cb_admin";
   const [specFilter, setSpecFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("");
   const [search, setSearch] = useState("");

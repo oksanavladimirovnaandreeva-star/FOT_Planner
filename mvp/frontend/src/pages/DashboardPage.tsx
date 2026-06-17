@@ -27,6 +27,7 @@ import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedO
 import { roleOrgFilterDefaults } from "../data/userAccess";
 import { hasFactData } from "../data/factStore";
 import { ExportCsvActions } from "../components/ExportCsvActions";
+import { PilotWelcomeBanner } from "../components/PilotWelcomeBanner";
 import { WorkflowHint } from "../components/WorkflowHint";
 import { formatMoneyPlain } from "../data/formatDisplay";
 import type { LimitFlagKey } from "../types";
@@ -118,6 +119,8 @@ export function DashboardPage() {
         </div>
       </header>
 
+      <PilotWelcomeBanner />
+
       <SliceToolbar
         footer={
           <>
@@ -186,7 +189,7 @@ export function DashboardPage() {
         </SliceToolbarSelect>
       </SliceToolbar>
 
-      {userRole === "admin" && !hasFactData() ? (
+      {userRole === "cb_admin" && !hasFactData() ? (
         <WorkflowHint hintId="dashboard-fact" linkTo="/settings" linkLabel="Настройки → Данные">
           Загрузите факт за месяц в настройках, чтобы увидеть план–факт и прогноз на год.
         </WorkflowHint>

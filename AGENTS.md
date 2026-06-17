@@ -59,6 +59,7 @@ npm run lint
 - **Корректировка:** события в черновике только с M<sub>open</sub> (месяц после текущего квартала); правки черновика — только на `/correction`.
 - **Зерно времени:** месяц (конец месяца). Центр модели — **Position**, не Employee.
 - **RBAC на фронте** (`userAccess.ts`) — прототип UX; реальная безопасность будет на API + RLS.
+- **Массовая индексация** — только **C&B** (`cb_admin`); UI на вкладке «Позиции» (`MassIndexationCompact`). Не расширять на юнит-лида/тимлида без изменения `PRODUCT-MODEL.md`.
 
 ---
 
@@ -92,6 +93,8 @@ mvp/frontend/src/
 | Консолидация | `pages/ConsolidationPage.tsx`, `data/teamConsolidation.ts`, `data/consolidationNav.ts` |
 | Матрица | `components/planning/PlanMonthMatrixPanel.tsx`, `data/planCorrectionWindow.ts` |
 | Drawer | `components/PositionDrawer.tsx` |
+| Подсказки UI | `components/HintTooltipLayer.tsx`, `components/MetricHelp.tsx` |
+| Массовая индексация (C&B) | `components/planning/MassIndexationCompact.tsx`, `roleCanApplyMassIndexation` в `userAccess.ts` |
 | RBAC (демо) | `data/userAccess.ts`, `components/DemoRoleSelect.tsx` |
 | Демо роль | `components/AppLayout.tsx` — select «Роль (демо)» в sidebar |
 

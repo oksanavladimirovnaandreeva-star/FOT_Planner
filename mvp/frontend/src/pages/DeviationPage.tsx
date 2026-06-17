@@ -175,7 +175,7 @@ export function DeviationPage({ embedded = false }: { embedded?: boolean }) {
                   <div
                     className={`deviation-chart__bar deviation-chart__bar--${tone}`}
                     style={{ height: `${height}%` }}
-                    title={`${row.label}: ${formatMoney(row.variance, true)}`}
+                    data-hint={`${row.label}: ${formatMoney(row.variance, true)}`}
                   />
                 </div>
                 <span className="deviation-chart__label">{row.label}</span>

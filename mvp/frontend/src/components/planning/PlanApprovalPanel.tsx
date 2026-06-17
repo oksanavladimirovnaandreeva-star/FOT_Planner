@@ -7,6 +7,28 @@ import {
 } from "../../data/planApprovalRules";
 import { isBudgetLocked, PLAN_VERSION_STATUS_LABELS } from "../../data/planVersions";
 import { useMvpApp } from "../../context/MvpAppContext";
+import { canRolePerformSubmissionAction, submissionActionLabel, type SubmissionWorkflowAction } from "../../data/submissionWorkflowPolicy";
+import type { UserRole } from "../../data/userAccess";
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  cb_admin: "C&B",
+  gd: "GD",
+  director: "Директор",
+  unit_lead: "Юнит-лид",
+  team_lead: "Тимлид",
+  viewer: "Viewer",
+};
+
+const MATRIX_ACTIONS: SubmissionWorkflowAction[] = [
+  "team_submit",
+  "unit_approve",
+  "director_approve",
+  "cb_review",
+  "return",
+  "reopen_editing",
+];
+
+const MATRIX_ROLES: UserRole[] = ["cb_admin", "gd", "director", "unit_lead", "team_lead", "viewer"];
 
 export function PlanApprovalPanel() {
   const {
@@ -28,9 +50,9 @@ export function PlanApprovalPanel() {
   } = useMvpApp();
 
   const { rows, summary, baselinePositions, draftPositions } = versionDiff;
-  const v1Locked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
-  const canApproveV1 = primaryBudget && !v1Locked && canManagePlanVersions && canEditPlan;
-  const canCreateDraft = Boolean(latestApproved && v1Locked && !workingDraft && canManagePlanVersions && canEditPlan);
+  const firstVersionLocked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
+  const canApproveFirstVersion = primaryBudget && !firstVersionLocked && canManagePlanVersions && canEditPlan;
+  const canCreateDraft = Boolean(latestApproved && firstVersionLocked && !workingDraft && canManagePlanVersions && canEditPlan);
   const canSubmitApproval =
     canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
   const canPublish =
@@ -64,17 +86,17 @@ export function PlanApprovalPanel() {
           </p>
         </div>
         <div className="plan-approval-panel__actions">
-          {canApproveV1 ? (
+          {canApproveFirstVersion ? (
             <button
               type="button"
               className="primary-btn"
               onClick={() => {
-                if (!window.confirm("Утвердить бюджет v1?")) return;
+                if (!window.confirm("Утвердить Версию 1?")) return;
                 const result = approvePrimaryBudget();
                 if (!result.ok) window.alert(result.error);
               }}
             >
-              Утвердить v1
+              Утвердить Версию 1
             </button>
           ) : null}
           {canCreateDraft ? (
@@ -92,13 +114,13 @@ export function PlanApprovalPanel() {
               type="button"
               className="primary-btn"
               onClick={() => {
-                if (!window.confirm("Опубликовать v+1 из черновика?")) return;
+                if (!window.confirm("Опубликовать следующую версию из черновика?")) return;
                 const result = publishWorkingDraft();
                 if (!result.ok) window.alert(result.error);
                 else window.alert(`Создана ${result.versionLabel}.`);
               }}
             >
-              Опубликовать v+1
+              Опубликовать следующую версию
             </button>
           ) : null}
           <Link className="secondary-btn" to="/versions">
@@ -157,6 +179,39 @@ export function PlanApprovalPanel() {
         </ul>
       </section>
 
+      <section className="card">
+        <h3 className="section-title">Матрица прав по этапам</h3>
+        <p className="muted-line">Ориентир MVP для workflow-сдачи команд (frontend-guards).</p>
+        <div className="table-scroll">
+          <table className="simple-table">
+            <thead>
+              <tr>
+                <th>Роль</th>
+                {MATRIX_ACTIONS.map((action) => (
+                  <th key={action}>{submissionActionLabel(action)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {MATRIX_ROLES.map((role) => (
+                <tr key={role}>
+                  <td>{ROLE_LABELS[role]}</td>
+                  {MATRIX_ACTIONS.map((action) => {
+                    const allowed = canRolePerformSubmissionAction(action, {
+                      actorRole: role,
+                      targetDepartment: "Engineering",
+                      targetUnit: "ProductDev",
+                      targetTeam: "Frontend Web",
+                    });
+                    return <td key={action}>{allowed ? "✓" : "—"}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {workingDraft && baselinePositions.length > 0 ? (
         <section className="plan-approval-panel__diff">
           <VersionCompareDashboard
@@ -175,9 +230,9 @@ export function PlanApprovalPanel() {
       ) : (
         <section className="card">
           <p className="muted-line">
-            {v1Locked
+            {firstVersionLocked
               ? "Создайте квартальный черновик, чтобы сравнить с базой и отправить на согласование."
-              : "Сначала утвердите бюджет v1 на этой вкладке или на странице «Версии»."}
+              : "Сначала утвердите Версию 1 на этой вкладке или на странице «Версии»."}
           </p>
         </section>
       )}

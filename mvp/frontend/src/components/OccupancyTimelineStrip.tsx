@@ -45,7 +45,7 @@ export function OccupancyTimelineStrip({
               key={label}
               className={`occupancy-timeline__cell occupancy-timeline__cell--${tone}${warn ? " occupancy-timeline__cell--warn" : ""}`}
               role="listitem"
-              title={`${label}: ${formatSlotOccupancyAtMonth(record, month)}`}
+              data-hint={`${label}: ${formatSlotOccupancyAtMonth(record, month)}`}
             >
               {compact ? (
                 caption

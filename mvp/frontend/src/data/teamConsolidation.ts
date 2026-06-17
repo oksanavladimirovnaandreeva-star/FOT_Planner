@@ -12,6 +12,8 @@ export type TeamDisplayStatus =
   | "ready"
   | "team_submitted"
   | "unit_approved"
+  | "director_approved"
+  | "cb_review"
   | "returned"
   | "overdue"
   | "cb_submitted";
@@ -30,6 +32,8 @@ export const TEAM_DISPLAY_STATUS_LABELS: Record<TeamDisplayStatus, string> = {
   ready: "Готово к сдаче",
   team_submitted: "Сдано",
   unit_approved: "Согласовано",
+  director_approved: "Согласовано директором",
+  cb_review: "На проверке C&B",
   returned: "На доработке",
   overdue: "Просрочено",
   cb_submitted: "У C&B",
@@ -39,19 +43,28 @@ const FILLED_DISPLAY_STATUSES = new Set<TeamDisplayStatus>([
   "ready",
   "team_submitted",
   "unit_approved",
+  "director_approved",
+  "cb_review",
   "cb_submitted",
 ]);
 
-const APPROVED_DISPLAY_STATUSES = new Set<TeamDisplayStatus>(["unit_approved", "cb_submitted"]);
+const APPROVED_DISPLAY_STATUSES = new Set<TeamDisplayStatus>([
+  "unit_approved",
+  "director_approved",
+  "cb_review",
+  "cb_submitted",
+]);
 
 const DISPLAY_STATUS_PRIORITY: Record<TeamDisplayStatus, number> = {
   cb_submitted: 8,
-  unit_approved: 7,
-  team_submitted: 6,
-  returned: 5,
-  overdue: 4,
-  in_progress: 3,
-  ready: 2,
+  cb_review: 7,
+  director_approved: 6,
+  unit_approved: 5,
+  team_submitted: 4,
+  returned: 3,
+  overdue: 2,
+  in_progress: 1,
+  ready: 1,
   not_started: 1,
 };
 
@@ -179,6 +192,8 @@ export function resolveTeamDisplayStatus(
   draftSubmitted: boolean,
 ): TeamDisplayStatus {
   if (draftSubmitted) return "cb_submitted";
+  if (submission?.phase === "cb_review") return "cb_review";
+  if (submission?.phase === "director_approved") return "director_approved";
   if (submission?.phase === "unit_approved") return "unit_approved";
   if (submission?.phase === "team_submitted") return "team_submitted";
   if (submission?.phase === "returned") return "returned";
@@ -328,10 +343,10 @@ export function buildOrgConsolidationReport(
   for (const group of unitMap.values()) {
     group.teamsTotal = group.teams.length;
     group.teamsSubmitted = group.teams.filter((team) =>
-      ["team_submitted", "unit_approved", "cb_submitted"].includes(team.displayStatus),
+      ["team_submitted", "unit_approved", "director_approved", "cb_review", "cb_submitted"].includes(team.displayStatus),
     ).length;
     group.teamsApproved = group.teams.filter((team) =>
-      ["unit_approved", "cb_submitted"].includes(team.displayStatus),
+      ["unit_approved", "director_approved", "cb_review", "cb_submitted"].includes(team.displayStatus),
     ).length;
     group.displayStatus = aggregateUnitDisplayStatus(group.teams);
   }

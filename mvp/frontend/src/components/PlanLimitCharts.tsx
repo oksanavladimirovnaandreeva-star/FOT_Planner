@@ -83,7 +83,7 @@ export function PlanFactMonthlyChart({
             const fact =
               row.byLimit.IN_LIMIT.fact + row.byLimit.OVER_LIMIT.fact + row.byLimit.UNLIMITED.fact;
             return (
-              <div key={row.month} className="pf-chart__month" title={monthLabel(row.month)}>
+              <div key={row.month} className="pf-chart__month" data-hint={monthLabel(row.month)}>
                 <div className="pf-chart__cluster">
                   <div
                     className="pf-chart__stack"

@@ -8,7 +8,8 @@ export function landingRouteForRole(role: UserRole): string {
     case "team_lead":
     case "unit_lead":
       return "/planning?tab=positions";
-    case "admin":
+    case "cb_admin":
+    case "gd":
     case "director":
     case "viewer":
     default:

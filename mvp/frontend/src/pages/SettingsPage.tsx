@@ -155,7 +155,7 @@ export function SettingsPage() {
                       <td>{exportAuditFormatLabel(entry.format)}</td>
                       <td>{entry.rowCount}</td>
                       <td>{entry.planVersionId}</td>
-                      <td title={`hash: ${entry.scopeHash}`}>{entry.scopeLabel}</td>
+                      <td data-hint={`hash: ${entry.scopeHash}`}>{entry.scopeLabel}</td>
                     </tr>
                   ))}
                 </tbody>

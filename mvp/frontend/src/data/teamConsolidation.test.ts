@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyEvents, initialPositions } from "./planningData";
 import { buildOrgConsolidationReport, getQuarterDeadlines, resolveTeamDisplayStatus } from "./teamConsolidation";
-import { markTeamSubmitted, markUnitApproved, clearSubmissionsForPlan } from "./teamSubmissionStore";
+import { markTeamSubmitted, markUnitApproved, clearSubmissionsForPlan, markDirectorApproved, markCbReview } from "./teamSubmissionStore";
 import type { PlanVersionMeta } from "./planVersions";
 import type { PositionRecord } from "../types";
 
@@ -112,6 +112,8 @@ describe("teamConsolidation", () => {
     expect(resolveTeamDisplayStatus("ready", null, true)).toBe("cb_submitted");
     expect(resolveTeamDisplayStatus("ready", { phase: "team_submitted" }, false)).toBe("team_submitted");
     expect(resolveTeamDisplayStatus("ready", { phase: "unit_approved" }, false)).toBe("unit_approved");
+    expect(resolveTeamDisplayStatus("ready", { phase: "director_approved" }, false)).toBe("director_approved");
+    expect(resolveTeamDisplayStatus("ready", { phase: "cb_review" }, false)).toBe("cb_review");
     expect(resolveTeamDisplayStatus("ready", { phase: "returned" }, false)).toBe("returned");
     expect(resolveTeamDisplayStatus("in_progress", null, false)).toBe("in_progress");
   });
@@ -145,5 +147,18 @@ describe("teamConsolidation", () => {
       submissionPlanVersionId: draftMeta.id,
     });
     expect(approved.totals.approvedTeams).toBeGreaterThan(0);
+
+    markDirectorApproved(draftMeta.id, source.department, source.unit, source.team);
+    markCbReview(draftMeta.id, source.department, source.unit, source.team);
+    const cbReviewed = buildOrgConsolidationReport(positions, {
+      department: "Engineering",
+      planYear: 2026,
+      workingDraft: draftMeta,
+      baselinePositions: positions,
+      draftPositions: positions,
+      now: new Date(2026, 4, 1),
+      submissionPlanVersionId: draftMeta.id,
+    });
+    expect(cbReviewed.totals.approvedTeams).toBeGreaterThan(0);
   });
 });

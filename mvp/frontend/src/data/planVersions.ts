@@ -66,7 +66,8 @@ function draftId(planYear: number, baselineVersionId: string): string {
 }
 
 export function defaultVersionLabel(planYear: number, versionNumber: number): string {
-  return `Бюджет ${planYear} · v${versionNumber}`;
+  const quarter = Math.max(1, Math.min(4, versionNumber));
+  return `Бюджет ${planYear} · Версия ${versionNumber} · ${quarter} квартал ${planYear}`;
 }
 
 export function initialPlanVersions(planYear = 2026): PlanVersionMeta[] {

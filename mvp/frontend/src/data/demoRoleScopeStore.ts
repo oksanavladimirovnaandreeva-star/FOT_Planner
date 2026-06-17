@@ -1,6 +1,6 @@
 import type { UserRole } from "./userAccess";
 
-export type ScopedRole = Exclude<UserRole, "admin" | "viewer">;
+export type ScopedRole = Exclude<UserRole, "cb_admin" | "gd" | "viewer">;
 
 export type RoleScopeRecord = {
   department: string;

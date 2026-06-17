@@ -15,11 +15,9 @@ import {
   type UnitConsolidationGroup,
 } from "../data/teamConsolidation";
 import {
-  markTeamSubmitted,
-  markUnitApproved,
-  markUnitApprovedForAllTeams,
-  returnTeamToEditing,
+  applySubmissionAction,
 } from "../data/teamSubmissionStore";
+import { canRolePerformSubmissionAction } from "../data/submissionWorkflowPolicy";
 import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import { PLAN_VERSION_STATUS_LABELS } from "../data/planVersions";
 import type { UserRole } from "../data/userAccess";
@@ -65,10 +63,17 @@ function canTeamLeadSubmitTeam(
   hasDraft: boolean,
   leadFrozen: boolean,
 ): boolean {
-  if (userRole !== "team_lead" || !hasDraft || leadFrozen) return false;
-  if (scope.team !== team.team || scope.unit !== team.unit) return false;
-  if (["cb_submitted", "unit_approved", "team_submitted"].includes(team.displayStatus)) return false;
-  return true;
+  if (!hasDraft) return false;
+  return canRolePerformSubmissionAction("team_submit", {
+    actorRole: userRole,
+    actorDepartment: scope.department,
+    actorUnit: scope.unit,
+    actorTeam: scope.team,
+    targetDepartment: team.department,
+    targetUnit: team.unit,
+    targetTeam: team.team,
+    leadEditFrozen: leadFrozen,
+  });
 }
 
 function canUnitLeadReturnTeam(
@@ -76,7 +81,15 @@ function canUnitLeadReturnTeam(
   team: TeamConsolidationRow,
   scope: ReturnType<typeof resolveConsolidationScope>,
 ): boolean {
-  return userRole === "unit_lead" && scope.unit === team.unit && team.displayStatus === "team_submitted";
+  return canRolePerformSubmissionAction("return", {
+    actorRole: userRole,
+    actorDepartment: scope.department,
+    actorUnit: scope.unit,
+    actorTeam: scope.team,
+    targetDepartment: team.department,
+    targetUnit: team.unit,
+    targetTeam: team.team,
+  });
 }
 
 function canUnitLeadApproveTeam(
@@ -84,7 +97,15 @@ function canUnitLeadApproveTeam(
   team: TeamConsolidationRow,
   scope: ReturnType<typeof resolveConsolidationScope>,
 ): boolean {
-  return userRole === "unit_lead" && scope.unit === team.unit && team.displayStatus === "team_submitted";
+  return canRolePerformSubmissionAction("unit_approve", {
+    actorRole: userRole,
+    actorDepartment: scope.department,
+    actorUnit: scope.unit,
+    actorTeam: scope.team,
+    targetDepartment: team.department,
+    targetUnit: team.unit,
+    targetTeam: team.team,
+  });
 }
 
 function canUnitLeadApproveUnit(
@@ -92,9 +113,21 @@ function canUnitLeadApproveUnit(
   group: UnitConsolidationGroup,
   scope: ReturnType<typeof resolveConsolidationScope>,
 ): boolean {
-  if (userRole !== "unit_lead" || scope.unit !== group.unit || group.teams.length === 0) return false;
+  if (!canRolePerformSubmissionAction("unit_approve", {
+    actorRole: userRole,
+    actorDepartment: scope.department,
+    actorUnit: scope.unit,
+    actorTeam: scope.team,
+    targetDepartment: scope.department,
+    targetUnit: group.unit,
+    targetTeam: group.teams[0]?.team ?? "",
+  })) return false;
+  if (group.teams.length === 0) return false;
   return group.teams.every(
-    (team) => team.displayStatus === "team_submitted" || (team.displayStatus === "ready" && team.carryoverGaps === 0),
+    (team) =>
+      team.displayStatus === "team_submitted" ||
+      team.displayStatus === "returned" ||
+      (team.displayStatus === "ready" && team.carryoverGaps === 0),
   );
 }
 
@@ -146,29 +179,69 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
 
   const handleTeamSubmit = (team: TeamConsolidationRow) => {
     if (!draftId) return;
-    markTeamSubmitted(draftId, team.department, team.unit, team.team);
+    const result = applySubmissionAction({
+      planVersionId: draftId,
+      department: team.department,
+      unit: team.unit,
+      team: team.team,
+      action: "team_submit",
+      actor: { role: userRole, leadEditFrozen },
+    });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
     refreshTeamSubmissions();
   };
 
   const handleReturnTeam = (team: TeamConsolidationRow) => {
     if (!draftId) return;
     const note = window.prompt("Комментарий к возврату (опционально):") ?? undefined;
-    returnTeamToEditing(draftId, team.department, team.unit, team.team, note);
+    const result = applySubmissionAction({
+      planVersionId: draftId,
+      department: team.department,
+      unit: team.unit,
+      team: team.team,
+      action: "return",
+      actor: { role: userRole, leadEditFrozen },
+      note,
+    });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
     refreshTeamSubmissions();
   };
 
   const handleApproveTeam = (team: TeamConsolidationRow) => {
     if (!draftId) return;
-    markUnitApproved(draftId, team.department, team.unit, team.team);
+    const result = applySubmissionAction({
+      planVersionId: draftId,
+      department: team.department,
+      unit: team.unit,
+      team: team.team,
+      action: "unit_approve",
+      actor: { role: userRole, leadEditFrozen },
+    });
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
     refreshTeamSubmissions();
   };
 
   const handleApproveUnit = (group: UnitConsolidationGroup) => {
     if (!draftId) return;
-    markUnitApprovedForAllTeams(
-      draftId,
-      group.teams.map((team) => ({ department: team.department, unit: team.unit, team: team.team })),
-    );
+    for (const item of group.teams) {
+      applySubmissionAction({
+        planVersionId: draftId,
+        department: item.department,
+        unit: item.unit,
+        team: item.team,
+        action: "unit_approve",
+        actor: { role: userRole, leadEditFrozen },
+      });
+    }
     refreshTeamSubmissions();
   };
 

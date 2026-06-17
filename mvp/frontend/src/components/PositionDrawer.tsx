@@ -10,7 +10,6 @@ import {
   formatGrowthPct,
   getMonthlyCR,
   growthTone,
-  isVacantForTransferAtMonth,
   intraTransferVacancyHint,
   levelOptionsForSpecialization,
   LIMIT_FLAG_LABELS,
@@ -39,6 +38,13 @@ import {
   formatPositionHireLabel,
 } from "../data/positionDisplay";
 import {
+  formatMaternityReplacementLabel,
+  formatTransferVacancyLabel,
+  listMaternityReplacementCandidates,
+  pickTransferVacancyTargets,
+  transferVacancyEmptyHint,
+} from "../data/transferScenario";
+import {
   isPlanEventMonthAllowed,
   planEventMonthBlockedMessage,
   type CorrectionWindowInfo,
@@ -46,6 +52,7 @@ import {
 import { defaultKaitenTypeForPosition, dismissKaitenNudge, isKaitenNudgeDismissed, kaitenNudgeForEventType, positionKaitenEligible, type KaitenRequestType } from "../data/kaitenExport";
 import { canShowKaitenExport } from "../data/userAccess";
 import { KaitenExportModal } from "./KaitenExportModal";
+import { MetricHelp } from "./MetricHelp";
 
 interface PositionDrawerProps {
   open: boolean;
@@ -103,10 +110,6 @@ function crTone(value: number): "warn" | "ok" | "danger" {
   if (value <= 1.2) return "ok";
   return "danger";
 }
-
-const SCENARIO_OPTION_HINT = Object.fromEntries(
-  SCENARIO_CARDS.map((card) => [card.id, card.short]),
-) as Record<ScenarioType, string>;
 
 function scenarioTitleForPosition(record: PositionRecord, scenario: ScenarioType): string {
   if (applyEvents(record).status === "Vacancy" && scenario === "REVIEW") {
@@ -209,28 +212,93 @@ export function PositionDrawer({
 
   if (!open || !selected) return null;
   const transferMonth = scenarioForm.month;
-  const orgMatch = (a: string, b: string) => a.trim() === b.trim();
-  const intraTransferOptions = planPositions.filter(
-    (position) =>
-      position.positionId !== selected.positionId &&
-      orgMatch(position.department, selected.department) &&
-      orgMatch(position.unit, selected.unit) &&
-      isVacantForTransferAtMonth(position, transferMonth),
-  );
-  const interTransferOptions = planPositions.filter(
-    (position) =>
-      position.positionId !== selected.positionId &&
-      orgMatch(position.department, scenarioForm.targetDepartment) &&
-      (scenarioForm.targetUnit ? orgMatch(position.unit, scenarioForm.targetUnit) : true) &&
-      isVacantForTransferAtMonth(position, transferMonth),
-  );
-  const transferOptions = scenarioForm.scenario === "TRANSFER_INTRA" ? intraTransferOptions : interTransferOptions;
+  const intraTransferPick = pickTransferVacancyTargets(planPositions, selected.positionId, transferMonth, {
+    department: selected.department,
+    unit: selected.unit,
+  });
+  const interTransferPick = pickTransferVacancyTargets(planPositions, selected.positionId, transferMonth, {
+    department: scenarioForm.targetDepartment,
+    unit: scenarioForm.targetUnit || undefined,
+    team: scenarioForm.targetTeam || undefined,
+  });
+  const transferPick = scenarioForm.scenario === "TRANSFER_INTRA" ? intraTransferPick : interTransferPick;
+  const transferOptions = transferPick.options;
   const intraTransferHint =
     scenarioForm.scenario === "TRANSFER_INTRA" && transferOptions.length === 0
       ? intraTransferVacancyHint(planPositions, selected, transferMonth)
       : null;
-  const replacementEmployeeOptions = employeeOptions.filter((employee) => employee.employeeId !== selected.employeeId);
+  const maternityReplacementOptions = listMaternityReplacementCandidates(planPositions, employeeOptions, {
+    employeeId: selected.employeeId ?? undefined,
+    department: selected.department,
+  });
+  const scenarioHint = scenarioHintForPosition(selected, scenarioForm.scenario);
 
+  const renderTransferVacancyPicker = (emptyLabel: string) => (
+    <div className="drawer-transfer-vacancy">
+      <div className="drawer-transfer-vacancy__head">
+        <span className="drawer-field__label">Свободная позиция</span>
+        {transferOptions.length > 0 ? (
+          <span className="drawer-transfer-vacancy__count">
+            {transferOptions.length} свободн{transferOptions.length === 1 ? "ая" : "ых"} в срезе
+          </span>
+        ) : null}
+      </div>
+      {transferPick.relaxedFromTeam ? (
+        <p className="drawer-field__hint">
+          В выбранной команде пусто — показаны все свободные позиции юнита.
+        </p>
+      ) : null}
+      {transferOptions.length === 0 ? (
+        <p className="drawer-field__hint">
+          {intraTransferHint ??
+            transferVacancyEmptyHint(
+              scenarioForm.scenario === "TRANSFER_INTER"
+                ? {
+                    department: scenarioForm.targetDepartment,
+                    unit: scenarioForm.targetUnit,
+                    team: scenarioForm.targetTeam,
+                  }
+                : { department: selected.department, unit: selected.unit },
+              true,
+            )}
+        </p>
+      ) : (
+        <div className="drawer-transfer-pick" role="listbox" aria-label="Свободные позиции">
+          <button
+            type="button"
+            role="option"
+            aria-selected={!scenarioForm.transferToPositionId}
+            className={`drawer-transfer-pick__item drawer-transfer-pick__item--create${
+              !scenarioForm.transferToPositionId ? " drawer-transfer-pick__item--active" : ""
+            }`}
+            onClick={() => setScenarioForm((prev) => ({ ...prev, transferToPositionId: "" }))}
+          >
+            <strong>{emptyLabel}</strong>
+            <span className="muted-line">Без привязки к существующей вакансии</span>
+          </button>
+          {transferOptions.map((option) => {
+            const selectedId = scenarioForm.transferToPositionId === option.positionId;
+            return (
+              <button
+                key={option.positionId}
+                type="button"
+                role="option"
+                aria-selected={selectedId}
+                className={`drawer-transfer-pick__item${selectedId ? " drawer-transfer-pick__item--active" : ""}`}
+                onClick={() =>
+                  setScenarioForm((prev) => ({ ...prev, transferToPositionId: option.positionId }))
+                }
+              >
+                <strong>{option.positionId}</strong>
+                <span>{option.team || option.unit}</span>
+                <span className="muted-line">{formatTransferVacancyLabel(option)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
   const persistVacancyToPlan = () => {
     onSaveDraft(selected, selected.positionId, true);
   };
@@ -385,7 +453,7 @@ export function PositionDrawer({
             window.alert("Выберите сотрудника замещения из списка.");
             return;
           }
-          const replacement = replacementEmployeeOptions.find(
+          const replacement = maternityReplacementOptions.find(
             (employee) => employee.employeeId === scenarioForm.replacementEmployeeId,
           );
           if (!replacement) {
@@ -498,7 +566,7 @@ export function PositionDrawer({
                 type="button"
                 className="secondary-btn drawer-header-actions__kaiten"
                 onClick={openKaitenExport}
-                title="Заявка в Kaiten: найм для вакансий, ОТиЗ для сокращения и увольнения"
+                data-hint="Заявка в Kaiten: найм для вакансий, ОТиЗ для сокращения и увольнения"
               >
                 <ExternalLink size={14} aria-hidden />
                 Kaiten
@@ -509,7 +577,7 @@ export function PositionDrawer({
                 type="button"
                 className="icon-btn danger"
                 aria-label="Удалить позицию"
-                title="Удалить позицию"
+                data-hint="Удалить позицию"
                 onClick={() => onDeletePosition(selected.positionId)}
               >
                 <Trash2 size={18} />
@@ -770,11 +838,13 @@ export function PositionDrawer({
           <div className="drawer-scenario-form">
             {isReview ? (
               <div className="drawer-scenario-form__row drawer-scenario-form__row--six">
-                <label className="drawer-field" title={scenarioHintForPosition(selected, scenarioForm.scenario)}>
-                  <span className="drawer-field__label">Тип изменения</span>
+                <label className="drawer-field">
+                  <span className="drawer-field__label drawer-field__label--with-help">
+                    Тип изменения
+                    <MetricHelp title="Тип изменения">{scenarioHint}</MetricHelp>
+                  </span>
                   <select
                     value={scenarioForm.scenario}
-                    title={scenarioHintForPosition(selected, scenarioForm.scenario)}
                     onChange={(event) =>
                       setScenarioForm((prev) => ({
                         ...prev,
@@ -791,7 +861,7 @@ export function PositionDrawer({
                     {SCENARIO_GROUPS.map((group) => (
                       <optgroup key={group.label} label={group.label}>
                         {group.scenarios.map((scenarioKey) => (
-                          <option key={scenarioKey} value={scenarioKey} title={SCENARIO_OPTION_HINT[scenarioKey]}>
+                          <option key={scenarioKey} value={scenarioKey}>
                             {scenarioTitleForPosition(selected, scenarioKey)}
                           </option>
                         ))}
@@ -886,11 +956,13 @@ export function PositionDrawer({
             ) : (
               <>
             <div className="drawer-scenario-form__row drawer-scenario-form__row--primary">
-            <label className="drawer-field drawer-field--type" title={scenarioHintForPosition(selected, scenarioForm.scenario)}>
-              <span className="drawer-field__label">Тип изменения</span>
+            <label className="drawer-field drawer-field--type">
+              <span className="drawer-field__label drawer-field__label--with-help">
+                Тип изменения
+                <MetricHelp title="Тип изменения">{scenarioHint}</MetricHelp>
+              </span>
               <select
                 value={scenarioForm.scenario}
-                title={scenarioHintForPosition(selected, scenarioForm.scenario)}
                 onChange={(event) =>
                   setScenarioForm((prev) => ({
                     ...prev,
@@ -907,7 +979,7 @@ export function PositionDrawer({
                 {SCENARIO_GROUPS.map((group) => (
                   <optgroup key={group.label} label={group.label}>
                     {group.scenarios.map((scenarioKey) => (
-                      <option key={scenarioKey} value={scenarioKey} title={SCENARIO_OPTION_HINT[scenarioKey]}>
+                      <option key={scenarioKey} value={scenarioKey}>
                         {SCENARIO_LABEL[scenarioKey]}
                       </option>
                     ))}
@@ -1003,142 +1075,140 @@ export function PositionDrawer({
                 </label>
               </div>
             ) : null}
-            {isTransfer ? (
-              <label className="drawer-field drawer-field--full">
-                <span className="drawer-field__label">Целевая вакансия</span>
-                <select
-                  value={scenarioForm.transferToPositionId}
-                  onChange={(event) => setScenarioForm((prev) => ({ ...prev, transferToPositionId: event.target.value }))}
-                >
-                  <option value="">
-                    {isInterTransfer
-                      ? transferOptions.length
-                        ? "Нет подходящей? можно без вакансии"
-                        : "Создать позицию в целевом департаменте"
-                      : transferOptions.length
-                        ? "Или без выбора — создать вакансию в юните"
-                        : "Создать вакансию в том же юните"}
-                  </option>
-                  {transferOptions.map((option) => (
-                    <option key={option.positionId} value={option.positionId}>
-                      {option.positionId} В· {option.team || option.unit} В· {option.role}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {isTransfer && !isInterTransfer ? (
+              <div className="drawer-scenario-form__block">
+                <p className="drawer-scenario-form__block-title">Целевая вакансия в юните</p>
+                {renderTransferVacancyPicker("Создать вакансию в том же юните")}
+              </div>
             ) : null}
-            {intraTransferHint ? (
-              <p className="drawer-events-block__hint drawer-events-block__hint--warn">{intraTransferHint}</p>
-            ) : null}
-            {isInterTransfer && (
-              <>
-                <label>
-                  Целевой департамент
-                  <select
-                    value={scenarioForm.targetDepartment}
-                    onChange={(event) => {
-                      const targetDepartment = event.target.value;
-                      const units = unitOptionsForDepartment(targetDepartment);
-                      const targetUnit = units[0] || "";
-                      const teams = teamOptionsForUnit(targetDepartment, targetUnit);
-                      const targetTeam = teams[0] || "";
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        targetDepartment,
-                        targetUnit,
-                        targetTeam,
-                        transferToPositionId: "",
-                      }));
-                    }}
-                  >
-                    {departmentOptions
-                      .filter((department) => department !== selected.department)
-                      .map((department) => (
-                        <option key={department} value={department}>
-                          {department}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label>
-                  Целевой юнит
-                  <select
-                    value={scenarioForm.targetUnit}
-                    onChange={(event) => {
-                      const targetUnit = event.target.value;
-                      const teams = teamOptionsForUnit(scenarioForm.targetDepartment, targetUnit);
-                      const targetTeam = teams[0] || "";
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        targetUnit,
-                        targetTeam,
-                        transferToPositionId: "",
-                      }));
-                    }}
-                  >
-                    {unitOptionsForDepartment(scenarioForm.targetDepartment).map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Целевая команда
-                  <select
-                    value={scenarioForm.targetTeam}
-                    onChange={(event) => setScenarioForm((prev) => ({ ...prev, targetTeam: event.target.value }))}
-                  >
-                    {teamOptionsForUnit(scenarioForm.targetDepartment, scenarioForm.targetUnit).map((team) => (
-                      <option key={team} value={team}>
-                        {team}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            )}
-            {isMaternity && (
-              <>
-                <label>
-                  Замещение
-                  <select
-                    value={scenarioForm.replacementMode}
-                    onChange={(event) =>
-                      setScenarioForm((prev) => ({
-                        ...prev,
-                        replacementMode: event.target.value as ScenarioFormState["replacementMode"],
-                        replacementEmployeeId: "",
-                      }))
-                    }
-                  >
-                    <option value="FROM_LIST">Существующий сотрудник</option>
-                    <option value="VACANCY">Вакансия (без ФИО замещения)</option>                  </select>
-                </label>
-                {scenarioForm.replacementMode === "FROM_LIST" ? (
-                  <label>
-                    Сотрудник замещения
+            {isInterTransfer ? (
+              <div className="drawer-scenario-form__block">
+                <p className="drawer-scenario-form__block-title">Целевой департамент и вакансия</p>
+                <div className="drawer-scenario-form__row drawer-scenario-form__row--targets">
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Департамент</span>
                     <select
-                      value={scenarioForm.replacementEmployeeId}
-                      onChange={(event) => setScenarioForm((prev) => ({ ...prev, replacementEmployeeId: event.target.value }))}
+                      value={scenarioForm.targetDepartment}
+                      onChange={(event) => {
+                        const targetDepartment = event.target.value;
+                        const units = unitOptionsForDepartment(targetDepartment);
+                        const targetUnit = units[0] || "";
+                        const teams = teamOptionsForUnit(targetDepartment, targetUnit);
+                        const targetTeam = teams[0] || "";
+                        setScenarioForm((prev) => ({
+                          ...prev,
+                          targetDepartment,
+                          targetUnit,
+                          targetTeam,
+                          transferToPositionId: "",
+                        }));
+                      }}
                     >
-                      <option value="">
-                        {replacementEmployeeOptions.length ? "Выберите сотрудника" : "Нет доступных сотрудников"}
-                      </option>
-                      {replacementEmployeeOptions.map((employee) => (
-                        <option key={employee.employeeId} value={employee.employeeId}>
-                          {employee.employeeName} ({employee.employeeId}) · {employee.positionId}
+                      {departmentOptions
+                        .filter((department) => department !== selected.department)
+                        .map((department) => (
+                          <option key={department} value={department}>
+                            {department}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Юнит</span>
+                    <select
+                      value={scenarioForm.targetUnit}
+                      onChange={(event) => {
+                        const targetUnit = event.target.value;
+                        const teams = teamOptionsForUnit(scenarioForm.targetDepartment, targetUnit);
+                        const targetTeam = teams[0] || "";
+                        setScenarioForm((prev) => ({
+                          ...prev,
+                          targetUnit,
+                          targetTeam,
+                          transferToPositionId: "",
+                        }));
+                      }}
+                    >
+                      {unitOptionsForDepartment(scenarioForm.targetDepartment).map((unit) => (
+                        <option key={unit} value={unit}>
+                          {unit}
                         </option>
                       ))}
                     </select>
                   </label>
-                ) : (
-                  <p className="drawer-events-block__hint">
-                    Замещение планируется как вакансия на позиции (бюджет можно задать окладом выше).
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Команда</span>
+                    <select
+                      value={scenarioForm.targetTeam}
+                      onChange={(event) =>
+                        setScenarioForm((prev) => ({
+                          ...prev,
+                          targetTeam: event.target.value,
+                          transferToPositionId: "",
+                        }))
+                      }
+                    >
+                      {teamOptionsForUnit(scenarioForm.targetDepartment, scenarioForm.targetUnit).map((team) => (
+                        <option key={team} value={team}>
+                          {team}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {renderTransferVacancyPicker("Создать позицию в целевом департаменте")}
+              </div>
+            ) : null}
+            {isMaternity ? (
+              <div className="drawer-scenario-form__block">
+                <p className="drawer-scenario-form__block-title">Замещение в декрете</p>
+                <div className="drawer-scenario-form__row drawer-scenario-form__row--maternity">
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Режим замещения</span>
+                    <select
+                      value={scenarioForm.replacementMode}
+                      onChange={(event) =>
+                        setScenarioForm((prev) => ({
+                          ...prev,
+                          replacementMode: event.target.value as ScenarioFormState["replacementMode"],
+                          replacementEmployeeId: "",
+                        }))
+                      }
+                    >
+                      <option value="FROM_LIST">Сотрудник из списка</option>
+                      <option value="VACANCY">Вакансия (без ФИО)</option>
+                    </select>
+                  </label>
+                  {scenarioForm.replacementMode === "FROM_LIST" ? (
+                    <label className="drawer-field">
+                      <span className="drawer-field__label">Сотрудник замещения</span>
+                      <select
+                        value={scenarioForm.replacementEmployeeId}
+                        onChange={(event) =>
+                          setScenarioForm((prev) => ({ ...prev, replacementEmployeeId: event.target.value }))
+                        }
+                      >
+                        <option value="">
+                          {maternityReplacementOptions.length
+                            ? "Выберите сотрудника"
+                            : "Нет сотрудников в департаменте"}
+                        </option>
+                        {maternityReplacementOptions.map((employee) => (
+                          <option key={employee.employeeId} value={employee.employeeId}>
+                            {formatMaternityReplacementLabel(employee)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
+                {scenarioForm.replacementMode === "VACANCY" ? (
+                  <p className="drawer-field__hint drawer-events-block__hint">
+                    Замещение планируется как вакансия на позиции (бюджет задаётся окладом выше).
                   </p>
-                )}
-              </>
-            )}
+                ) : null}
+              </div>
+            ) : null}
               </>
             )}
             <div className="drawer-scenario-form__submit-row">

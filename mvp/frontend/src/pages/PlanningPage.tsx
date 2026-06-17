@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { PlanContextBar } from "../components/planning/PlanContextBar";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
+import { MassIndexationCompact } from "../components/planning/MassIndexationCompact";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
 import {
   isPlanEventMonthAllowed,
@@ -210,7 +211,7 @@ export function PlanningPage() {
       );
       return;
     }
-    window.alert("Годовые правки — в неутверждённом бюджете v1. Квартальные — переключитесь на «Корректировка».");
+    window.alert("Годовые правки — в неутверждённой Версии 1. Квартальные — переключитесь на «Корректировка».");
   };
   const [query, setQuery] = useState("");
   const [orgSlice, setOrgSlice] = useState<OrgSliceSelection>(() => {
@@ -439,7 +440,7 @@ export function PlanningPage() {
       return;
     }
     if (!canMassIndexation) {
-      window.alert("Массовая индексация доступна только C&B и юнит-лиду.");
+      window.alert("Массовая индексация доступна только C&B.");
       return;
     }
     if (!isPlanEventMonthAllowed(idxMonth, correctionWindow)) {
@@ -716,6 +717,20 @@ export function PlanningPage() {
           <p className="muted-line">{roleScopeHint}</p>
         </div>
         <div className="page-header__actions planning-toolbar">
+          {canMassIndexation && workspaceTab === "positions" ? (
+            <MassIndexationCompact
+              activeCount={filtered.filter((item) => item.status !== "Closed").length}
+              idxPercent={idxPercent}
+              idxMonth={idxMonth}
+              correctionWindow={correctionWindow}
+              canEditWorkspace={canEditWorkspace}
+              indexationBatches={indexationBatches}
+              onPercentChange={setIdxPercent}
+              onMonthChange={setIdxMonth}
+              onApply={applyIndexationToFiltered}
+              onDeleteBatch={deleteIndexationBatch}
+            />
+          ) : null}
           <ExportCsvActions
             positions={filtered}
             viewMode={viewMode}
@@ -735,7 +750,7 @@ export function PlanningPage() {
                 className="primary-btn"
                 onClick={openAddSlotDialog}
                 disabled={!canAddPosition}
-                title={
+                data-hint={
                   !canAddPosition
                     ? !roleCanEdit(userRole, leadEditFrozen)
                       ? "Нет прав на правку плана для этой роли"
@@ -751,6 +766,17 @@ export function PlanningPage() {
           </div>
         </div>
       </header>
+
+      {isTeamSliceReadOnly ? (
+        <section className="workflow-hint" role="status">
+          <p className="workflow-hint__text">
+            Команда уже сдана на согласование. Правки в плане заблокированы до возврата на доработку.
+          </p>
+          <Link className="workflow-hint__link" to="/versions?tab=approval">
+            Открыть согласование
+          </Link>
+        </section>
+      ) : null}
 
       <nav className="planning-workspace-tabs planning-mode-tabs" aria-label="Режим планирования">
         <button
@@ -777,7 +803,7 @@ export function PlanningPage() {
           type="button"
           className={`planning-workspace-tabs__btn${workspaceTab === "positions" ? " planning-workspace-tabs__btn--active" : ""}`}
           onClick={() => setWorkspaceTab("positions")}
-          title="Таблица позиций; клик по строке откроет карточку"
+          data-hint="Таблица позиций; клик по строке откроет карточку"
         >
           Позиции
         </button>
@@ -785,7 +811,7 @@ export function PlanningPage() {
           type="button"
           className={`planning-workspace-tabs__btn${workspaceTab === "matrix" ? " planning-workspace-tabs__btn--active" : ""}`}
           onClick={() => setWorkspaceTab("matrix")}
-          title="План и факт на конец месяца; отклонения только для просмотра"
+          data-hint="План и факт на конец месяца; отклонения только для просмотра"
         >
           По месяцам
         </button>
@@ -793,7 +819,7 @@ export function PlanningPage() {
           type="button"
           className={`planning-workspace-tabs__btn${workspaceTab === "journal" ? " planning-workspace-tabs__btn--active" : ""}`}
           onClick={() => setWorkspaceTab("journal")}
-          title="Все события версии; клик откроет позицию"
+          data-hint="Все события версии; клик откроет позицию"
         >
           Журнал изменений
         </button>
@@ -813,91 +839,10 @@ export function PlanningPage() {
         indexationBatches={indexationBatches}
       />
 
-      {canMassIndexation ? (
-        <section className="card mass-indexation-panel">
-          <h2 className="section-title">Массовая индексация</h2>
-          <p className="muted-line">
-            По позициям текущего фильтра · {filtered.filter((item) => item.status !== "Closed").length} активных
-          </p>
-          <div className="mass-indexation-panel__form">
-            <label>
-              Процент
-              <input
-                type="number"
-                min={0}
-                step={0.1}
-                value={idxPercent}
-                onChange={(event) => setIdxPercent(Number(event.target.value))}
-              />
-            </label>
-            <label>
-              С месяца
-              <select value={idxMonth} onChange={(event) => setIdxMonth(Number(event.target.value))}>
-                {MONTHS.map((month, monthIndex) => {
-                  const blocked = !isPlanEventMonthAllowed(monthIndex, correctionWindow);
-                  return (
-                    <option key={month} value={monthIndex} disabled={blocked}>
-                      {month}
-                      {blocked ? " (закрыт)" : ""}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={applyIndexationToFiltered}
-              disabled={!canEditWorkspace}
-            >
-              Применить
-            </button>
-          </div>
-          {!isPlanEventMonthAllowed(idxMonth, correctionWindow) ? (
-            <p className="muted-line">{planEventMonthBlockedMessage(correctionWindow)}</p>
-          ) : null}
-          {indexationBatches.length > 0 ? (
-            <div className="table-scroll mass-indexation-panel__batches">
-              <table className="simple-table">
-                <thead>
-                  <tr>
-                    <th>Когда</th>
-                    <th>Месяц</th>
-                    <th>%</th>
-                    <th>Поз.</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {indexationBatches.map((batch) => (
-                    <tr key={batch.id}>
-                      <td>{new Date(batch.createdAt).toLocaleString("ru-RU")}</td>
-                      <td>{monthLabel(batch.month)}</td>
-                      <td>+{batch.percent}%</td>
-                      <td>{batch.affectedCount}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="icon-btn danger"
-                          disabled={!canEditWorkspace}
-                          onClick={() => deleteIndexationBatch(batch.id)}
-                          title="Удалить факт индексации"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
       {workspaceTab === "positions" || workspaceTab === "matrix" || workspaceTab === "journal" ? (
         <SliceToolbar
           sticky
+          className={workspaceTab === "journal" ? "slice-toolbar--journal" : undefined}
           search={query}
           onSearchChange={setQuery}
           searchPlaceholder={
@@ -1043,7 +988,7 @@ export function PlanningPage() {
                     setActiveSourceId(row.positionId);
                   }}
                   className={positionTableRowClass(row.status, rowExtra)}
-                  title="Открыть карточку позиции"
+                  data-hint="Открыть карточку позиции"
                 >
                   <td>
                     <PositionIdentityCell
@@ -1093,7 +1038,7 @@ export function PlanningPage() {
                         type="button"
                         className="icon-btn danger"
                         aria-label={`Удалить ${row.positionId}`}
-                        title="Удалить из плана"
+                        data-hint="Удалить из плана"
                         onClick={(event) => {
                           event.stopPropagation();
                           deletePosition(row.positionId);
@@ -1116,7 +1061,7 @@ export function PlanningPage() {
       ) : null}
 
       {workspaceTab === "journal" ? (
-        <section className="card planning-workspace-panel">
+        <section className="planning-workspace-panel planning-workspace-panel--journal">
           <PlanJournalPanel
             onOpenPosition={openPositionFromJournal}
             highlightPositionId={journalHighlightPositionId}
