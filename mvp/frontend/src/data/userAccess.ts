@@ -50,6 +50,10 @@ export type OrgFilterDefaults = {
 export function loadUserRole(): UserRole {
   try {
     const stored = localStorage.getItem(ROLE_STORAGE_KEY);
+    if (stored === "admin") {
+      localStorage.setItem(ROLE_STORAGE_KEY, "cb_admin");
+      return "cb_admin";
+    }
     if (
       stored === "cb_admin" ||
       stored === "gd" ||
@@ -60,7 +64,6 @@ export function loadUserRole(): UserRole {
     ) {
       return stored;
     }
-    if (stored === "admin") return "cb_admin";
   } catch {
     /* ignore */
   }

@@ -21,6 +21,19 @@ export function submissionPhaseLabel(phase: string): string {
   return SUBMISSION_PHASE_LABELS[phase] ?? phase;
 }
 
+export function submissionPhaseBadgeClass(phase: string): string {
+  switch (phase) {
+    case "cb_review":
+      return "submission-phase-badge--done";
+    case "returned":
+      return "submission-phase-badge--returned";
+    case "editing":
+      return "submission-phase-badge--editing";
+    default:
+      return "submission-phase-badge--progress";
+  }
+}
+
 export function submissionActionLabel(action: SubmissionWorkflowAction): string {
   switch (action) {
     case "team_submit":

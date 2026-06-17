@@ -14,17 +14,6 @@ import { useMvpApp } from "../context/MvpAppContext";
 import { ConsolidationPage } from "./ConsolidationPage";
 import type { UserRole } from "../data/userAccess";
 import { planWorkspacePath } from "../data/planWorkspaceMode";
-import {
-  listSubmissionEntriesForPlan,
-  applySubmissionAction,
-} from "../data/teamSubmissionStore";
-import {
-  canRolePerformSubmissionAction,
-  submissionActionLabel,
-  submissionPhaseLabel,
-  type SubmissionWorkflowAction,
-} from "../data/submissionWorkflowPolicy";
-import { demoRoleScope } from "../data/userAccess";
 
 const CONSOLIDATION_ROLES: UserRole[] = ["cb_admin", "gd", "director", "unit_lead", "team_lead"];
 
@@ -60,17 +49,9 @@ export function VersionsPage() {
     deletePlanVersion,
     versionDiff,
     userRole,
-    refreshTeamSubmissions,
-    teamSubmissionRevision,
   } = useMvpApp();
 
   const showConsolidation = CONSOLIDATION_ROLES.includes(userRole);
-  const canManageSubmissionWorkflow = userRole !== "viewer";
-  const submissionRows = useMemo(() => {
-    if (!workingDraft) return [];
-    void teamSubmissionRevision;
-    return listSubmissionEntriesForPlan(workingDraft.id);
-  }, [workingDraft, teamSubmissionRevision]);
 
   const correctionWindow = useMemo(
     () => resolveCorrectionWindow(activePlan, primaryBudget, { workspaceMode: "correction" }),
@@ -163,43 +144,6 @@ export function VersionsPage() {
     window.alert(`Версия «${result.deletedLabel}» удалена.`);
   };
 
-  const updateSubmissionWorkflow = (
-    action: SubmissionWorkflowAction,
-    row: { department: string; unit: string; team: string },
-  ) => {
-    if (!workingDraft) return;
-    if (action === "return") {
-      const note = window.prompt("Комментарий к возврату (опционально):") ?? undefined;
-      const result = applySubmissionAction({
-        planVersionId: workingDraft.id,
-        department: row.department,
-        unit: row.unit,
-        team: row.team,
-        action,
-        actor: { role: userRole },
-        note,
-      });
-      if (!result.ok) {
-        window.alert(result.error);
-        return;
-      }
-    } else {
-      const result = applySubmissionAction({
-        planVersionId: workingDraft.id,
-        department: row.department,
-        unit: row.unit,
-        team: row.team,
-        action,
-        actor: { role: userRole },
-      });
-      if (!result.ok) {
-        window.alert(result.error);
-        return;
-      }
-    }
-    refreshTeamSubmissions();
-  };
-
   return (
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
@@ -286,75 +230,8 @@ export function VersionsPage() {
       {tab === "consolidation" && showConsolidation ? <ConsolidationPage embedded /> : null}
 
       {tab === "approval" ? (
-        <section className="card planning-workspace-panel">
+        <section className="planning-workspace-panel planning-workspace-panel--approval">
           <PlanApprovalPanel />
-          {workingDraft ? (
-            <div className="versions-page__submission-workflow">
-              <h3>Сдача и согласование по командам</h3>
-              {submissionRows.length === 0 ? (
-                <p className="muted-text">Записей пока нет. Отправка начинается с вкладки «Ход планирования».</p>
-              ) : (
-                <div className="table-scroll">
-                  <table className="simple-table">
-                    <thead>
-                      <tr>
-                        <th>Департамент</th>
-                        <th>Юнит</th>
-                        <th>Команда</th>
-                        <th>Статус</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {submissionRows.map((row) => (
-                        <tr key={`${row.department}-${row.unit}-${row.team}`}>
-                          <td>{row.department}</td>
-                          <td>{row.unit}</td>
-                          <td>{row.team}</td>
-                          <td>{submissionPhaseLabel(row.record.phase)}</td>
-                          <td>
-                            {canManageSubmissionWorkflow ? (
-                              <div className="versions-page__row-actions">
-                                {(["unit_approve", "director_approve", "cb_review", "return", "reopen_editing"] as SubmissionWorkflowAction[])
-                                  .filter((action) =>
-                                    canRolePerformSubmissionAction(action, {
-                                      actorRole: userRole,
-                                      actorDepartment:
-                                        userRole === "director"
-                                          ? demoRoleScope("director").department
-                                          : userRole === "unit_lead"
-                                            ? demoRoleScope("unit_lead").department
-                                            : userRole === "team_lead"
-                                              ? demoRoleScope("team_lead").department
-                                              : undefined,
-                                      actorUnit:
-                                        userRole === "unit_lead"
-                                          ? demoRoleScope("unit_lead").unit ?? null
-                                          : userRole === "team_lead"
-                                            ? demoRoleScope("team_lead").unit ?? null
-                                            : null,
-                                      actorTeam: userRole === "team_lead" ? demoRoleScope("team_lead").team ?? null : null,
-                                      targetDepartment: row.department,
-                                      targetUnit: row.unit,
-                                      targetTeam: row.team,
-                                    }),
-                                  )
-                                  .map((action) => (
-                                    <button key={action} type="button" className="app-btn app-btn--ghost app-btn--sm" onClick={() => updateSubmissionWorkflow(action, row)}>
-                                      {submissionActionLabel(action)}
-                                    </button>
-                                  ))}
-                              </div>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          ) : null}
         </section>
       ) : null}
 

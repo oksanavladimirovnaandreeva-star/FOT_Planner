@@ -103,6 +103,7 @@ npm run build
 - **WorkflowHint** + сброс в Settings
 - **Settings nav** — только admin/director; **DemoRoleSelect** в сайдbar для всех
 - **SliceToolbar** — единая панель срезов (Обзор, Planning, Аналитика план-факт)
+- **Control Tower** (`/versions?tab=approval`): KPI, прогресс сдачи команд, очередь со статус-бейджами, исключения C&B; матрица прав — в collapse
 
 ### F1–F5 (фронт продолжение)
 | # | Статус | Суть |

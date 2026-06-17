@@ -10,6 +10,7 @@ import {
   markUnitApproved,
   reopenTeamEditing,
   returnTeamToEditing,
+  summarizeSubmissionProgress,
 } from "./teamSubmissionStore";
 
 const PLAN = "draft-test";
@@ -137,5 +138,16 @@ describe("teamSubmissionStore", () => {
     clearSubmissionsForPlan(PLAN);
     expect(getTeamSubmission(PLAN, DEPT, UNIT, TEAM)).toBeNull();
     expect(getTeamSubmission("other-plan", DEPT, UNIT, "Other")?.phase).toBe("team_submitted");
+  });
+
+  it("summarizeSubmissionProgress считает прогресс сдачи", () => {
+    const summary = summarizeSubmissionProgress([
+      { record: { phase: "team_submitted" } },
+      { record: { phase: "cb_review" } },
+    ]);
+    expect(summary.total).toBe(2);
+    expect(summary.teamSubmitted).toBe(1);
+    expect(summary.cbReview).toBe(1);
+    expect(summary.completionPct).toBe(50);
   });
 });

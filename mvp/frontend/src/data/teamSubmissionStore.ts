@@ -208,6 +208,61 @@ export function listSubmissionEntriesForPlan(
     });
 }
 
+export type SubmissionProgressSummary = {
+  total: number;
+  editing: number;
+  teamSubmitted: number;
+  unitApproved: number;
+  directorApproved: number;
+  cbReview: number;
+  returned: number;
+  completionPct: number;
+};
+
+export function summarizeSubmissionProgress(
+  entries: { record: TeamSubmissionRecord }[],
+): SubmissionProgressSummary {
+  const counts = {
+    editing: 0,
+    teamSubmitted: 0,
+    unitApproved: 0,
+    directorApproved: 0,
+    cbReview: 0,
+    returned: 0,
+  };
+  for (const entry of entries) {
+    switch (entry.record.phase) {
+      case "editing":
+        counts.editing += 1;
+        break;
+      case "team_submitted":
+        counts.teamSubmitted += 1;
+        break;
+      case "unit_approved":
+        counts.unitApproved += 1;
+        break;
+      case "director_approved":
+        counts.directorApproved += 1;
+        break;
+      case "cb_review":
+        counts.cbReview += 1;
+        break;
+      case "returned":
+        counts.returned += 1;
+        break;
+      default:
+        break;
+    }
+  }
+  const total = entries.length;
+  const done = counts.cbReview;
+  return {
+    total,
+    ...counts,
+    completionPct: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+}
+
 export function markTeamSubmitted(planVersionId: string, department: string, unit: string, team: string): void {
   applySubmissionAction({
     planVersionId,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PositionRecord } from "../types";
 import {
   DEMO_ROLE_SCOPE,
@@ -11,6 +11,7 @@ import {
   roleCanManageVersions,
   roleCanToggleLeadFreeze,
   roleOrgFilterDefaults,
+  loadUserRole,
 } from "./userAccess";
 
 function samplePosition(overrides: Partial<PositionRecord> = {}): PositionRecord {
@@ -46,6 +47,19 @@ function samplePosition(overrides: Partial<PositionRecord> = {}): PositionRecord
 }
 
 describe("userAccess RBAC", () => {
+  beforeEach(() => {
+    const memory = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        memory.set(key, value);
+      },
+      removeItem: (key: string) => {
+        memory.delete(key);
+      },
+    });
+  });
+
   it("team_lead видит только свою команду", () => {
     const inTeam = samplePosition();
     const otherTeam = samplePosition({ team: "Backend", positionId: "П002" });
@@ -119,6 +133,13 @@ describe("userAccess RBAC", () => {
     const merged = mergeScopedPositionUpdates(all, [samplePosition()], [scoped]);
     expect(merged.find((p) => p.positionId === "П099")?.department).toBe("Sales");
     expect(merged.find((p) => p.positionId === "П001")?.monthlyBase[0]).toBe(200_000);
+  });
+
+  it("loadUserRole мигрирует legacy admin в cb_admin", () => {
+    localStorage.setItem("fot_mvp_user_role", "admin");
+    expect(loadUserRole()).toBe("cb_admin");
+    expect(localStorage.getItem("fot_mvp_user_role")).toBe("cb_admin");
+    localStorage.removeItem("fot_mvp_user_role");
   });
 
   it("positionMatchesRole для team_lead", () => {
