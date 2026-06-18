@@ -1,4 +1,9 @@
-import { annualTotal, LIMIT_FLAG_LABELS } from "./planningData";
+import {
+  annualTotal,
+  computeDecGrowthBucket,
+  formatGrowthPct,
+  LIMIT_FLAG_LABELS,
+} from "./planningData";
 import type { LimitFlagKey, PositionRecord } from "../types";
 
 export type LimitImpactByFlag = {
@@ -134,4 +139,53 @@ export function formatLimitImpactSummary(impact: CorrectionLimitImpact): string 
     parts.push(`новых/переведённых в OVER_LIMIT: ${impact.newOverLimitPositions}`);
   }
   return parts.length ? parts.join(" · ") : "без изменений по признаку лимита";
+}
+
+export type LimitDecGrowthRow = {
+  limitFlag: LimitFlagKey;
+  label: string;
+  baselinePct: number;
+  draftPct: number;
+  deltaPp: number;
+  baselineDecPrev: number;
+  draftDecPrev: number;
+  baselineDecPlan: number;
+  draftDecPlan: number;
+  positionCount: number;
+};
+
+const LIMIT_DEC_FLAGS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT"];
+
+/** Рост дек→дек по признакам «В лимите» / «Сверх лимита». */
+export function buildLimitDecGrowthComparison(
+  baselinePositions: PositionRecord[],
+  draftPositions: PositionRecord[],
+): LimitDecGrowthRow[] {
+  const activeBaseline = baselinePositions.filter((position) => position.status !== "Closed");
+  const activeDraft = draftPositions.filter((position) => position.status !== "Closed");
+
+  return LIMIT_DEC_FLAGS.map((limitFlag) => {
+    const baselineBucket = computeDecGrowthBucket(
+      activeBaseline.filter((position) => position.limitFlag === limitFlag),
+    );
+    const draftBucket = computeDecGrowthBucket(
+      activeDraft.filter((position) => position.limitFlag === limitFlag),
+    );
+    return {
+      limitFlag,
+      label: LIMIT_FLAG_LABELS[limitFlag],
+      baselinePct: baselineBucket.pct,
+      draftPct: draftBucket.pct,
+      deltaPp: draftBucket.pct - baselineBucket.pct,
+      baselineDecPrev: baselineBucket.decPrev,
+      draftDecPrev: draftBucket.decPrev,
+      baselineDecPlan: baselineBucket.decPlan,
+      draftDecPlan: draftBucket.decPlan,
+      positionCount: draftBucket.positionCount,
+    };
+  });
+}
+
+export function formatLimitDecGrowthCell(prev: number, plan: number, pct: number): string {
+  return `${formatGrowthPct(pct)} · ${Math.round(prev).toLocaleString("ru-RU")} → ${Math.round(plan).toLocaleString("ru-RU")} ₽`;
 }

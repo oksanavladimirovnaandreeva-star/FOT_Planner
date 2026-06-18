@@ -5,7 +5,7 @@ export function PlanCorrectionWindowBanner({ window }: { window: CorrectionWindo
   if (!window.enforced) return null;
   return (
     <div className="plan-policy-banner plan-policy-banner--quarter" role="status">
-      <strong>Окно квартальной корректировки</strong>
+      <strong>Окно квартального планирования</strong>
       <span>{planEventMonthBlockedMessage(window)}</span>
     </div>
   );

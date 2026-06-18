@@ -53,7 +53,7 @@ import {
   unitOptions,
   upsertEvent,
 } from "../data/planningData";
-import { positionTableRowClass, JOURNAL_EVENT_TYPE_FILTERS } from "../data/eventJournal";
+import { positionTableRowClass, JOURNAL_EVENT_TYPE_FILTERS, positionGradeYearRange } from "../data/eventJournal";
 import {
   findSalaryBand,
   levelOptionsForSpecialization,
@@ -192,8 +192,9 @@ export function PlanningPage() {
   const canEditWorkspace = useMemo(() => {
     if (!canEditPlan) return false;
     if (isTeamSliceReadOnly) return false;
-    if (isQuarterWorkingDraft(activePlan, primaryBudget)) return true;
-    if (workspaceMode === "correction") return false;
+    if (workspaceMode === "correction") {
+      return isQuarterWorkingDraft(activePlan, primaryBudget);
+    }
     return isAnnualDraft;
   }, [canEditPlan, isTeamSliceReadOnly, workspaceMode, activePlan, primaryBudget, isAnnualDraft]);
 
@@ -209,9 +210,7 @@ export function PlanningPage() {
   const canMassIndexation = roleCanApplyMassIndexation(userRole);
   const canApplyMassIndexation = canMassIndexation && canEditWorkspace;
 
-  const canAddPosition =
-    roleCanEdit(userRole, leadEditFrozen) &&
-    (canEditWorkspace || Boolean(workingDraft) || Boolean(latestApproved) || isAnnualDraft);
+  const canAddPosition = roleCanEdit(userRole, leadEditFrozen) && canEditWorkspace;
 
   const blockEdit = () => {
     if (workspaceMode === "correction") {
@@ -222,7 +221,7 @@ export function PlanningPage() {
       );
       return;
     }
-    window.alert("Годовые правки — в неутверждённой Версии 1. Квартальные — переключитесь на «Корректировка».");
+    window.alert("Годовые правки — в неутверждённой Версии 1. Квартальные — переключитесь на «Квартальное планирование».");
   };
   const [query, setQuery] = useState("");
   const [orgSlice, setOrgSlice] = useState<OrgSliceSelection>(() => {
@@ -1120,6 +1119,7 @@ export function PlanningPage() {
               const cr = avgCR(row, salaryBands);
               const decDelta = row.monthlyBase[11] - row.previousDecemberBase;
               const decPct = decToDec(row.previousDecemberBase, row.monthlyBase[11]);
+              const gradeRange = positionGradeYearRange(row);
               const rowExtra = recentlyIndexedIds.includes(row.positionId) ? "row-updated" : undefined;
               const eventCount = row.events.length;
               return (
@@ -1159,8 +1159,16 @@ export function PlanningPage() {
                     />
                   </td>
                   <td>
-                    {row.monthlySpec[11]}
-                    <div className="muted-line">{row.monthlyLevel[11]}</div>
+                    {gradeRange.changed ? (
+                      <div className="positions-table__dec-range">
+                        {gradeRange.before} → {gradeRange.after}
+                      </div>
+                    ) : (
+                      <>
+                        {row.monthlySpec[11]}
+                        <div className="muted-line">{row.monthlyLevel[11]}</div>
+                      </>
+                    )}
                   </td>
                   <td className={`dec-cell--${growthTone(decDelta)}`}>
                     <div className="positions-table__dec-range">

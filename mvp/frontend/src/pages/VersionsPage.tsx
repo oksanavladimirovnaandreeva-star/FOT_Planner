@@ -13,7 +13,7 @@ import {
   planVersionStatusUiLabel,
 } from "../data/planVersionDisplay";
 import { isBudgetLocked } from "../data/planVersions";
-import { canReopenPrimaryBudget } from "../data/planVersionLifecycle";
+import { canCreateQuarterlyWorkingDraft, canReopenPrimaryBudget } from "../data/planVersionLifecycle";
 import { canDeletePlanVersion } from "../data/planVersionDelete";
 import { publishSubmissionHint } from "../data/teamSubmissionStore";
 import { useMvpApp } from "../context/MvpAppContext";
@@ -92,7 +92,12 @@ export function VersionsPage() {
   const { rows, summary } = versionDiff;
   const firstVersionLocked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
   const canApproveFirstVersion = primaryBudget && !firstVersionLocked && canManagePlanVersions && canEditPlan;
-  const canCreateDraft = Boolean(latestApproved && firstVersionLocked && !workingDraft && canManagePlanVersions && canEditPlan);
+  const canCreateDraft = canCreateQuarterlyWorkingDraft({
+    canManagePlanVersions,
+    latestApproved,
+    primaryBudget,
+    workingDraft,
+  });
   const canSubmitApproval =
     canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
   const canPublish =
@@ -198,7 +203,7 @@ export function VersionsPage() {
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
         <div>
-          <h1>{canManagePlanVersions ? "Версии" : "Согласование"}</h1>
+          <h1>{canManagePlanVersions ? "Версии" : "Мой бюджет"}</h1>
           {!canManagePlanVersions ? null : tab === "approval" && !workingDraft && firstVersionLocked ? (
             <p className="muted-line">Утверждённый бюджет готов — создайте квартальный черновик для сдачи команд.</p>
           ) : null}
@@ -262,7 +267,7 @@ export function VersionsPage() {
             className={`planning-workspace-tabs__btn${tab === "approval" ? " planning-workspace-tabs__btn--active" : ""}`}
             onClick={() => setTab("approval")}
           >
-            Согласование и сдача
+            Мой бюджет
           </button>
         ) : null}
         {workingDraft ? (
@@ -288,7 +293,7 @@ export function VersionsPage() {
             </p>
           ) : workingDraft ? (
             <p className="workflow-hint__text">
-              Квартальный черновик открыт. Правки — в <Link to={planWorkspacePath("correction")}>квартальном планировании</Link>, сдача команд — на вкладке «Согласование и сдача».
+              Квартальный черновик открыт. Правки — в <Link to={planWorkspacePath("correction")}>квартальном планировании</Link>, сдача команд — на вкладке «Мой бюджет».
             </p>
           ) : null}
         </section>
@@ -301,7 +306,7 @@ export function VersionsPage() {
       ) : null}
 
       {tab === "compare" && workingDraft ? (
-        <CorrectionComparePanel workspaceMode="correction" correctionWindow={correctionWindow} />
+        <CorrectionComparePanel correctionWindow={correctionWindow} />
       ) : null}
 
       {tab === "versions" && canManagePlanVersions ? (

@@ -33,7 +33,7 @@ export function formatCorrectionCycleBadge(version: Pick<PlanVersionMeta, "planY
     return `Годовой план ${version.planYear}`;
   }
   const q = Math.max(1, Math.min(4, version.versionNumber));
-  return `Корректировка K${version.versionNumber} (Q${q})`;
+  return `Квартальная версия Q${q}`;
 }
 
 export function formatPlanVersionStepLabel(

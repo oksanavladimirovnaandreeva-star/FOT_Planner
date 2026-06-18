@@ -2,8 +2,11 @@ import { useMemo, useState } from "react";
 import { ExternalLink, MessageSquare } from "lucide-react";
 import {
   collectPlanEventJournalRows,
-  formatEventChangeLine,
+  formatGradeChangeRange,
+  formatSalaryChangeRange,
+  gradeChanged,
   journalEventMatchesTypeFilter,
+  salaryChanged,
   tableRowStatusClass,
 } from "../../data/eventJournal";
 import { isMultiSelectNone, multiSelectMatches } from "../../data/multiSelectFilter";
@@ -147,7 +150,29 @@ export function PlanJournalPanel({
                       </>
                     )}
                   </td>
-                  {!isSidebar ? <td>{formatEventChangeLine(row.change)}</td> : null}
+                  {!isSidebar ? (
+                    <td>
+                      <div className="plan-journal-change">
+                        <div className="muted-line">с {row.change.monthLabel}</div>
+                        {row.change.statusBefore !== row.change.statusAfter ? (
+                          <div className="positions-table__dec-range">
+                            {row.change.statusBefore} → {row.change.statusAfter}
+                          </div>
+                        ) : null}
+                        {salaryChanged(row.change) ? (
+                          <div className="positions-table__dec-range">{formatSalaryChangeRange(row.change)}</div>
+                        ) : null}
+                        {gradeChanged(row.change) ? (
+                          <div className="positions-table__dec-range">{formatGradeChangeRange(row.change)}</div>
+                        ) : null}
+                        {!salaryChanged(row.change) &&
+                        !gradeChanged(row.change) &&
+                        row.change.statusBefore === row.change.statusAfter ? (
+                          <div className="muted-line">без изменения ФОТ и грейда</div>
+                        ) : null}
+                      </div>
+                    </td>
+                  ) : null}
                   <td>
                     <span className={`event-type-pill${isSidebar ? "" : " event-type-pill--lg"}`}>{row.typeLabel}</span>
                     {!isSidebar && row.employeeLine ? (

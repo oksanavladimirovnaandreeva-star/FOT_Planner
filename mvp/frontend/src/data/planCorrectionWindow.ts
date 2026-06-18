@@ -5,7 +5,7 @@ import type { PlanWorkspaceMode } from "./planWorkspaceMode";
 export type CorrectionWindowInfo = {
   /** Квартальное окно: события только с startMonth. */
   enforced: boolean;
-  /** null — внутри года нет открытых месяцев (Q4 → январь след. года). */
+  /** null — зарезервировано; при стандартных кварталах всегда 0/3/6/9. */
   startMonth: number | null;
   startMonthLabel: string;
   currentQuarterLabel: string;
@@ -19,13 +19,10 @@ export function quarterLabel(quarterIndex: number): string {
   return `Q${quarterIndex + 1}`;
 }
 
-/** Первый месяц открытого окна корректировки (0–11) или null в Q4. */
-export function correctionWindowStartMonth(refDate = new Date()): number | null {
-  const month = refDate.getMonth();
-  const quarter = calendarQuarterIndex(month);
-  const start = (quarter + 1) * 3;
-  if (start > 11) return null;
-  return start;
+/** Первый месяц открытого окна квартального планирования (0–11): с начала текущего календарного квартала. */
+export function correctionWindowStartMonth(refDate = new Date()): number {
+  const quarter = calendarQuarterIndex(refDate.getMonth());
+  return quarter * 3;
 }
 
 export function isAnnualPlanningDraft(activePlan: PlanVersionMeta): boolean {
@@ -64,7 +61,7 @@ export function resolveCorrectionWindow(
     };
   }
 
-  /** Корректировка: квартальное окно всегда enforced (даже без черновика — для подсказок UI). */
+  /** Квартальное планирование: M_open — с первого месяца текущего квартала (Q2 → апр, Q3 → июл, Q4 → окт). */
   return {
     enforced: true,
     startMonth,
@@ -96,7 +93,7 @@ export function isCorrectionMonthLocked(month: number, window: CorrectionWindowI
 export function planEventMonthBlockedMessage(window: CorrectionWindowInfo): string {
   if (!window.enforced) return "";
   if (window.startMonth === null) {
-    return `Квартальная корректировка (${window.currentQuarterLabel}): внутри года окно закрыто — правки с января следующего плана.`;
+    return `Утверждённый год закрыт (${window.currentQuarterLabel}): внутри года правки недоступны — только с января следующего плана.`;
   }
-  return `Квартальная корректировка: события только с ${window.startMonthLabel} (после ${window.currentQuarterLabel}).`;
+  return `Утверждённый год закрыт: события только с ${window.startMonthLabel} (${window.currentQuarterLabel}).`;
 }

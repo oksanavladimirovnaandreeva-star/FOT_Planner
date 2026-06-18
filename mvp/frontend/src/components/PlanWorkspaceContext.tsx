@@ -5,7 +5,7 @@ import {
   formatPlanVersionTitle,
   formatReopenPrimaryBudgetConfirm,
 } from "../data/planVersionDisplay";
-import { canReopenPrimaryBudget } from "../data/planVersionLifecycle";
+import { canCreateQuarterlyWorkingDraft, canReopenPrimaryBudget } from "../data/planVersionLifecycle";
 import { isBudgetLocked } from "../data/planVersions";
 import { resolvePlanWorkspaceStatus } from "../data/planWorkspaceStatus";
 import { roleCanSwitchPlanVersions } from "../data/userAccess";
@@ -71,12 +71,12 @@ export function PlanWorkspaceContext() {
     Boolean(workingDraft) ||
     (canEditPlan && activePlan.kind === "APPROVED" && activePlan.status === "DRAFT");
 
-  const canCreateQuarterlyDraft =
-    canManagePlanVersions &&
-    canEditPlan &&
-    Boolean(latestApproved) &&
-    Boolean(primaryBudget && isBudgetLocked(primaryBudget)) &&
-    !workingDraft;
+  const canCreateQuarterlyDraft = canCreateQuarterlyWorkingDraft({
+    canManagePlanVersions,
+    latestApproved,
+    primaryBudget,
+    workingDraft,
+  });
 
   const handleCreateQuarterlyDraft = () => {
     const result = createWorkingDraft(latestApproved?.id);

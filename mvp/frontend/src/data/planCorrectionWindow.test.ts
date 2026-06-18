@@ -20,12 +20,20 @@ function meta(partial: Partial<PlanVersionMeta>): PlanVersionMeta {
 }
 
 describe("correctionWindowStartMonth", () => {
-  it("Q2 (июнь) → с июля (6)", () => {
-    expect(correctionWindowStartMonth(new Date(2026, 5, 15))).toBe(6);
+  it("Q1 (февраль) → с января (0)", () => {
+    expect(correctionWindowStartMonth(new Date(2026, 1, 1))).toBe(0);
   });
 
-  it("Q4 (ноябрь) → null", () => {
-    expect(correctionWindowStartMonth(new Date(2026, 10, 1))).toBeNull();
+  it("Q2 (июнь) → с апреля (3)", () => {
+    expect(correctionWindowStartMonth(new Date(2026, 5, 15))).toBe(3);
+  });
+
+  it("Q3 (август) → с июля (6)", () => {
+    expect(correctionWindowStartMonth(new Date(2026, 7, 1))).toBe(6);
+  });
+
+  it("Q4 (ноябрь) → с октября (9)", () => {
+    expect(correctionWindowStartMonth(new Date(2026, 10, 1))).toBe(9);
   });
 });
 
@@ -49,17 +57,30 @@ describe("resolveCorrectionWindow", () => {
     expect(isPlanEventMonthAllowed(5, w)).toBe(true);
   });
 
-  it("маршрут correction — блок до июля в Q2", () => {
+  it("квартальный черновик на correction в Q2 — с апреля, июнь открыт", () => {
     const w = resolveCorrectionWindow(
       meta({ id: "draft", kind: "WORKING_DRAFT", status: "DRAFT", versionNumber: 2 }),
       meta({ status: "APPROVED" }),
       { workspaceMode: "correction", refDate: new Date(2026, 5, 1) },
     );
     expect(w.enforced).toBe(true);
-    expect(w.startMonth).toBe(6);
-    expect(isPlanEventMonthAllowed(5, w)).toBe(false);
-    expect(isPlanEventMonthAllowed(6, w)).toBe(true);
-    expect(isCorrectionMonthLocked(5, w)).toBe(true);
-    expect(isCorrectionMonthLocked(6, w)).toBe(false);
+    expect(w.startMonth).toBe(3);
+    expect(isPlanEventMonthAllowed(2, w)).toBe(false);
+    expect(isPlanEventMonthAllowed(3, w)).toBe(true);
+    expect(isPlanEventMonthAllowed(5, w)).toBe(true);
+    expect(isCorrectionMonthLocked(2, w)).toBe(true);
+    expect(isCorrectionMonthLocked(5, w)).toBe(false);
+  });
+
+  it("correction без черновика в Q2 — с апреля", () => {
+    const w = resolveCorrectionWindow(
+      meta({ id: "v1", kind: "APPROVED", status: "APPROVED", versionNumber: 1 }),
+      meta({ status: "APPROVED" }),
+      { workspaceMode: "correction", refDate: new Date(2026, 5, 1) },
+    );
+    expect(w.enforced).toBe(true);
+    expect(w.startMonth).toBe(3);
+    expect(isPlanEventMonthAllowed(2, w)).toBe(false);
+    expect(isPlanEventMonthAllowed(5, w)).toBe(true);
   });
 });

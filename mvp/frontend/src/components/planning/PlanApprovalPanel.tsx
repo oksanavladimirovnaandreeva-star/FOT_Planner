@@ -18,6 +18,7 @@ import {
 } from "../../data/submissionWorkflowPolicy";
 import { demoRoleActorOrg, type UserRole } from "../../data/userAccess";
 import { ConsolidationPage } from "../../pages/ConsolidationPage";
+import { TeamLeadApprovalPanel } from "./TeamLeadApprovalPanel";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   cb_admin: "C&B",
@@ -125,6 +126,14 @@ export function PlanApprovalPanel() {
 
   const actorScope = actorOrgScope(userRole);
   const cycleBadge = formatCorrectionCycleBadge(activePlan);
+
+  if (userRole === "team_lead") {
+    return (
+      <div className="plan-approval-panel">
+        <TeamLeadApprovalPanel />
+      </div>
+    );
+  }
 
   if (!workingDraft) {
     return (

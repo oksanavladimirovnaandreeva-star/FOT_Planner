@@ -287,7 +287,7 @@ export function DataSettingsPanel() {
 
   const handleDevResetV1 = () => {
     const confirmed = window.confirm(
-      "Сбросить версии к одному черновику бюджета? Черновики корректировки и архив будут удалены.",
+      "Сбросить версии к одному черновику бюджета? Квартальные черновики и архив будут удалены.",
     );
     if (!confirmed) return;
     const result = resetDevPlanToDraft();

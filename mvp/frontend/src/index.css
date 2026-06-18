@@ -4281,6 +4281,12 @@ body.drawer-close-guard .drawer-overlay {
   font-size: 13px;
 }
 
+.plan-journal-change {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .plan-journal-table__row {
   cursor: pointer;
 }
@@ -7678,4 +7684,434 @@ body.drawer-close-guard .drawer-overlay {
 .plan-journal-table__employee {
   margin-top: 4px;
   font-size: 12px;
+}
+
+/* Team lead: version ribbon + approval kanban */
+.team-lead-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.team-lead-approval__ribbon-track {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 0;
+}
+
+.team-lead-approval__ribbon-step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1 1 180px;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+.team-lead-approval__ribbon-dot {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #cbd5e1;
+  color: transparent;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.team-lead-approval__ribbon-dot--current {
+  background: #4f46e5;
+  box-shadow: 0 0 0 2px #c7d2fe;
+}
+
+.team-lead-approval__ribbon-dot--done {
+  background: #059669;
+  color: #fff;
+  box-shadow: 0 0 0 1px #059669;
+}
+
+.team-lead-approval__ribbon-dot--approved {
+  width: 24px;
+  height: 24px;
+  margin-top: 0;
+  background: #ecfdf5;
+  color: #047857;
+  box-shadow: 0 0 0 2px #a7f3d0;
+  border-color: #ecfdf5;
+}
+
+.team-lead-approval__ribbon-step--approved strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-lead-approval__ribbon-approved-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+
+.team-lead-approval__ribbon-step strong {
+  display: block;
+  font-size: 14px;
+}
+
+.team-lead-approval__ribbon-state {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.team-lead-approval__ribbon-wait {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.team-lead-approval__kanban {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+@media (max-width: 1100px) {
+  .team-lead-approval__kanban {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .team-lead-approval__kanban {
+    grid-template-columns: 1fr;
+  }
+}
+
+.team-lead-approval__column {
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  opacity: 0.72;
+}
+
+.team-lead-approval__column--active {
+  opacity: 1;
+  border-color: #818cf8;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.08);
+}
+
+.team-lead-approval__column-head {
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.team-lead-approval__column-head h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.team-lead-approval__column-head p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.team-lead-approval__column-body {
+  flex: 1;
+  padding: 12px;
+}
+
+.team-lead-approval__column-empty {
+  margin: 0;
+  text-align: center;
+  padding-top: 24px;
+}
+
+.team-lead-approval__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-lead-approval__card-title {
+  font-size: 15px;
+}
+
+.team-lead-approval__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.team-lead-approval__metrics dt {
+  font-size: 11px;
+  color: #64748b;
+  margin: 0;
+}
+
+.team-lead-approval__metrics dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.team-lead-approval__substep {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #4338ca;
+}
+
+.team-lead-approval__return-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  font-size: 13px;
+}
+
+.team-lead-approval__published-label {
+  margin: 0;
+  font-size: 13px;
+}
+
+.team-lead-approval__next-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #065f46;
+}
+
+.team-lead-approval__card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.team-lead-approval__kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .team-lead-approval__kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.team-lead-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.team-lead-kpi-card--accent {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.team-lead-kpi-card--delta.team-lead-kpi-card--up {
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
+.team-lead-kpi-card--delta.team-lead-kpi-card--down {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+
+.team-lead-kpi-card--delta.team-lead-kpi-card--flat {
+  background: #f1f5f9;
+}
+
+.team-lead-kpi-card__label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.team-lead-kpi-card__value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-lead-kpi-card__hint {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.team-lead-approval__kpi-bars {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-lead-approval__kpi-bar-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: #475569;
+}
+
+.team-lead-approval__kpi-bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.team-lead-approval__kpi-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  min-width: 2px;
+}
+
+.team-lead-approval__kpi-bar-fill--base {
+  background: #93c5fd;
+}
+
+.team-lead-approval__kpi-bar-fill--draft {
+  background: #4f46e5;
+}
+
+.team-lead-approval__kpi-chips {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.team-lead-approval__chip {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.team-lead-approval__changes-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.team-lead-approval__changes-count {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.team-lead-approval__changes-note {
+  margin: 8px 0 12px;
+  font-size: 13px;
+}
+
+.team-lead-approval__changes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.team-lead-approval__change-item {
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.team-lead-approval__change-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-lead-approval__change-type {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-weight: 500;
+}
+
+.team-lead-approval__change-line {
+  margin: 6px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.team-lead-approval__change-comment {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+}
+
+.correction-compare-panel__limit-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.team-lead-approval__changes-table {
+  margin-top: 8px;
+}
+
+.team-lead-approval__card-delta {
+  margin: 0;
+  font-size: 14px;
 }

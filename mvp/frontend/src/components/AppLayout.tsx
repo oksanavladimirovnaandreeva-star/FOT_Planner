@@ -2,7 +2,6 @@ import { NavLink } from "react-router-dom";
 import { DemoUserCard } from "./DemoUserCard";
 import { PlanWorkspaceContext } from "./PlanWorkspaceContext";
 import {
-  BarChart3,
   CalendarRange,
   GitBranch,
   LayoutDashboard,
@@ -13,17 +12,6 @@ import { useMvpApp } from "../context/MvpAppContext";
 import { roleSettingsNavVisible, roleVersionsNavLabel } from "../data/userAccess";
 import { PLAN_SCENARIO_INCLUDES_FACT } from "../data/planScenario";
 import { HintTooltipLayer } from "./HintTooltipLayer";
-
-const NAV_BASE: {
-  to: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  end?: boolean;
-}[] = [
-  { to: "/", label: "Обзор и итого", icon: LayoutDashboard, end: true },
-  { to: "/planning", label: "Планирование", icon: CalendarRange },
-  ...(PLAN_SCENARIO_INCLUDES_FACT ? [{ to: "/analytics", label: "Аналитика", icon: BarChart3 }] : []),
-];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const {
@@ -39,9 +27,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const showSettingsNav = roleSettingsNavVisible(userRole);
   const versionsNavLabel = roleVersionsNavLabel(userRole);
   const versionsNavTo = canManagePlanVersions ? "/versions" : "/versions?tab=approval";
+
+  const overviewLabel = PLAN_SCENARIO_INCLUDES_FACT ? "Обзор и аналитика" : "Обзор";
+
   const nav = [
-    ...NAV_BASE,
     { to: versionsNavTo, label: versionsNavLabel, icon: GitBranch },
+    { to: "/planning", label: "Планирование", icon: CalendarRange },
+    { to: "/", label: overviewLabel, icon: LayoutDashboard, end: true },
   ];
 
   return (

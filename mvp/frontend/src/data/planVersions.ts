@@ -200,13 +200,13 @@ export function buildApprovalRoute(
       label: workingDraft
         ? workingDraft.label
         : quarterCorrectionLabel(nextPublishMeta.planYear, latest?.versionNumber ?? 1),
-      hint: "Правки и сдача команд в корректировке",
+      hint: "Правки и сдача команд в квартальном планировании",
       state: workingDraft ? (workingDraft.status === "IN_APPROVAL" ? "done" : "current") : primaryLocked ? "pending" : "pending",
     },
     {
       id: "approval-route",
       label: "Согласование",
-      hint: "Проверка правил по событиям черновика (вкладка «Согласование»)",
+      hint: "Проверка правил по событиям черновика (вкладка «Мой бюджет»)",
       state: workingDraft?.status === "IN_APPROVAL" ? "current" : workingDraft?.status === "DRAFT" ? "pending" : "pending",
     },
     {

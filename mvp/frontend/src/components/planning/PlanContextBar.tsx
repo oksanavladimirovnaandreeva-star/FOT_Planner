@@ -82,8 +82,8 @@ function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextL
       tone: "readonly",
       title:
         workspaceMode === "correction"
-          ? "Квартальный черновик: правки с открытого месяца"
-          : "Годовое планирование: квартальные правки — в режиме «Корректировка»",
+          ? "Квартальный черновик: правки только с открытого месяца"
+          : "Годовое планирование: квартальные правки — в «Квартальном планировании»",
     });
   } else if (!canEditPlan) {
     lines.push({
@@ -94,7 +94,7 @@ function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextL
         ? "Правки — в квартальном черновике (см. «Работаем в» в сайдбаре)."
         : canManagePlanVersions
           ? "Создайте черновик на «Версии»."
-          : "Ожидайте черновик корректировки от C&B.",
+          : "Ожидайте квартальный черновик от C&B.",
       link: canManagePlanVersions ? { to: "/versions", label: "Версии" } : undefined,
     });
   } else if (isAnnualDraft && workspaceMode === "planning" && canManagePlanVersions) {
@@ -113,16 +113,16 @@ function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextL
       id: "draft-open",
       tone: "workspace",
       title: "Квартальный черновик открыт",
-      body: "Правки с ограничением по месяцам — в «Корректировке».",
-      link: { to: planWorkspaceBasePath("correction"), label: "Корректировка" },
+      body: "Правки по квартальной версии — в «Квартальном планировании».",
+      link: { to: planWorkspaceBasePath("correction"), label: "Квартальное планирование" },
     });
   } else if (workspaceMode === "planning" && hasWorkingDraft && !isOnWorkingDraft && !isAnnualDraft) {
     lines.push({
       id: "approved-active",
       tone: "workspace",
       title: "Активна утверждённая версия",
-      body: `Квартальные события — в «Корректировке»${correctionWindow.startMonth != null ? ` с ${correctionWindow.startMonthLabel}` : ""}.`,
-      link: { to: planWorkspaceBasePath("correction"), label: "Корректировка" },
+      body: `Квартальные события — в «Квартальном планировании»${correctionWindow.startMonth != null && correctionWindow.enforced ? ` с ${correctionWindow.startMonthLabel}` : ""}.`,
+      link: { to: planWorkspaceBasePath("correction"), label: "Квартальное планирование" },
     });
   } else if (workspaceMode === "correction" && !hasWorkingDraft) {
     lines.push({
@@ -131,7 +131,7 @@ function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextL
       title: "Нет квартального черновика",
       body: canManagePlanVersions
         ? "Создайте черновик на «Версии»."
-        : "C&B создаст черновик корректировки — следите за блоком «Работаем в» в сайдбаре.",
+        : "C&B создаст квартальный черновик — следите за блоком «Работаем в» в сайдбаре.",
       link: canManagePlanVersions ? { to: "/versions", label: "Версии" } : undefined,
     });
   } else if (workspaceMode === "correction" && hasWorkingDraft && !isOnWorkingDraft) {
@@ -139,15 +139,15 @@ function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextL
       id: "open-draft",
       tone: "quarter",
       title: "Откройте квартальный черновик",
-      body: "Перейдите в корректировку — черновик подхватится автоматически.",
-      link: { to: planWorkspacePath("correction", { tab: "positions" }), label: "Корректировка" },
+      body: "Перейдите в квартальное планирование — черновик подхватится автоматически.",
+      link: { to: planWorkspacePath("correction", { tab: "positions" }), label: "Квартальное планирование" },
     });
   } else if (workspaceMode === "correction" && correctionWindow.enforced) {
     const allowed = allowedPlanMonthIndexes(correctionWindow);
     lines.push({
       id: "correction-window",
       tone: "quarter",
-      title: "Квартальная корректировка",
+      title: "Квартальное планирование",
       body:
         allowed.length > 0
           ? `${planEventMonthBlockedMessage(correctionWindow)} · ${allowed.map((m) => monthLabel(m)).join(", ")}`

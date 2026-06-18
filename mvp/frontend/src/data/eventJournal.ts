@@ -162,17 +162,56 @@ export function formatEventTableCompact(summary: PositionEventSummary): string {
   return `${summary.typeLabel} · с ${summary.change.monthLabel}${commentMark}`;
 }
 
+export function gradeProfileLabel(spec: string, level: string): string {
+  const safeSpec = spec.trim();
+  const safeLevel = level.trim();
+  if (!safeSpec && !safeLevel) return "—";
+  if (!safeSpec) return safeLevel;
+  if (!safeLevel) return safeSpec;
+  return `${safeSpec}/${safeLevel}`;
+}
+
+export function gradeChanged(
+  change: Pick<EventChangeSummary, "specBefore" | "specAfter" | "levelBefore" | "levelAfter">,
+): boolean {
+  return change.specBefore !== change.specAfter || change.levelBefore !== change.levelAfter;
+}
+
+export function salaryChanged(change: Pick<EventChangeSummary, "baseBefore" | "baseAfter">): boolean {
+  return change.baseBefore !== change.baseAfter;
+}
+
+export function formatSalaryChangeRange(change: Pick<EventChangeSummary, "baseBefore" | "baseAfter">): string {
+  return `${change.baseBefore.toLocaleString("ru-RU")} → ${change.baseAfter.toLocaleString("ru-RU")} ₽`;
+}
+
+export function formatGradeChangeRange(
+  change: Pick<EventChangeSummary, "specBefore" | "specAfter" | "levelBefore" | "levelAfter">,
+): string {
+  return `${gradeProfileLabel(change.specBefore, change.levelBefore)} → ${gradeProfileLabel(change.specAfter, change.levelAfter)}`;
+}
+
+/** Январь → декабрь в таблице позиций (как оклад «дек → дек»). */
+export function positionGradeYearRange(record: PositionRecord): {
+  before: string;
+  after: string;
+  changed: boolean;
+} {
+  const before = gradeProfileLabel(record.monthlySpec[0] ?? "", record.monthlyLevel[0] ?? "");
+  const after = gradeProfileLabel(record.monthlySpec[11] ?? "", record.monthlyLevel[11] ?? "");
+  return { before, after, changed: before !== after };
+}
+
 export function formatEventChangeLine(change: EventChangeSummary): string {
   const parts: string[] = [`с ${change.monthLabel}`];
   if (change.statusBefore !== change.statusAfter) {
     parts.push(`${change.statusBefore} → ${change.statusAfter}`);
   }
-  if (change.baseBefore !== change.baseAfter) {
-    parts.push(
-      `${change.baseBefore.toLocaleString("ru-RU")} → ${change.baseAfter.toLocaleString("ru-RU")} ₽`,
-    );
-  } else if (change.specBefore !== change.specAfter || change.levelBefore !== change.levelAfter) {
-    parts.push(`${change.specBefore}/${change.levelBefore} → ${change.specAfter}/${change.levelAfter}`);
+  if (salaryChanged(change)) {
+    parts.push(formatSalaryChangeRange(change));
+  }
+  if (gradeChanged(change)) {
+    parts.push(formatGradeChangeRange(change));
   }
   return parts.join(" · ");
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCorrectionLimitImpact } from "./planCorrectionCompare";
+import { buildCorrectionLimitImpact, buildLimitDecGrowthComparison } from "./planCorrectionCompare";
 import type { PositionRecord } from "../types";
 
 function position(partial: Partial<PositionRecord> & Pick<PositionRecord, "positionId">): PositionRecord {
@@ -59,5 +59,21 @@ describe("buildCorrectionLimitImpact", () => {
     expect(impact.limitFlagChanges).toHaveLength(1);
     expect(impact.limitFlagChanges[0].baselineFlag).toBe("IN_LIMIT");
     expect(impact.limitFlagChanges[0].draftFlag).toBe("OVER_LIMIT");
+  });
+});
+
+describe("buildLimitDecGrowthComparison", () => {
+  it("считает дек→дек по IN_LIMIT и OVER_LIMIT", () => {
+    const baseline = [
+      position({ positionId: "P1", limitFlag: "IN_LIMIT", previousDecemberBase: 100_000, monthlyBase: Array(12).fill(100_000) }),
+    ];
+    const draft = [
+      position({ positionId: "P1", limitFlag: "IN_LIMIT", previousDecemberBase: 100_000, monthlyBase: Array(12).fill(110_000) }),
+    ];
+    const rows = buildLimitDecGrowthComparison(baseline, draft);
+    const inLimit = rows.find((row) => row.limitFlag === "IN_LIMIT");
+    expect(inLimit?.baselinePct).toBe(0);
+    expect(inLimit?.draftPct).toBeCloseTo(10, 1);
+    expect(inLimit?.deltaPp).toBeCloseTo(10, 1);
   });
 });

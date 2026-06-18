@@ -1,4 +1,4 @@
-/** Маршрут рабочего пространства: годовое планирование vs квартальная корректировка. */
+/** Маршрут рабочего пространства: годовое планирование vs квартальная версия. */
 export type PlanWorkspaceMode = "planning" | "correction";
 
 export const PLAN_WORKSPACE_LABELS: Record<PlanWorkspaceMode, string> = {

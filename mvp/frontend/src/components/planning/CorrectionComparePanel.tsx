@@ -3,24 +3,22 @@ import { Link } from "react-router-dom";
 import { VersionCompareDashboard } from "../VersionCompareDashboard";
 import {
   buildCorrectionLimitImpact,
-  formatLimitImpactSummary,
+  buildLimitDecGrowthComparison,
+  formatLimitDecGrowthCell,
 } from "../../data/planCorrectionCompare";
 import type { CorrectionWindowInfo } from "../../data/planCorrectionWindow";
-import { formatDiffSummaryLine } from "../../data/planVersionDiff";
 import { LIMIT_FLAG_LABELS } from "../../data/planningData";
 import { filterPositionsByRole } from "../../data/userAccess";
-import { planWorkspaceBasePath, type PlanWorkspaceMode } from "../../data/planWorkspaceMode";
-import { useMvpApp } from "../../context/MvpAppContext";
 import { formatGrowthDelta } from "../../data/planningData";
+import { useMvpApp } from "../../context/MvpAppContext";
 
 type Props = {
-  workspaceMode: PlanWorkspaceMode;
   correctionWindow?: CorrectionWindowInfo;
 };
 
-export function CorrectionComparePanel({ workspaceMode, correctionWindow }: Props) {
+export function CorrectionComparePanel({ correctionWindow }: Props) {
   const { versionDiff, workingDraft, userRole } = useMvpApp();
-  const { rows, summary, baselinePositions, draftPositions } = versionDiff;
+  const { baselinePositions, draftPositions } = versionDiff;
 
   const scopedBaseline = useMemo(
     () => filterPositionsByRole(baselinePositions, userRole),
@@ -36,11 +34,13 @@ export function CorrectionComparePanel({ workspaceMode, correctionWindow }: Prop
     [scopedBaseline, scopedDraft],
   );
 
-  const journalBase = planWorkspaceBasePath(workspaceMode);
+  const limitDecGrowth = useMemo(
+    () => buildLimitDecGrowthComparison(scopedBaseline, scopedDraft),
+    [scopedBaseline, scopedDraft],
+  );
+
   const compareFromMonth =
-    workspaceMode === "correction" && correctionWindow?.enforced
-      ? correctionWindow.startMonth ?? undefined
-      : undefined;
+    correctionWindow?.enforced ? correctionWindow.startMonth ?? undefined : undefined;
 
   if (!workingDraft || baselinePositions.length === 0) {
     return (
@@ -60,61 +60,35 @@ export function CorrectionComparePanel({ workspaceMode, correctionWindow }: Prop
 
   return (
     <div className="correction-compare-panel">
-      <section className="card correction-compare-panel__summary">
-        <h2 className="section-title">
-          Сравнение · {summary.baselineLabel} → {summary.draftLabel}
-        </h2>
-        <p className="correction-compare-panel__diff-line">{formatDiffSummaryLine(summary)}</p>
-        <p className="correction-compare-panel__limit-line">
-          <strong>Влияние на лимит:</strong> {formatLimitImpactSummary(limitImpact)}
-        </p>
-        {compareFromMonth != null ? (
-          <p className="muted-line">
-            График помесячно: с {correctionWindow?.startMonthLabel} (окно корректировки). Годовые KPI — на весь план.
-          </p>
-        ) : null}
-        {rows.length > 0 ? (
-          <Link
-            className="secondary-btn"
-            to={`${journalBase}?tab=journal&diff=1&positions=${rows.map((row) => row.positionId).join(",")}`}
-          >
-            Журнал изменений ({rows.length} поз.)
-          </Link>
-        ) : null}
-      </section>
-
       <section className="card correction-compare-panel__limit-table">
-        <h3 className="subsection-title">Лимит: база vs черновик</h3>
+        <h2 className="section-title">Лимит: рост к декабрю</h2>
+        <p className="muted-line correction-compare-panel__limit-note">
+          Дек→дек по признакам «В лимите» и «Сверх лимита» — база vs черновик.
+        </p>
         <div className="table-scroll">
           <table className="simple-table simple-table--numeric">
             <thead>
               <tr>
                 <th>Признак</th>
-                <th>Поз. база</th>
-                <th>Поз. черновик</th>
-                <th>Δ поз.</th>
-                <th>ФОТ база</th>
-                <th>ФОТ черновик</th>
-                <th>Δ ФОТ год</th>
+                <th>База</th>
+                <th>Черновик</th>
+                <th>Δ п.п.</th>
+                <th>Поз.</th>
               </tr>
             </thead>
             <tbody>
-              {limitImpact.byLimit.map((row) => (
+              {limitDecGrowth.map((row) => (
                 <tr key={row.limitFlag}>
                   <td>
                     <span className={`limit-flag-badge limit-flag-badge--${row.limitFlag}`}>{row.label}</span>
                   </td>
-                  <td>{row.baselineHeadcount}</td>
-                  <td>{row.draftHeadcount}</td>
-                  <td className={row.headcountDelta > 0 ? "delta-cell--up" : row.headcountDelta < 0 ? "delta-cell--down" : ""}>
-                    {row.headcountDelta > 0 ? "+" : ""}
-                    {row.headcountDelta}
+                  <td>{formatLimitDecGrowthCell(row.baselineDecPrev, row.baselineDecPlan, row.baselinePct)}</td>
+                  <td>{formatLimitDecGrowthCell(row.draftDecPrev, row.draftDecPlan, row.draftPct)}</td>
+                  <td className={row.deltaPp > 0 ? "delta-cell--up" : row.deltaPp < 0 ? "delta-cell--down" : ""}>
+                    {row.deltaPp >= 0 ? "+" : ""}
+                    {row.deltaPp.toFixed(1)} п.п.
                   </td>
-                  <td>{Math.round(row.baselineAnnualFot).toLocaleString("ru-RU")}</td>
-                  <td>{Math.round(row.draftAnnualFot).toLocaleString("ru-RU")}</td>
-                  <td className={row.fotDelta > 0 ? "delta-cell--up" : row.fotDelta < 0 ? "delta-cell--down" : ""}>
-                    {formatGrowthDelta(row.fotDelta)}
-                  </td>
+                  <td>{row.positionCount}</td>
                 </tr>
               ))}
             </tbody>
@@ -168,8 +142,8 @@ export function CorrectionComparePanel({ workspaceMode, correctionWindow }: Prop
       ) : null}
 
       <VersionCompareDashboard
-        baselineLabel={summary.baselineLabel}
-        draftLabel={summary.draftLabel}
+        baselineLabel={versionDiff.summary.baselineLabel}
+        draftLabel={versionDiff.summary.draftLabel}
         baselinePositions={scopedBaseline}
         draftPositions={scopedDraft}
         compareFromMonth={compareFromMonth}

@@ -184,9 +184,9 @@ export function roleCanEditSalaryCatalog(role: UserRole): boolean {
   return role === "cb_admin";
 }
 
-/** Пункт «Версии» в навигации — C&B управляет версиями, остальные — согласование. */
+/** Пункт «Версии» / «Мой бюджет» в навигации. */
 export function roleVersionsNavLabel(role: UserRole): string {
-  return roleCanManageVersions(role) ? "Версии" : "Согласование";
+  return roleCanManageVersions(role) ? "Версии" : "Мой бюджет";
 }
 
 /** Переключатель всех версий в сайдбаре — только C&B. */

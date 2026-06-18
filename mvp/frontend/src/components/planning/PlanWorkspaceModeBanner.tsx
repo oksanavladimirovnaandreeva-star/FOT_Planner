@@ -27,8 +27,8 @@ export function PlanWorkspaceModeBanner({
       <div className="plan-policy-banner plan-policy-banner--workspace" role="status">
         <strong>Квартальный черновик открыт</strong>
         <span>
-          Правки с ограничением по месяцам — в разделе{" "}
-          <Link to={planWorkspaceBasePath("correction")}>Корректировка</Link>. Здесь — просмотр и годовой контекст.
+          Правки по квартальной версии — в разделе{" "}
+          <Link to={planWorkspaceBasePath("correction")}>Квартальное планирование</Link>. Здесь — просмотр и годовой контекст.
         </span>
       </div>
     );
@@ -40,8 +40,8 @@ export function PlanWorkspaceModeBanner({
         <strong>Активна утверждённая версия</strong>
         <span>
           Квартальные события — в{" "}
-          <Link to={planWorkspaceBasePath("correction")}>Корректировке</Link>
-          {correctionWindow.startMonth != null
+          <Link to={planWorkspaceBasePath("correction")}>квартальном планировании</Link>
+          {correctionWindow.startMonth != null && correctionWindow.enforced
             ? ` (с ${correctionWindow.startMonthLabel})`
             : ""}
           .
@@ -79,7 +79,7 @@ export function PlanWorkspaceModeBanner({
     const allowed = allowedPlanMonthIndexes(correctionWindow);
     return (
       <div className="plan-policy-banner plan-policy-banner--quarter" role="status">
-        <strong>Квартальная корректировка</strong>
+        <strong>Квартальное планирование</strong>
         <span>{planEventMonthBlockedMessage(correctionWindow)}</span>
         {allowed.length > 0 ? (
           <span className="muted-line">Месяцы для событий: {allowed.map((m) => monthLabel(m)).join(", ")}</span>

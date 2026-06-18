@@ -1,6 +1,21 @@
 import type { PlanVersionMeta } from "./planVersions";
 import { isBudgetLocked, primaryBudgetVersion } from "./planVersions";
 
+/** C&B: кнопка «Создать квартальный черновик» — не зависит от canEditPlan (на утверждённой v1 правок нет). */
+export function canCreateQuarterlyWorkingDraft(input: {
+  canManagePlanVersions: boolean;
+  latestApproved: PlanVersionMeta | null;
+  primaryBudget: PlanVersionMeta | null;
+  workingDraft: PlanVersionMeta | null;
+}): boolean {
+  const { canManagePlanVersions, latestApproved, primaryBudget, workingDraft } = input;
+  if (!canManagePlanVersions) return false;
+  if (!latestApproved || !primaryBudget) return false;
+  if (!isBudgetLocked(primaryBudget)) return false;
+  if (workingDraft) return false;
+  return true;
+}
+
 export function hasPublishedCorrections(versions: PlanVersionMeta[]): boolean {
   return versions.some(
     (version) =>
@@ -24,13 +39,13 @@ export function canReopenPrimaryBudget(versions: PlanVersionMeta[]): { ok: true 
   if (hasPublishedCorrections(versions)) {
     return {
       ok: false,
-      error: "Есть утверждённые корректировки (v2+). Откат годового бюджета недоступен.",
+      error: "Есть утверждённые квартальные версии (v2+). Откат годового бюджета недоступен.",
     };
   }
   if (findWorkingDraft(versions)) {
     return {
       ok: false,
-      error: "Сначала удалите черновик корректировки на вкладке «Версии бюджета».",
+      error: "Сначала удалите квартальный черновик на вкладке «Версии бюджета».",
     };
   }
   return { ok: true };

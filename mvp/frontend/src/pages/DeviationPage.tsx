@@ -97,8 +97,7 @@ export function DeviationPage({ embedded = false }: { embedded?: boolean }) {
         <section className="card">
           <h2 className="section-title">Почему отклонение</h2>
           <p className="muted-line">
-            Разбор YTD по сценариям: вакансии, найм дешевле/дороже, занятость. Только аналитика — не задачи на
-            корректировку.
+            Разбор YTD по сценариям: вакансии, найм дешевле/дороже, занятость. Только аналитика — не задачи на планирование.
           </p>
           <div className="table-scroll">
             <table className="simple-table simple-table--numeric">
@@ -253,7 +252,7 @@ export function DeviationPage({ embedded = false }: { embedded?: boolean }) {
           </li>
           <li>Экономия в отчёте — не триггер автокорректировки.</li>
           <li>
-            Квартальные правки — <Link to="/planning?mode=correction">Корректировка</Link>, вручную.
+            Квартальные правки — <Link to="/planning?mode=correction">Квартальное планирование</Link>, вручную.
           </li>
         </ul>
       </section>
