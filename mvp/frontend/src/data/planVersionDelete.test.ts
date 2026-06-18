@@ -3,9 +3,16 @@ import { buildWorkingDraftMeta, initialPlanVersions, type PlanVersionMeta } from
 import { canDeletePlanVersion, deletePlanVersionState } from "./planVersionDelete";
 
 describe("planVersionDelete", () => {
-  it("blocks deleting the only version", () => {
+  it("allows resetting the only version", () => {
     const versions = initialPlanVersions(2026);
-    expect(canDeletePlanVersion(versions[0].id, versions).ok).toBe(false);
+    expect(canDeletePlanVersion(versions[0].id, versions).ok).toBe(true);
+    const result = deletePlanVersionState(versions[0].id, versions, { [versions[0].id]: [] }, versions[0].id);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.versions).toHaveLength(1);
+      expect(result.versions[0].label).toBe("Бюджет 2026");
+      expect(result.versions[0].status).toBe("DRAFT");
+    }
   });
 
   it("allows deleting working draft when another approved exists", () => {

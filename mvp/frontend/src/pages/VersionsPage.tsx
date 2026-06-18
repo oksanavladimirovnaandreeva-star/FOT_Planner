@@ -1,27 +1,31 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
-import { VersionCompareDashboard } from "../components/VersionCompareDashboard";
 import { CorrectionComparePanel } from "../components/planning/CorrectionComparePanel";
 import { PlanApprovalPanel } from "../components/planning/PlanApprovalPanel";
 import { formatApprovalSubmitConfirm } from "../data/planApprovalRules";
 import { resolveCorrectionWindow } from "../data/planCorrectionWindow";
 import { formatDiffSummaryLine } from "../data/planVersionDiff";
-import { planVersionStatusUiLabel } from "../data/planVersionDisplay";
+import {
+  formatApprovePrimaryBudgetConfirm,
+  formatReopenPrimaryBudgetConfirm,
+  formatPlanVersionTitle,
+  planVersionStatusUiLabel,
+} from "../data/planVersionDisplay";
 import { isBudgetLocked } from "../data/planVersions";
+import { canReopenPrimaryBudget } from "../data/planVersionLifecycle";
 import { canDeletePlanVersion } from "../data/planVersionDelete";
+import { publishSubmissionHint } from "../data/teamSubmissionStore";
 import { useMvpApp } from "../context/MvpAppContext";
-import { ConsolidationPage } from "./ConsolidationPage";
 import type { UserRole } from "../data/userAccess";
 import { planWorkspacePath } from "../data/planWorkspaceMode";
 
-const CONSOLIDATION_ROLES: UserRole[] = ["cb_admin", "gd", "director", "unit_lead", "team_lead"];
+const LEAD_ROLES: UserRole[] = ["cb_admin", "gd", "director", "unit_lead", "team_lead"];
 
-type VersionsTab = "versions" | "consolidation" | "approval" | "compare";
+type VersionsTab = "versions" | "approval" | "compare";
 
 function parseVersionsTab(value: string | null): VersionsTab {
-  if (value === "consolidation") return "consolidation";
-  if (value === "approval") return "approval";
+  if (value === "approval" || value === "consolidation") return "approval";
   if (value === "compare") return "compare";
   return "versions";
 }
@@ -49,9 +53,24 @@ export function VersionsPage() {
     deletePlanVersion,
     versionDiff,
     userRole,
+    reopenPrimaryBudget,
   } = useMvpApp();
 
-  const showConsolidation = CONSOLIDATION_ROLES.includes(userRole);
+  const showApprovalTab = LEAD_ROLES.includes(userRole);
+
+  useEffect(() => {
+    if (canManagePlanVersions) return;
+    if (tab === "versions") {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          params.set("tab", "approval");
+          return params;
+        },
+        { replace: true },
+      );
+    }
+  }, [canManagePlanVersions, tab, setSearchParams]);
 
   const correctionWindow = useMemo(
     () => resolveCorrectionWindow(activePlan, primaryBudget, { workspaceMode: "correction" }),
@@ -70,7 +89,7 @@ export function VersionsPage() {
     );
   };
 
-  const { rows, summary, baselinePositions, draftPositions } = versionDiff;
+  const { rows, summary } = versionDiff;
   const firstVersionLocked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
   const canApproveFirstVersion = primaryBudget && !firstVersionLocked && canManagePlanVersions && canEditPlan;
   const canCreateDraft = Boolean(latestApproved && firstVersionLocked && !workingDraft && canManagePlanVersions && canEditPlan);
@@ -78,6 +97,8 @@ export function VersionsPage() {
     canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
   const canPublish =
     canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "IN_APPROVAL";
+  const canReopenBudget =
+    canManagePlanVersions && primaryBudget ? canReopenPrimaryBudget(planVersions).ok : false;
 
   const handleOpenVersion = (id: string, goPlanning = false) => {
     const result = openVersion(id);
@@ -101,10 +122,22 @@ export function VersionsPage() {
   };
 
   const handleApproveV1 = () => {
-    const confirmed = window.confirm("Утвердить Версию 1? После этого правки только через квартальный черновик.");
+    if (!primaryBudget) return;
+    const confirmed = window.confirm(formatApprovePrimaryBudgetConfirm(primaryBudget));
     if (!confirmed) return;
     const result = approvePrimaryBudget();
     if (!result.ok) window.alert(result.error);
+  };
+
+  const handleReopenBudget = () => {
+    if (!primaryBudget) return;
+    if (!window.confirm(formatReopenPrimaryBudgetConfirm(primaryBudget))) return;
+    const result = reopenPrimaryBudget();
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    navigate("/planning");
   };
 
   const handleSubmitApproval = () => {
@@ -115,8 +148,10 @@ export function VersionsPage() {
   };
 
   const handlePublish = () => {
-    const confirmed = window.confirm("Создать следующую утверждённую версию из черновика?");
-    if (!confirmed) return;
+    const hint = workingDraft ? publishSubmissionHint(workingDraft.id) : null;
+    const lines = ["Создать следующую утверждённую версию из черновика?"];
+    if (hint) lines.push("", hint);
+    if (!window.confirm(lines.join("\n"))) return;
     const result = publishWorkingDraft();
     if (!result.ok) {
       window.alert(result.error);
@@ -132,8 +167,11 @@ export function VersionsPage() {
       window.alert(policy.error);
       return;
     }
+    const isReset = planVersions.length <= 1;
     const confirmed = window.confirm(
-      `Удалить версию «${label}»?\n\nДанные позиций этой версии будут удалены из браузера. Действие необратимо.`,
+      isReset
+        ? `Сбросить «${label}»?\n\nВерсия вернётся в черновик. Позиции сохранятся, статус утверждения сбросится.`
+        : `Удалить «${label}»?\n\nДанные позиций этой версии будут удалены из браузера. Действие необратимо.`,
     );
     if (!confirmed) return;
     const result = deletePlanVersion(versionId);
@@ -144,29 +182,37 @@ export function VersionsPage() {
     window.alert(`Версия «${result.deletedLabel}» удалена.`);
   };
 
+  const approveButtonLabel = primaryBudget
+    ? `Утвердить · ${formatPlanVersionTitle(primaryBudget)}`
+    : "Утвердить бюджет";
+
   return (
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
         <div>
-          <h1>Версии и согласование</h1>
-          <p className="content-page__lead">
-            Жизненный цикл: Версия 1 → утверждение → квартальный черновик → согласование → следующая версия. События по позициям — в{" "}
-            <Link to="/audit">аудите</Link>, правки — в <Link to="/planning">планировании</Link>.
-          </p>
+          <h1>{canManagePlanVersions ? "Версии" : "Согласование"}</h1>
+          {!canManagePlanVersions ? null : tab === "approval" && !workingDraft && firstVersionLocked ? (
+            <p className="muted-line">Утверждённый бюджет готов — создайте квартальный черновик для сдачи команд.</p>
+          ) : null}
         </div>
-        {tab === "versions" ? (
+        {((tab === "versions" && canManagePlanVersions) || (tab === "approval" && canManagePlanVersions && (canCreateDraft || canApproveFirstVersion))) ? (
         <div className="versions-page__actions">
           {canApproveFirstVersion ? (
             <button type="button" className="primary-btn" onClick={handleApproveV1}>
-              Утвердить Версию 1
+              {approveButtonLabel}
+            </button>
+          ) : null}
+          {tab === "versions" && canReopenBudget ? (
+            <button type="button" className="secondary-btn" onClick={handleReopenBudget}>
+              Открыть бюджет для правок
             </button>
           ) : null}
           {canCreateDraft ? (
             <button type="button" className="primary-btn" onClick={handleCreateDraft}>
-              Создать квартальный черновик
+              Создать · 1 Квартал {primaryBudget?.planYear ?? 2026}
             </button>
           ) : null}
-          {workingDraft ? (
+          {tab === "versions" && workingDraft ? (
             <button
               type="button"
               className="secondary-btn"
@@ -175,7 +221,7 @@ export function VersionsPage() {
                 navigate(planWorkspacePath("correction"));
               }}
             >
-              Открыть в корректировке
+              Открыть черновик
             </button>
           ) : null}
           {canSubmitApproval ? (
@@ -193,6 +239,7 @@ export function VersionsPage() {
       </header>
 
       <nav className="planning-workspace-tabs" aria-label="Разделы версий">
+        {canManagePlanVersions ? (
         <button
           type="button"
           className={`planning-workspace-tabs__btn${tab === "versions" ? " planning-workspace-tabs__btn--active" : ""}`}
@@ -200,22 +247,16 @@ export function VersionsPage() {
         >
           Версии бюджета
         </button>
-        {showConsolidation ? (
+        ) : null}
+        {showApprovalTab ? (
           <button
             type="button"
-            className={`planning-workspace-tabs__btn${tab === "consolidation" ? " planning-workspace-tabs__btn--active" : ""}`}
-            onClick={() => setTab("consolidation")}
+            className={`planning-workspace-tabs__btn${tab === "approval" ? " planning-workspace-tabs__btn--active" : ""}`}
+            onClick={() => setTab("approval")}
           >
-            Ход планирования
+            Согласование и сдача
           </button>
         ) : null}
-        <button
-          type="button"
-          className={`planning-workspace-tabs__btn${tab === "approval" ? " planning-workspace-tabs__btn--active" : ""}`}
-          onClick={() => setTab("approval")}
-        >
-          Согласование
-        </button>
         {workingDraft ? (
           <button
             type="button"
@@ -227,9 +268,7 @@ export function VersionsPage() {
         ) : null}
       </nav>
 
-      {tab === "consolidation" && showConsolidation ? <ConsolidationPage embedded /> : null}
-
-      {tab === "approval" ? (
+      {tab === "approval" && showApprovalTab ? (
         <section className="planning-workspace-panel planning-workspace-panel--approval">
           <PlanApprovalPanel />
         </section>
@@ -239,7 +278,7 @@ export function VersionsPage() {
         <CorrectionComparePanel workspaceMode="correction" correctionWindow={correctionWindow} />
       ) : null}
 
-      {tab === "versions" ? (
+      {tab === "versions" && canManagePlanVersions ? (
       <>
       <section className="version-approval-route">
         <h2 className="version-approval-route__title">Маршрут</h2>
@@ -314,49 +353,44 @@ export function VersionsPage() {
         </table>
       </section>
 
-      {workingDraft && baselinePositions.length > 0 ? (
-        <>
-          <VersionCompareDashboard
-            baselineLabel={summary.baselineLabel}
-            draftLabel={summary.draftLabel}
-            baselinePositions={baselinePositions}
-            draftPositions={draftPositions}
-          />
-          <section className="versions-page__changes card">
-            <h2>Сводка diff</h2>
-            <p className="versions-page__summary">{formatDiffSummaryLine(summary)}</p>
-            {rows.length === 0 ? (
-              <p className="muted-text">Нет отличий от базы.</p>
-            ) : (
-              <div className="versions-page__audit-cta">
-                <p className="muted-text">
-                  Детализация по событиям (месяц, статус, оклад, комментарии) — в аудите, не дублируем таблицу здесь.
-                </p>
-                <Link className="primary-btn" to="/versions?tab=compare">
-                  Сравнение и лимит
-                </Link>
-                <Link
-                  className="secondary-btn"
-                  to={planWorkspacePath("correction", {
-                    tab: "journal",
-                    diff: "1",
-                    positions: rows.map((row) => row.positionId).join(","),
-                  })}
-                >
-                  Журнал ({rows.length} поз.)
-                </Link>
-              </div>
-            )}
-          </section>
-        </>
+      {workingDraft && rows.length > 0 ? (
+        <section className="versions-page__changes card">
+          <h2>Сводка изменений</h2>
+          <p className="versions-page__summary">{formatDiffSummaryLine(summary)}</p>
+          <div className="versions-page__audit-cta">
+            <Link className="primary-btn" to="/versions?tab=compare">
+              Сравнение и лимит
+            </Link>
+            <Link
+              className="secondary-btn"
+              to={planWorkspacePath("correction", {
+                tab: "journal",
+                diff: "1",
+                positions: rows.map((row) => row.positionId).join(","),
+              })}
+            >
+              Журнал ({rows.length} поз.)
+            </Link>
+          </div>
+        </section>
+      ) : workingDraft ? (
+        <section className="versions-page__empty card">
+          <p>Черновик без отличий от базы.</p>
+        </section>
       ) : (
         <section className="versions-page__empty card">
-          {firstVersionLocked ? (
-            <p>Создайте квартальный черновик от {latestApproved?.label}, чтобы сравнить и править план.</p>
+          {firstVersionLocked && primaryBudget ? (
+            <p>
+              Создайте квартальный черновик от {formatPlanVersionTitle(primaryBudget)}, чтобы сравнить и править план.
+            </p>
+          ) : primaryBudget ? (
+            <p>
+              Сначала утвердите {formatPlanVersionTitle(primaryBudget)} или правьте на{" "}
+              <Link to="/planning">планировании</Link>.
+            </p>
           ) : (
             <p>
-              Сначала утвердите Версию 1 или правьте её на{" "}
-              <Link to="/planning">планировании</Link>.
+              Сначала утвердите бюджет или правьте на <Link to="/planning">планировании</Link>.
             </p>
           )}
         </section>

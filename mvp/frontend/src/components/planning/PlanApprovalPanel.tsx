@@ -1,12 +1,8 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { VersionCompareDashboard } from "../VersionCompareDashboard";
-import { formatDiffSummaryLine } from "../../data/planVersionDiff";
-import {
-  APPROVAL_RULE_DEFINITIONS,
-  formatApprovalSubmitConfirm,
-} from "../../data/planApprovalRules";
-import { isBudgetLocked, PLAN_VERSION_STATUS_LABELS } from "../../data/planVersions";
+import { APPROVAL_RULE_DEFINITIONS } from "../../data/planApprovalRules";
+import { formatCorrectionCycleBadge, formatPlanVersionTitle } from "../../data/planVersionDisplay";
+import { PLAN_VERSION_STATUS_LABELS } from "../../data/planVersions";
 import { useMvpApp } from "../../context/MvpAppContext";
 import {
   applySubmissionAction,
@@ -20,8 +16,8 @@ import {
   submissionPhaseLabel,
   type SubmissionWorkflowAction,
 } from "../../data/submissionWorkflowPolicy";
-import { demoRoleScope, type UserRole } from "../../data/userAccess";
-import { planWorkspacePath } from "../../data/planWorkspaceMode";
+import { demoRoleActorOrg, type UserRole } from "../../data/userAccess";
+import { ConsolidationPage } from "../../pages/ConsolidationPage";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   cb_admin: "C&B",
@@ -53,22 +49,15 @@ const WORKFLOW_ACTIONS: SubmissionWorkflowAction[] = [
 
 function actorOrgScope(role: UserRole) {
   if (role === "director") {
-    const scope = demoRoleScope("director");
-    return { department: scope.department, unit: null as string | null, team: null as string | null };
+    return demoRoleActorOrg("director");
   }
   if (role === "unit_lead") {
-    const scope = demoRoleScope("unit_lead");
-    return { department: scope.department, unit: scope.unit ?? null, team: null as string | null };
+    return demoRoleActorOrg("unit_lead");
   }
   if (role === "team_lead") {
-    const scope = demoRoleScope("team_lead");
-    return {
-      department: scope.department,
-      unit: scope.unit ?? null,
-      team: scope.team ?? null,
-    };
+    return demoRoleActorOrg("team_lead");
   }
-  return { department: undefined, unit: null as string | null, team: null as string | null };
+  return { departments: [], units: [], teams: [] };
 }
 
 export function PlanApprovalPanel() {
@@ -77,30 +66,14 @@ export function PlanApprovalPanel() {
     canEditPlan,
     canManagePlanVersions,
     workingDraft,
-    latestApproved,
-    primaryBudget,
-    approvalRoute,
-    versionDiff,
     draftApprovalCheck,
-    createWorkingDraft,
-    publishWorkingDraft,
-    approvePrimaryBudget,
-    submitDraftForApproval,
-    openVersion,
     userRole,
     refreshTeamSubmissions,
     teamSubmissionRevision,
   } = useMvpApp();
 
-  const { rows, summary, baselinePositions, draftPositions } = versionDiff;
-  const firstVersionLocked = primaryBudget ? isBudgetLocked(primaryBudget) : false;
-  const canApproveFirstVersion = primaryBudget && !firstVersionLocked && canManagePlanVersions && canEditPlan;
-  const canCreateDraft = Boolean(latestApproved && firstVersionLocked && !workingDraft && canManagePlanVersions && canEditPlan);
-  const canSubmitApproval =
-    canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "DRAFT";
-  const canPublish =
-    canManagePlanVersions && canEditPlan && activePlan.kind === "WORKING_DRAFT" && activePlan.status === "IN_APPROVAL";
   const canManageSubmissionWorkflow = userRole !== "viewer";
+  const showApprovalReference = userRole === "cb_admin" || userRole === "gd" || userRole === "director";
   const triggeredRules = draftApprovalCheck.triggered;
   const triggeredRuleIds = new Set(triggeredRules.map((rule) => rule.id));
   const inactiveRules = APPROVAL_RULE_DEFINITIONS.filter((rule) => !triggeredRuleIds.has(rule.id));
@@ -112,22 +85,6 @@ export function PlanApprovalPanel() {
   }, [workingDraft, teamSubmissionRevision]);
 
   const submissionProgress = useMemo(() => summarizeSubmissionProgress(submissionRows), [submissionRows]);
-
-  const handleCreateDraft = () => {
-    const result = createWorkingDraft(latestApproved?.id);
-    if (!result.ok) {
-      window.alert(result.error);
-      return;
-    }
-    openVersion(result.draftId);
-  };
-
-  const handleSubmitApproval = () => {
-    const confirmText = formatApprovalSubmitConfirm(draftApprovalCheck);
-    if (confirmText && !window.confirm(confirmText)) return;
-    const result = submitDraftForApproval();
-    if (!result.ok) window.alert(result.error);
-  };
 
   const updateSubmissionWorkflow = (
     action: SubmissionWorkflowAction,
@@ -167,60 +124,24 @@ export function PlanApprovalPanel() {
   };
 
   const actorScope = actorOrgScope(userRole);
+  const cycleBadge = formatCorrectionCycleBadge(activePlan);
 
   return (
     <div className="plan-approval-panel">
       <section className="approval-control-tower card">
         <div className="approval-control-tower__head">
           <div>
-            <h2 className="section-title">Control Tower</h2>
+            <h2 className="section-title">Согласование</h2>
             <p className="muted-line">
-              <strong>{activePlan.label}</strong> · {PLAN_VERSION_STATUS_LABELS[activePlan.status]}
+              <strong>{cycleBadge}</strong> · {formatPlanVersionTitle(activePlan)} · {PLAN_VERSION_STATUS_LABELS[activePlan.status]}
               {!canEditPlan ? " · только просмотр" : ""}
             </p>
           </div>
-          <div className="approval-control-tower__actions">
-            {canApproveFirstVersion ? (
-              <button
-                type="button"
-                className="primary-btn"
-                onClick={() => {
-                  if (!window.confirm("Утвердить Версию 1?")) return;
-                  const result = approvePrimaryBudget();
-                  if (!result.ok) window.alert(result.error);
-                }}
-              >
-                Утвердить Версию 1
-              </button>
-            ) : null}
-            {canCreateDraft ? (
-              <button type="button" className="primary-btn" onClick={handleCreateDraft}>
-                Создать черновик
-              </button>
-            ) : null}
-            {canSubmitApproval ? (
-              <button type="button" className="secondary-btn" onClick={handleSubmitApproval}>
-                На согласование
-              </button>
-            ) : null}
-            {canPublish ? (
-              <button
-                type="button"
-                className="primary-btn"
-                onClick={() => {
-                  if (!window.confirm("Опубликовать следующую версию из черновика?")) return;
-                  const result = publishWorkingDraft();
-                  if (!result.ok) window.alert(result.error);
-                  else window.alert(`Создана ${result.versionLabel}.`);
-                }}
-              >
-                Опубликовать
-              </button>
-            ) : null}
+          {canManagePlanVersions ? (
             <Link className="secondary-btn" to="/versions">
-              Реестр
+              Версии и публикация
             </Link>
-          </div>
+          ) : null}
         </div>
 
         <div className="approval-control-tower__kpi versions-page__kpi-grid">
@@ -237,14 +158,9 @@ export function PlanApprovalPanel() {
             </span>
           </article>
           <article className={`approval-kpi${triggeredRules.length > 0 ? " approval-kpi--warn" : ""}`}>
-            <span className="approval-kpi__label">Исключения C&B</span>
+            <span className="approval-kpi__label">Нужен C&B</span>
             <strong className="approval-kpi__value">{triggeredRules.length}</strong>
-            <span className="approval-kpi__hint">правил маршрута</span>
-          </article>
-          <article className="approval-kpi">
-            <span className="approval-kpi__label">Δ черновика</span>
-            <strong className="approval-kpi__value">{rows.length}</strong>
-            <span className="approval-kpi__hint">позиций vs база</span>
+            <span className="approval-kpi__hint">особых случаев</span>
           </article>
         </div>
 
@@ -264,31 +180,15 @@ export function PlanApprovalPanel() {
         ) : null}
       </section>
 
-      <ol className="plan-approval-stepper plan-approval-stepper--rail">
-        {approvalRoute.map((step, index) => (
-          <li
-            key={step.id}
-            className={`plan-approval-stepper__step plan-approval-stepper__step--${step.state}`}
-          >
-            <span className="plan-approval-stepper__index">{index + 1}</span>
-            <div>
-              <strong>{step.label}</strong>
-              <p>{step.hint}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <section className="card approval-consolidation-embed">
+        <ConsolidationPage embedded />
+      </section>
 
       {workingDraft ? (
         <section className="card approval-teams-queue">
-          <div className="approval-teams-queue__head">
-            <h3 className="section-title">Очередь команд</h3>
-            <Link className="secondary-btn approval-teams-queue__link" to="/versions?tab=consolidation">
-              Ход планирования
-            </Link>
-          </div>
+          <h3 className="section-title">Очередь команд</h3>
           {submissionRows.length === 0 ? (
-            <p className="muted-line">Записей пока нет. Сдача начинается на вкладке «Ход планирования».</p>
+            <p className="muted-line">Записей пока нет — сдача начинается в блоке «Ход планирования» выше.</p>
           ) : (
             <div className="table-scroll">
               <table className="simple-table approval-teams-table">
@@ -305,9 +205,9 @@ export function PlanApprovalPanel() {
                     const actions = WORKFLOW_ACTIONS.filter((action) =>
                       canRolePerformSubmissionAction(action, {
                         actorRole: userRole,
-                        actorDepartment: actorScope.department,
-                        actorUnit: actorScope.unit,
-                        actorTeam: actorScope.team,
+                        actorDepartments: actorScope.departments,
+                        actorUnits: actorScope.units,
+                        actorTeams: actorScope.teams,
                         targetDepartment: row.department,
                         targetUnit: row.unit,
                         targetTeam: row.team,
@@ -358,11 +258,25 @@ export function PlanApprovalPanel() {
         </section>
       ) : null}
 
+      {triggeredRules.length > 0 ? (
+        <section className="card plan-approval-panel__cb-alert" role="status">
+          <h3 className="section-title">Требует внимания C&B</h3>
+          <ul className="plan-approval-panel__rules-matches">
+            {triggeredRules.flatMap((triggered) => {
+              const rule = APPROVAL_RULE_DEFINITIONS.find((item) => item.id === triggered.id);
+              return triggered.matches.map((match) => (
+                <li key={`${triggered.id}-${match.positionId}-${match.eventId ?? match.summary}`}>
+                  <strong>{rule?.title ?? triggered.id}</strong> — {match.summary}
+                </li>
+              ));
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {showApprovalReference ? (
       <section className="card plan-approval-panel__rules">
         <h3 className="section-title">Исключения маршрута C&B</h3>
-        <p className="muted-line">
-          Сработавшие правила по событиям черновика. При отправке на согласование потребуется подтверждение.
-        </p>
         {triggeredRules.length === 0 ? (
           <p className="muted-line plan-approval-panel__rules-ok">Исключений нет — стандартный маршрут.</p>
         ) : (
@@ -401,42 +315,9 @@ export function PlanApprovalPanel() {
           </details>
         ) : null}
       </section>
+      ) : null}
 
-      {workingDraft && baselinePositions.length > 0 ? (
-        <section className="plan-approval-panel__diff card">
-          <div className="plan-approval-panel__diff-head">
-            <h3 className="section-title">Сравнение с базой</h3>
-            {rows.length > 0 ? (
-              <Link
-                className="secondary-btn"
-                to={planWorkspacePath("correction", {
-                  tab: "journal",
-                  diff: "1",
-                  positions: rows.map((row) => row.positionId).join(","),
-                })}
-              >
-                Журнал ({rows.length})
-              </Link>
-            ) : null}
-          </div>
-          <VersionCompareDashboard
-            baselineLabel={summary.baselineLabel}
-            draftLabel={summary.draftLabel}
-            baselinePositions={baselinePositions}
-            draftPositions={draftPositions}
-          />
-          <p className="muted-line">{formatDiffSummaryLine(summary)}</p>
-        </section>
-      ) : (
-        <section className="card">
-          <p className="muted-line">
-            {firstVersionLocked
-              ? "Создайте квартальный черновик, чтобы сравнить с базой и отправить на согласование."
-              : "Сначала утвердите Версию 1."}
-          </p>
-        </section>
-      )}
-
+      {showApprovalReference ? (
       <details className="card plan-approval-panel__matrix-details">
         <summary className="section-title">Матрица прав по этапам (MVP)</summary>
         <p className="muted-line">Ориентир frontend-guards для workflow-сдачи команд.</p>
@@ -469,6 +350,7 @@ export function PlanApprovalPanel() {
           </table>
         </div>
       </details>
+      ) : null}
     </div>
   );
 }

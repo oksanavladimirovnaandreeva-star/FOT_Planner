@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { PlanContextBar } from "../components/planning/PlanContextBar";
+import { PlanIndexationBanner } from "../components/planning/PlanIndexationBanner";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
 import { MassIndexationCompact } from "../components/planning/MassIndexationCompact";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
@@ -33,7 +34,6 @@ import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults } from "
 import {
   annualTotal,
   applyEvents,
-  applyExistingIndexationBatches,
   collectIndexationBatchesFromPositions,
   decToDec,
   departmentOptions,
@@ -46,6 +46,7 @@ import {
   LIMIT_FLAG_LABELS,
   monthLabel,
   normalizeOrgPath,
+  removeIndexationBatchFromPositions,
   teamOptions,
   unitOptions,
   upsertEvent,
@@ -65,7 +66,6 @@ import { ExportCsvActions } from "../components/ExportCsvActions";
 import { PositionIdentityCell } from "../components/planning/PositionIdentityCell";
 import { PositionDrawer } from "../components/PositionDrawer";
 import { formatCrCoefficient } from "../data/positionDisplay";
-import { WorkflowHint } from "../components/WorkflowHint";
 import type { PlannedEvent, PositionRecord, SalaryRangeBand, EventType } from "../types";
 import { MONTHS } from "../types";
 
@@ -323,7 +323,7 @@ export function PlanningPage() {
     setAddSlotOpen(true);
   }, [pendingAddSlot, canEditWorkspace, allPositions]);
 
-  const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(positions), [positions]);
+  const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(allPositions), [allPositions]);
   const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
   const planPositionsForDrawer = useMemo(
     () => mergePlanPositionsWithDraft(positions, active),
@@ -490,17 +490,19 @@ export function PlanningPage() {
       blockEdit();
       return;
     }
-    const confirmed = window.confirm("Удалить факт массовой индексации для всех затронутых позиций?");
-    if (!confirmed) return;
-    setPositions((prev) =>
-      prev.map((position) => ({
-        ...position,
-        events: position.events.filter(
-          (event) => !(event.type === "INDEXATION" && event.payload.indexationBatchId === batchId),
-        ),
-      })),
+    if (!canMassIndexation) {
+      window.alert("Удаление пакетов индексации доступно только C&B.");
+      return;
+    }
+    const batch = indexationBatches.find((item) => item.id === batchId);
+    const confirmed = window.confirm(
+      batch
+        ? `Удалить индексацию +${batch.percent}% с ${monthLabel(batch.month)} (${batch.affectedCount} поз.) и откатить оклады?`
+        : "Удалить пакет индексации и откатить оклады по всем затронутым позициям?",
     );
-    showBulkFeedback("success", "Факт массовой индексации удалён.");
+    if (!confirmed) return;
+    setPositions((prev) => removeIndexationBatchFromPositions(prev, batchId));
+    showBulkFeedback("success", "Пакет индексации удалён, оклады пересчитаны.");
   };
 
   const saveDraftPosition = (updated: PositionRecord, sourcePositionId?: string, forceCreate = false) => {
@@ -510,19 +512,18 @@ export function PlanningPage() {
     }
     const sourceId = sourcePositionId ?? updated.positionId;
     const recalculated = applyEvents(updated);
-    const withIndexation = forceCreate ? applyExistingIndexationBatches(recalculated, positions) : recalculated;
     setPositions((prev) => {
       const existsBySource = prev.some((position) => position.positionId === sourceId);
       if (existsBySource) {
-        return prev.map((position) => (position.positionId === sourceId ? withIndexation : position));
+        return prev.map((position) => (position.positionId === sourceId ? recalculated : position));
       }
       if (forceCreate) {
-        return [...prev, withIndexation];
+        return [...prev, recalculated];
       }
       return prev;
     });
-    setActive(withIndexation);
-    setActiveSourceId(withIndexation.positionId);
+    setActive(recalculated);
+    setActiveSourceId(recalculated.positionId);
   };
 
   const addEvent = (positionId: string, event: PlannedEvent) => {
@@ -547,7 +548,7 @@ export function PlanningPage() {
     if (event.type === "TRANSFER") {
       const result = applyPlanTransferFromDrawerEvent(positions, positionId, event, {
         nextPositionId: (list) => nextPositionId(list),
-        applyIndexationBatches: (record, all) => applyExistingIndexationBatches(record, all),
+        applyIndexationBatches: (record) => record,
       });
       if (!result.ok) {
         window.alert(result.error);
@@ -701,20 +702,24 @@ export function PlanningPage() {
 
   return (
     <div className="content-page planning-page">
-      {(userRole === "team_lead" || userRole === "unit_lead") && canEditWorkspace && !leadEditFrozenForRole ? (
-        <WorkflowHint hintId="planning-lead">
-          Выберите позицию в таблице и добавьте событие в карточке позиции.
-        </WorkflowHint>
-      ) : null}
+
       <header className="page-header">
         <div>
           <h1>{PLAN_WORKSPACE_LABELS[workspaceMode]} ФОТ</h1>
-          <p>
-            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} поз. (
-            {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии
-            {tableCounts.closed > 0 ? `, ${tableCounts.closed} закрыто` : ""})
-          </p>
-          <p className="muted-line">{roleScopeHint}</p>
+          {userRole !== "team_lead" && userRole !== "unit_lead" ? (
+            <>
+              <p>
+                {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · {tableCounts.total} поз. (
+                {tableCounts.occupied} занято, {tableCounts.vacancy} вакансии
+                {tableCounts.closed > 0 ? `, ${tableCounts.closed} закрыто` : ""})
+              </p>
+              <p className="muted-line">{roleScopeHint}</p>
+            </>
+          ) : (
+            <p>
+              {tableCounts.total} поз. · {viewMode === "total" ? "итого ФОТ" : "оклад"}
+            </p>
+          )}
         </div>
         <div className="page-header__actions planning-toolbar">
           {canMassIndexation && workspaceTab === "positions" ? (
@@ -791,13 +796,13 @@ export function PlanningPage() {
           className={`planning-workspace-tabs__btn${workspaceMode === "correction" ? " planning-workspace-tabs__btn--active" : ""}`}
           onClick={() => setWorkspaceMode("correction")}
         >
-          Корректировка
+          Квартальное планирование
         </button>
       </nav>
 
       <nav
         className="planning-workspace-tabs"
-        aria-label={workspaceMode === "correction" ? "Разделы корректировки" : "Разделы планирования"}
+        aria-label={workspaceMode === "correction" ? "Разделы квартального планирования" : "Разделы планирования"}
       >
         <button
           type="button"
@@ -811,7 +816,7 @@ export function PlanningPage() {
           type="button"
           className={`planning-workspace-tabs__btn${workspaceTab === "matrix" ? " planning-workspace-tabs__btn--active" : ""}`}
           onClick={() => setWorkspaceTab("matrix")}
-          data-hint="План и факт на конец месяца; отклонения только для просмотра"
+          data-hint="План на конец месяца по позициям"
         >
           По месяцам
         </button>
@@ -836,8 +841,11 @@ export function PlanningPage() {
         leadEditFrozenForRole={leadEditFrozenForRole}
         leadEditFrozen={leadEditFrozen}
         canToggleLeadFreeze={canToggleLeadFreeze}
-        indexationBatches={indexationBatches}
       />
+
+      {!canMassIndexation && indexationBatches.length > 0 ? (
+        <PlanIndexationBanner batches={indexationBatches} />
+      ) : null}
 
       {workspaceTab === "positions" || workspaceTab === "matrix" || workspaceTab === "journal" ? (
         <SliceToolbar

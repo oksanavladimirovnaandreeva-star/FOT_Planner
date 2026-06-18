@@ -413,8 +413,26 @@ export type IndexationBatchLog = {
   month: number;
   percent: number;
   affectedCount: number;
+  positionIds: string[];
   createdAt: string;
 };
+
+/** Удаляет пакет индексации и пересчитывает помесячные суммы. */
+export function removeIndexationBatchFromPositions(
+  positions: PositionRecord[],
+  batchId: string,
+): PositionRecord[] {
+  return positions.map((position) => {
+    const hasBatch = position.events.some(
+      (event) => event.type === "INDEXATION" && event.payload.indexationBatchId === batchId,
+    );
+    if (!hasBatch) return position;
+    const events = position.events.filter(
+      (event) => !(event.type === "INDEXATION" && event.payload.indexationBatchId === batchId),
+    );
+    return applyEvents({ ...position, events });
+  });
+}
 
 /** Собирает факты массовой индексации из событий позиций (переживает смену версии / черновик). */
 export function collectIndexationBatchesFromPositions(positions: PositionRecord[]): IndexationBatchLog[] {
@@ -449,38 +467,10 @@ export function collectIndexationBatchesFromPositions(positions: PositionRecord[
       month: entry.month,
       percent: entry.percent,
       affectedCount: entry.positionIds.size,
+      positionIds: [...entry.positionIds].sort(),
       createdAt: entry.createdAt,
     }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export function applyExistingIndexationBatches(
-  record: PositionRecord,
-  allPositions: PositionRecord[],
-): PositionRecord {
-  const batches = collectIndexationBatchesFromPositions(allPositions);
-  if (batches.length === 0) return record;
-  const existingBatchIds = new Set(
-    record.events
-      .filter((event) => event.type === "INDEXATION" && typeof event.payload.indexationBatchId === "string")
-      .map((event) => event.payload.indexationBatchId as string),
-  );
-  const missingBatches = batches
-    .filter((batch) => !existingBatchIds.has(batch.id))
-    .sort((a, b) => a.month - b.month || a.createdAt.localeCompare(b.createdAt));
-  if (missingBatches.length === 0) return record;
-  const extraEvents: PlannedEvent[] = missingBatches.map((batch, index) => ({
-    id: crypto.randomUUID(),
-    type: "INDEXATION",
-    createdAt: batch.createdAt,
-    createdOrder: record.events.length + index + 1,
-    payload: {
-      month: batch.month,
-      percent: batch.percent,
-      indexationBatchId: batch.id,
-    },
-  }));
-  return applyEvents({ ...record, events: [...record.events, ...extraEvents] });
 }
 
 export function monthLabel(index: number): string {

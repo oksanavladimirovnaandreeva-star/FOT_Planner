@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { PlanFactBaselineBanner } from "../components/PlanFactBaselineBanner";
 import { useMvpApp } from "../context/MvpAppContext";
-import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import {
   formatMoney,
   hasPlanFactData,
@@ -22,17 +21,26 @@ export function DeviationPage({ embedded = false }: { embedded?: boolean }) {
   const { planFactBaseline: baseline, viewMode } = useMvpApp();
 
   const factReady = hasPlanFactData();
-  const active = useMemo(
-    () => mapPositionsWithAppliedEvents(baseline.positions).filter((position) => position.status !== "Closed"),
-    [baseline.positions],
-  );
-  const totals = useMemo(() => planFactTotals(active, viewMode), [active, viewMode]);
-  const byLimit = useMemo(() => planFactByLimit(active, viewMode), [active, viewMode]);
-  const economyTotals = useMemo(() => planFactEconomyAndOverspendTotals(active, viewMode), [active, viewMode]);
-  const topPositions = useMemo(() => planFactPositionRows(active, viewMode).slice(0, 8), [active, viewMode]);
-  const driverCases = useMemo(() => collectPlanFactVarianceDrivers(active, viewMode), [active, viewMode]);
-  const driverSummary = useMemo(() => summarizeVarianceDrivers(driverCases), [driverCases]);
-  const topDriverCases = useMemo(() => driverCases.slice(0, 12), [driverCases]);
+  const analytics = useMemo(() => {
+    const active = baseline.appliedPositions.filter((position) => position.status !== "Closed");
+    const totals = planFactTotals(active, viewMode);
+    const byLimit = planFactByLimit(active, viewMode);
+    const economyTotals = planFactEconomyAndOverspendTotals(active, viewMode);
+    const topPositions = planFactPositionRows(active, viewMode).slice(0, 8);
+    const driverCases = collectPlanFactVarianceDrivers(active, viewMode);
+    const driverSummary = summarizeVarianceDrivers(driverCases);
+  return {
+      totals,
+      byLimit,
+      economyTotals,
+      topPositions,
+      driverCases,
+      driverSummary,
+      topDriverCases: driverCases.slice(0, 12),
+    };
+  }, [baseline.appliedPositions, viewMode]);
+
+  const { totals, byLimit, economyTotals, topPositions, driverSummary, topDriverCases } = analytics;
 
   const economyByLimit = byLimit.filter((row) => row.variance > 0).sort((a, b) => b.variance - a.variance);
   const overspendByLimit = byLimit.filter((row) => row.variance < 0).sort((a, b) => a.variance - b.variance);
@@ -47,11 +55,13 @@ export function DeviationPage({ embedded = false }: { embedded?: boolean }) {
 
   const body = (
     <>
-      <PlanFactBaselineBanner baseline={baseline} />
+      {!embedded ? <PlanFactBaselineBanner baseline={baseline} /> : null}
 
+      {!embedded ? (
       <div className="plan-fact-readonly-note" role="note">
         Всегда <strong>план − факт</strong>: плюс — экономия, минус — перерасход. Факт не меняет план.
       </div>
+      ) : null}
 
       <div className="deviation-alerts">
         <section className="card deviation-alert deviation-alert--under">

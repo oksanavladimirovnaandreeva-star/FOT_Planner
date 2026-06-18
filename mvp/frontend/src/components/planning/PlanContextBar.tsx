@@ -5,12 +5,13 @@ import {
   type CorrectionWindowInfo,
 } from "../../data/planCorrectionWindow";
 import { monthLabel } from "../../data/planningData";
-import type { IndexationBatchLog } from "../../data/planningData";
 import { planWorkspaceBasePath, planWorkspacePath, type PlanWorkspaceMode } from "../../data/planWorkspaceMode";
+import { useMvpApp } from "../../context/MvpAppContext";
+import { formatPlanVersionTitle } from "../../data/planVersionDisplay";
 
 type ContextLine = {
   id: string;
-  tone: "freeze-blocked" | "freeze" | "quarter" | "workspace" | "readonly" | "indexation";
+  tone: "freeze-blocked" | "freeze" | "quarter" | "workspace" | "readonly";
   title: string;
   body?: string;
   link?: { to: string; label: string };
@@ -27,7 +28,7 @@ type Props = {
   leadEditFrozenForRole: boolean;
   leadEditFrozen: boolean;
   canToggleLeadFreeze: boolean;
-  indexationBatches: IndexationBatchLog[];
+  primaryBudgetTitle?: string;
 };
 
 function toneClass(tone: ContextLine["tone"]): string {
@@ -38,14 +39,12 @@ function toneClass(tone: ContextLine["tone"]): string {
       return "plan-policy-banner--freeze";
     case "quarter":
       return "plan-policy-banner--quarter";
-    case "indexation":
-      return "plan-policy-banner--indexation";
     default:
       return "plan-policy-banner--workspace";
   }
 }
 
-function buildLines(props: Props): ContextLine[] {
+function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextLine[] {
   const {
     workspaceMode,
     correctionWindow,
@@ -57,7 +56,7 @@ function buildLines(props: Props): ContextLine[] {
     leadEditFrozenForRole,
     leadEditFrozen,
     canToggleLeadFreeze,
-    indexationBatches,
+    canManagePlanVersions,
   } = props;
   const lines: ContextLine[] = [];
 
@@ -66,7 +65,7 @@ function buildLines(props: Props): ContextLine[] {
       id: "freeze-blocked",
       tone: "freeze-blocked",
       title: "Правки закрыты директором",
-      body: "План и факт доступны только для просмотра.",
+      body: "План доступен только для просмотра.",
     });
   } else if (leadEditFrozen && canToggleLeadFreeze) {
     lines.push({
@@ -91,16 +90,21 @@ function buildLines(props: Props): ContextLine[] {
       id: "readonly-version",
       tone: "readonly",
       title: "Версия только для просмотра",
-      body: hasWorkingDraft ? "Правки — в квартальном черновике." : "Создайте черновик на «Версии».",
-      link: { to: "/versions", label: "Версии" },
+      body: hasWorkingDraft
+        ? "Правки — в квартальном черновике (см. «Работаем в» в сайдбаре)."
+        : canManagePlanVersions
+          ? "Создайте черновик на «Версии»."
+          : "Ожидайте черновик корректировки от C&B.",
+      link: canManagePlanVersions ? { to: "/versions", label: "Версии" } : undefined,
     });
-  } else if (isAnnualDraft && workspaceMode === "planning") {
+  } else if (isAnnualDraft && workspaceMode === "planning" && canManagePlanVersions) {
+    const annualTitle = props.primaryBudgetTitle ?? "Бюджет";
     lines.push({
       id: "annual-draft",
       tone: "readonly",
-      title: "Версия 1 ещё не утверждена",
-      body: "После правок — утвердите Версию 1 на «Версии».",
-      link: { to: "/versions?tab=approval", label: "Утвердить" },
+      title: `${annualTitle} ещё не утверждён`,
+      body: `После правок — утвердите на «Версии».`,
+      link: { to: "/versions", label: "Утвердить" },
     });
   }
 
@@ -125,16 +129,18 @@ function buildLines(props: Props): ContextLine[] {
       id: "no-draft",
       tone: "quarter",
       title: "Нет квартального черновика",
-      body: "Создайте черновик на «Версии» (C&B).",
-      link: { to: "/versions", label: "Версии" },
+      body: canManagePlanVersions
+        ? "Создайте черновик на «Версии»."
+        : "C&B создаст черновик корректировки — следите за блоком «Работаем в» в сайдбаре.",
+      link: canManagePlanVersions ? { to: "/versions", label: "Версии" } : undefined,
     });
   } else if (workspaceMode === "correction" && hasWorkingDraft && !isOnWorkingDraft) {
     lines.push({
       id: "open-draft",
       tone: "quarter",
       title: "Откройте квартальный черновик",
-      body: "Переключите версию в сайдбаре.",
-      link: { to: planWorkspacePath("correction", { tab: "positions" }), label: "Открыть" },
+      body: "Перейдите в корректировку — черновик подхватится автоматически.",
+      link: { to: planWorkspacePath("correction", { tab: "positions" }), label: "Корректировка" },
     });
   } else if (workspaceMode === "correction" && correctionWindow.enforced) {
     const allowed = allowedPlanMonthIndexes(correctionWindow);
@@ -146,16 +152,6 @@ function buildLines(props: Props): ContextLine[] {
         allowed.length > 0
           ? `${planEventMonthBlockedMessage(correctionWindow)} · ${allowed.map((m) => monthLabel(m)).join(", ")}`
           : planEventMonthBlockedMessage(correctionWindow),
-    });
-  }
-
-  if (indexationBatches.length > 0) {
-    const latest = [...indexationBatches].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-    lines.push({
-      id: "indexation",
-      tone: "indexation",
-      title: `Индексация +${latest.percent}% с ${monthLabel(latest.month)}`,
-      body: `${latest.affectedCount} поз.${indexationBatches.length > 1 ? ` · пакетов: ${indexationBatches.length}` : ""}`,
     });
   }
 
@@ -177,7 +173,11 @@ function ContextLineContent({ line }: { line: ContextLine }) {
 }
 
 export function PlanContextBar(props: Props) {
-  const lines = buildLines(props);
+  const { primaryBudget, canManagePlanVersions } = useMvpApp();
+  const primaryBudgetTitle =
+    props.primaryBudgetTitle ??
+    (primaryBudget ? formatPlanVersionTitle(primaryBudget) : undefined);
+  const lines = buildLines({ ...props, primaryBudgetTitle, canManagePlanVersions });
 
   if (lines.length === 0) return null;
 

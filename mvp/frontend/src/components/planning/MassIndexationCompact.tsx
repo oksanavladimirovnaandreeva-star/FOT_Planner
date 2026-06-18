@@ -38,10 +38,7 @@ export function MassIndexationCompact({
 
   return (
     <div className="planning-indexation-compact" role="group" aria-label="Массовая индексация">
-      <span
-        className="planning-indexation-compact__label"
-        data-hint={SCOPE_HINT}
-      >
+      <span className="planning-indexation-compact__label" data-hint={SCOPE_HINT}>
         Индексация
       </span>
       <span className="planning-indexation-compact__scope muted-line">{activeCount} поз.</span>
@@ -83,9 +80,10 @@ export function MassIndexationCompact({
       >
         Применить
       </button>
+
       {indexationBatches.length > 0 ? (
-        <details className="planning-indexation-compact__batches">
-          <summary>Пакеты · {indexationBatches.length}</summary>
+        <div className="planning-indexation-compact__history">
+          <span className="planning-indexation-compact__history-title">История · {indexationBatches.length}</span>
           <div className="table-scroll">
             <table className="simple-table planning-indexation-compact__table">
               <thead>
@@ -94,13 +92,20 @@ export function MassIndexationCompact({
                   <th>Месяц</th>
                   <th>%</th>
                   <th>Поз.</th>
-                  <th />
+                  <th aria-label="Удалить" />
                 </tr>
               </thead>
               <tbody>
                 {indexationBatches.map((batch) => (
                   <tr key={batch.id}>
-                    <td>{new Date(batch.createdAt).toLocaleString("ru-RU")}</td>
+                    <td>
+                      {new Date(batch.createdAt).toLocaleString("ru-RU", {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
                     <td>{monthLabel(batch.month)}</td>
                     <td>+{batch.percent}%</td>
                     <td>{batch.affectedCount}</td>
@@ -109,7 +114,8 @@ export function MassIndexationCompact({
                         type="button"
                         className="icon-btn danger"
                         disabled={!canEditWorkspace}
-                        data-hint="Удалить факт индексации"
+                        aria-label={`Удалить индексацию +${batch.percent}% с ${monthLabel(batch.month)}`}
+                        data-hint="Удалить пакет и откатить оклады"
                         onClick={() => onDeleteBatch(batch.id)}
                       >
                         <Trash2 size={14} />
@@ -120,7 +126,7 @@ export function MassIndexationCompact({
               </tbody>
             </table>
           </div>
-        </details>
+        </div>
       ) : null}
     </div>
   );

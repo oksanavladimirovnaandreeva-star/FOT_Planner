@@ -1014,6 +1014,41 @@ body {
   font-size: 12px;
 }
 
+.planning-indexation-compact__history {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+.planning-indexation-compact__history-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4338ca;
+  margin-bottom: 4px;
+}
+
+.planning-indexation-compact__history .planning-indexation-compact__table {
+  position: static;
+  min-width: 0;
+  width: 100%;
+  box-shadow: none;
+}
+
+.plan-indexation-banner__list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.plan-indexation-banner__list li + li {
+  margin-top: 2px;
+}
+
+.plan-policy-banner--indexation {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .slice-toolbar--journal .slice-toolbar__row {
   align-items: flex-end;
 }

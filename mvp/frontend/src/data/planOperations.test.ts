@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { annualTotal, applyEvents, initialPositions } from "./planningData";
+import { buildPilotPositions } from "./demoPlanSeed";
+import { annualTotal, applyEvents } from "./planningData";
 import {
   applyPlanTransfer,
   applyTerminationToVacancy,
@@ -11,7 +12,7 @@ import {
 import type { PositionRecord } from "../types";
 
 function clonePositions(): PositionRecord[] {
-  return JSON.parse(JSON.stringify(initialPositions())) as PositionRecord[];
+  return JSON.parse(JSON.stringify(buildPilotPositions())) as PositionRecord[];
 }
 
 const transferOptions = {

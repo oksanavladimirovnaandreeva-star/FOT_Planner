@@ -146,4 +146,32 @@ describe("userAccess RBAC", () => {
     expect(positionMatchesRole(samplePosition(), "team_lead")).toBe(true);
     expect(positionMatchesRole(samplePosition({ team: "Other" }), "team_lead")).toBe(false);
   });
+
+  it("исключает ФИО лида из среза team_lead", () => {
+    localStorage.setItem(
+      "fot_mvp_demo_persona_id",
+      "vasya",
+    );
+    localStorage.setItem(
+      "fot_mvp_demo_persona_scopes",
+      JSON.stringify({
+        vasya: {
+          rules: [
+            { id: "d", field: "department", operator: "eq", values: ["Engineering"] },
+            { id: "u", field: "unit", operator: "eq", values: ["ProductDev"] },
+            { id: "t", field: "team", operator: "eq", values: ["Frontend Web"] },
+            { id: "n", field: "employeeName", operator: "neq", values: ["Василий Андреев"] },
+          ],
+        },
+      }),
+    );
+    localStorage.setItem("fot_mvp_user_role", "team_lead");
+    const leadSelf = samplePosition({
+      employeeName: "Василий Андреев",
+      seedEmployeeName: "Василий Андреев",
+    });
+    const teammate = samplePosition({ employeeName: "Ирина Соколова", positionId: "P002" });
+    expect(positionMatchesRole(leadSelf, "team_lead")).toBe(false);
+    expect(positionMatchesRole(teammate, "team_lead")).toBe(true);
+  });
 });

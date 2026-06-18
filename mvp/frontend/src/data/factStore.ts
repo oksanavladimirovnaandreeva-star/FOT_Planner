@@ -1,5 +1,4 @@
-import { applyEvents } from "./planningData";
-import { planOccupancyAtMonth } from "./occupancyTimeline";
+import { planOccupancyAtMonth, planOccupancyTimelineFast } from "./occupancyTimeline";
 import type { PositionRecord } from "../types";
 import type { ViewMode } from "./dashboardMetrics";
 
@@ -21,6 +20,16 @@ export type FactPositionAssignment = {
   month: number;
 };
 
+type FactAssignmentMonth = string | string[];
+
+let employeeStoreCache: Record<string, EmployeeFactSlice> | null = null;
+let assignmentStoreCache: Record<string, Record<string, FactAssignmentMonth>> | null = null;
+
+function invalidateFactStoreCache(): void {
+  employeeStoreCache = null;
+  assignmentStoreCache = null;
+}
+
 function emptySlice(): EmployeeFactSlice {
   return {
     monthlyFactBase: Array.from({ length: 12 }, () => 0),
@@ -30,19 +39,29 @@ function emptySlice(): EmployeeFactSlice {
 }
 
 function readEmployeeStore(): Record<string, EmployeeFactSlice> {
+  if (employeeStoreCache) return employeeStoreCache;
   try {
     const raw = localStorage.getItem(FACT_BY_EMPLOYEE_KEY);
-    if (!raw) return {};
+    if (!raw) {
+      employeeStoreCache = {};
+      return employeeStoreCache;
+    }
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed as Record<string, EmployeeFactSlice>;
+    if (!parsed || typeof parsed !== "object") {
+      employeeStoreCache = {};
+      return employeeStoreCache;
+    }
+    employeeStoreCache = parsed as Record<string, EmployeeFactSlice>;
+    return employeeStoreCache;
   } catch {
-    return {};
+    employeeStoreCache = {};
+    return employeeStoreCache;
   }
 }
 
 function writeEmployeeStore(store: Record<string, EmployeeFactSlice>): void {
   localStorage.setItem(FACT_BY_EMPLOYEE_KEY, JSON.stringify(store));
+  employeeStoreCache = store;
 }
 
 function isValidSlice(slice: unknown): slice is EmployeeFactSlice {
@@ -70,28 +89,37 @@ export function hasFactData(): boolean {
   return Object.keys(readEmployeeStore()).length > 0;
 }
 
-type FactAssignmentMonth = string | string[];
-
 function readAssignmentStore(): Record<string, Record<string, FactAssignmentMonth>> {
+  if (assignmentStoreCache) return assignmentStoreCache;
   try {
     const raw = localStorage.getItem(FACT_POSITION_ASSIGNMENTS_KEY);
-    if (!raw) return {};
+    if (!raw) {
+      assignmentStoreCache = {};
+      return assignmentStoreCache;
+    }
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
-    return parsed as Record<string, Record<string, FactAssignmentMonth>>;
+    if (!parsed || typeof parsed !== "object") {
+      assignmentStoreCache = {};
+      return assignmentStoreCache;
+    }
+    assignmentStoreCache = parsed as Record<string, Record<string, FactAssignmentMonth>>;
+    return assignmentStoreCache;
   } catch {
-    return {};
+    assignmentStoreCache = {};
+    return assignmentStoreCache;
   }
 }
 
 function writeAssignmentStore(store: Record<string, Record<string, FactAssignmentMonth>>): void {
   localStorage.setItem(FACT_POSITION_ASSIGNMENTS_KEY, JSON.stringify(store));
+  assignmentStoreCache = store;
 }
 
 export function clearFactStore(): void {
   localStorage.removeItem(FACT_BY_EMPLOYEE_KEY);
   localStorage.removeItem(FACT_POSITION_ASSIGNMENTS_KEY);
   localStorage.removeItem(LEGACY_FACT_BY_POSITION_KEY);
+  invalidateFactStoreCache();
 }
 
 export function listFactEmployeeIds(): string[] {
@@ -245,19 +273,18 @@ export type DemoFactSeedResult = {
   throughMonth: number;
 };
 
-/** Демо: факт ≈95% плана + история посадок по месяцам — только для UI, не prod. */
-export function seedDemoFactFromPlan(
+function seedDemoFactFromPlanCore(
   positions: PositionRecord[],
-  throughMonth = new Date().getMonth(),
+  throughMonth: number,
 ): DemoFactSeedResult {
   const cappedMonth = Math.max(0, Math.min(11, throughMonth));
-  const applied = positions.map(applyEvents);
   const store: Record<string, EmployeeFactSlice> = {};
   const assignments: FactPositionAssignment[] = [];
 
-  for (const position of applied) {
+  for (const position of positions) {
+    const timeline = planOccupancyTimelineFast(position);
     for (let month = 0; month <= cappedMonth; month += 1) {
-      const snap = planOccupancyAtMonth(position, month);
+      const snap = timeline[month];
       if (snap.status === "Closed" || !snap.employeeId) continue;
 
       assignments.push({
@@ -277,6 +304,64 @@ export function seedDemoFactFromPlan(
       const planBonus = position.monthlyBonus[month] ?? 0;
       slice.monthlyFactBase[month] = Math.round(planBase * 0.95);
       slice.monthlyFactBonus[month] = Math.round(planBonus * 0.95);
+    }
+  }
+
+  importEmployeeFacts(store, "replace", assignments);
+  return {
+    employeeCount: Object.keys(store).length,
+    assignmentCount: assignments.length,
+    throughMonth: cappedMonth,
+  };
+}
+
+/** Демо: факт ≈95% плана + история посадок по месяцам — только для UI, не prod. */
+export function seedDemoFactFromPlan(
+  positions: PositionRecord[],
+  throughMonth = new Date().getMonth(),
+): DemoFactSeedResult {
+  return seedDemoFactFromPlanCore(positions, throughMonth);
+}
+
+/** То же, но с yield между пачками позиций — не блокирует UI при пилоте. */
+export async function seedDemoFactFromPlanAsync(
+  positions: PositionRecord[],
+  throughMonth = new Date().getMonth(),
+  yieldChunk: () => Promise<void> = async () => {},
+  chunkSize = 40,
+): Promise<DemoFactSeedResult> {
+  const cappedMonth = Math.max(0, Math.min(11, throughMonth));
+  const store: Record<string, EmployeeFactSlice> = {};
+  const assignments: FactPositionAssignment[] = [];
+
+  for (let index = 0; index < positions.length; index += 1) {
+    const position = positions[index];
+    const timeline = planOccupancyTimelineFast(position);
+    for (let month = 0; month <= cappedMonth; month += 1) {
+      const snap = timeline[month];
+      if (snap.status === "Closed" || !snap.employeeId) continue;
+
+      assignments.push({
+        positionId: position.positionId,
+        employeeId: snap.employeeId,
+        month,
+      });
+
+      if (!store[snap.employeeId]) {
+        store[snap.employeeId] = {
+          monthlyFactBase: Array.from({ length: 12 }, () => 0),
+          monthlyFactBonus: Array.from({ length: 12 }, () => 0),
+        };
+      }
+      const slice = store[snap.employeeId];
+      const planBase = position.monthlyBase[month] ?? 0;
+      const planBonus = position.monthlyBonus[month] ?? 0;
+      slice.monthlyFactBase[month] = Math.round(planBase * 0.95);
+      slice.monthlyFactBonus[month] = Math.round(planBonus * 0.95);
+    }
+
+    if (index > 0 && index % chunkSize === 0) {
+      await yieldChunk();
     }
   }
 

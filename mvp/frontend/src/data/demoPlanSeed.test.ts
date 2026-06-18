@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDecemberRosterSnapshot,
   buildDemoPositions,
+  DEFAULT_DEMO_POSITION_COUNT,
   DEMO_SEED_VERSION,
   PILOT_POSITION_TARGET,
 } from "./demoPlanSeed";
@@ -9,10 +10,23 @@ import { ORG_STRUCTURE } from "./orgStructure";
 import { applyEvents } from "./planningData";
 
 describe("demoPlanSeed", () => {
-  it("генерирует пилотный объём позиций по всей оргструктуре", () => {
+  it("генерирует компактный демо-план по умолчанию", () => {
     const positions = buildDemoPositions();
+    expect(positions.length).toBeGreaterThanOrEqual(DEFAULT_DEMO_POSITION_COUNT);
+    expect(positions.length).toBeLessThan(PILOT_POSITION_TARGET);
+    expect(DEMO_SEED_VERSION).toBe(5);
+
+    const carryover = positions.filter((position) => position.slotType === "carryover");
+    expect(carryover.every((position) => position.events.some((event) => event.type === "POSITION_CARRYOVER"))).toBe(
+      true,
+    );
+    expect(positions.some((position) => position.events.some((event) => event.type === "PLANNED_HIRE"))).toBe(true);
+    expect(positions.some((position) => position.events.some((event) => event.type === "INDEXATION"))).toBe(true);
+  });
+
+  it("генерирует пилотный объём по всей оргструктуре", () => {
+    const positions = buildDemoPositions(PILOT_POSITION_TARGET);
     expect(positions.length).toBeGreaterThanOrEqual(PILOT_POSITION_TARGET);
-    expect(DEMO_SEED_VERSION).toBe(3);
 
     for (const [department, units] of Object.entries(ORG_STRUCTURE)) {
       for (const [unit, teams] of Object.entries(units)) {

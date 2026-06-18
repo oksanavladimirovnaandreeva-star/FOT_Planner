@@ -1,4 +1,4 @@
-import { applyEvents } from "./planningData";
+import { applyEvents, sortEventsForApply } from "./planningData";
 import type { PlannedEvent, PositionRecord } from "../types";
 
 export type PlanOccupancySnapshot = {
@@ -26,6 +26,25 @@ export function isPlanClosedAtMonth(record: PositionRecord, month: number): bool
 
 export function planOccupancyTimeline(record: PositionRecord): PlanOccupancySnapshot[] {
   return Array.from({ length: 12 }, (_, month) => planOccupancyAtMonth(record, month));
+}
+
+/** Один проход по событиям — для сида факта. */
+export function planOccupancyTimelineFast(record: PositionRecord): PlanOccupancySnapshot[] {
+  const sorted = sortEventsForApply(record.events);
+  const snapshots: PlanOccupancySnapshot[] = [];
+  let end = 0;
+  for (let month = 0; month < 12; month += 1) {
+    while (end < sorted.length && sorted[end].payload.month <= month) {
+      end += 1;
+    }
+    const simulated = applyEvents({ ...record, events: sorted.slice(0, end) });
+    snapshots.push({
+      status: simulated.status,
+      employeeId: simulated.employeeId,
+      employeeName: simulated.employeeName,
+    });
+  }
+  return snapshots;
 }
 
 /** Активное событие декрета (SHARED_POSITION) на конец месяца M. */

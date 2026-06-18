@@ -1,7 +1,10 @@
 import type { PositionRecord } from "../types";
 import {
+  clonePositionList,
   findWorkingDraftForBaseline,
+  initialPlanVersions,
   latestApprovedVersion,
+  defaultVersionLabel,
   type PlanVersionMeta,
 } from "./planVersions";
 
@@ -17,13 +20,13 @@ export type PlanVersionDeleteResult =
 
 /** Может ли C&B удалить версию (проверка без мутации). */
 export function canDeletePlanVersion(versionId: string, versions: PlanVersionMeta[]): { ok: true } | { ok: false; error: string } {
-  if (versions.length <= 1) {
-    return { ok: false, error: "Нельзя удалить единственную версию плана." };
-  }
-
   const target = versions.find((version) => version.id === versionId);
   if (!target) {
     return { ok: false, error: "Версия не найдена." };
+  }
+
+  if (versions.length <= 1) {
+    return { ok: true };
   }
 
   const draftForBaseline = findWorkingDraftForBaseline(versions, versionId);
@@ -55,7 +58,7 @@ export function canDeletePlanVersion(versionId: string, versions: PlanVersionMet
     if (!hasOtherWorkable) {
       return {
         ok: false,
-        error: "Нельзя удалить неутверждённый v1 — нет другой версии для работы.",
+        error: `Нельзя удалить неутверждённый ${defaultVersionLabel(target.planYear, target.versionNumber)} — нет другой версии для работы.`,
       };
     }
   }
@@ -73,6 +76,20 @@ export function deletePlanVersionState(
   if (!policy.ok) return policy;
 
   const target = versions.find((version) => version.id === versionId)!;
+
+  if (versions.length <= 1) {
+    const fresh = initialPlanVersions(target.planYear);
+    const freshId = fresh[0].id;
+    const keptRows = dataByVersion[versionId];
+    return {
+      ok: true,
+      versions: fresh,
+      dataByVersion: { [freshId]: keptRows?.length ? clonePositionList(keptRows) : [] },
+      fallbackVersionId: freshId,
+      deletedLabel: target.label,
+    };
+  }
+
   const nextVersions = versions.filter((version) => version.id !== versionId);
   const nextData = { ...dataByVersion };
   delete nextData[versionId];

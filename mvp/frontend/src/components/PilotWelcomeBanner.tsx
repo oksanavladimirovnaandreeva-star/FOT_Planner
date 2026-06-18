@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
-import { isPilotBundleApplied } from "../data/pilotTestBundle";
+import { DEFAULT_DEMO_POSITION_COUNT, PILOT_POSITION_TARGET } from "../data/demoPlanSeed";
 import { hasFactData } from "../data/factStore";
-import { PILOT_POSITION_TARGET } from "../data/demoPlanSeed";
+import { isPilotBundleApplied } from "../data/pilotTestBundle";
 import { roleCanManageVersions } from "../data/userAccess";
 import { useMvpApp } from "../context/MvpAppContext";
 
-/** Подсказка C&B: загрузить пилотный набор перед тестом ролей (GitHub Pages / демо). */
+/** Подсказка C&B: тяжёлый пилот — опционально, для стресс-теста ролей. */
 export function PilotWelcomeBanner() {
   const { userRole, positionsTotalCount } = useMvpApp();
 
@@ -17,10 +17,11 @@ export function PilotWelcomeBanner() {
   return (
     <div className="pilot-welcome-banner" role="status">
       <div>
-        <strong>Пилотное тестирование</strong>
+        <strong>Пилотное тестирование (опционально)</strong>
         <p className="muted-line">
-          Загрузите полный демо-набор: оргструктура, 500+ позиций, утверждённая Версия 1, факт и пресеты
-          доступов для ролей. Затем переключайте «Роль (демо)» в сайдбаре.
+          По умолчанию демо-план ~{DEFAULT_DEMO_POSITION_COUNT} позиций. Для стресс-теста срезов и консолидации —
+          «Пилот (тяжёлый)» в настройках ({PILOT_POSITION_TARGET}+ поз., может подвиснуть). Затем входите под разными
+          пользователями на экране входа.
         </p>
       </div>
       <Link to="/settings" className="primary-btn pilot-welcome-banner__cta">

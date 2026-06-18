@@ -3,7 +3,7 @@ export type PlanWorkspaceMode = "planning" | "correction";
 
 export const PLAN_WORKSPACE_LABELS: Record<PlanWorkspaceMode, string> = {
   planning: "Планирование",
-  correction: "Корректировка",
+  correction: "Квартальное планирование",
 };
 
 export function planWorkspaceBasePath(mode: PlanWorkspaceMode): string {

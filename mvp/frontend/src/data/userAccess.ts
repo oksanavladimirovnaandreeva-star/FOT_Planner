@@ -1,4 +1,12 @@
-import { roleScopeFor, type RoleScopeRecord } from "./demoRoleScopeStore";
+import { roleScopeFor } from "./demoRoleScopeStore";
+import { activePersonaScopeForRole } from "./demoSessionStore";
+import {
+  formatAccessScopeBrief,
+  positionMatchesAccessScope,
+  scopeEqValues,
+  scopePrimaryEq,
+  type PersonaAccessScope,
+} from "./personaAccessScope";
 import type { PositionRecord } from "../types";
 
 /**
@@ -20,21 +28,74 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   viewer: "Финменеджер (просмотр)",
 };
 
-/** Демо-срез для ролей — читается из localStorage (Настройки → Доступы). */
-export function demoRoleScope(role: Exclude<UserRole, "cb_admin" | "gd" | "viewer">): RoleScopeRecord {
+/** Краткие подписи ролей на экране входа. */
+export const LOGIN_ROLE_LABELS: Record<UserRole, string> = {
+  cb_admin: "C&B",
+  gd: "Генеральный директор",
+  director: "Директор",
+  unit_lead: "Юнит-лид",
+  team_lead: "Тимлид",
+  viewer: "Просмотр",
+};
+
+/** Демо-срез для роли — активная персона или пресет из Настроек → Доступы. */
+export function demoRoleScope(role: Exclude<UserRole, "cb_admin" | "gd" | "viewer">): PersonaAccessScope {
+  const personaScope = activePersonaScopeForRole(role);
+  if (personaScope) return personaScope;
   return roleScopeFor(role);
 }
 
-/** @deprecated Используйте demoRoleScope(role). */
+export function demoRoleActorOrg(role: Exclude<UserRole, "cb_admin" | "gd" | "viewer">): {
+  departments: string[];
+  units: string[];
+  teams: string[];
+} {
+  const scope = demoRoleScope(role);
+  return {
+    departments: scopeEqValues(scope, "department"),
+    units: scopeEqValues(scope, "unit"),
+    teams: scopeEqValues(scope, "team"),
+  };
+}
+
+export function demoRolePrimaryOrg(role: Exclude<UserRole, "cb_admin" | "gd" | "viewer">): {
+  department: string;
+  unit: string | null;
+  team: string | null;
+} {
+  const scope = demoRoleScope(role);
+  return {
+    department: scopePrimaryEq(scope, "department") ?? "",
+    unit: scopePrimaryEq(scope, "unit") ?? null,
+    team: scopePrimaryEq(scope, "team") ?? null,
+  };
+}
+
+/** @deprecated Используйте demoRoleScope(role) и scopePrimaryEq. */
 export const DEMO_ROLE_SCOPE = {
   get director() {
-    return demoRoleScope("director");
+    const scope = demoRoleScope("director");
+    return {
+      department: scopePrimaryEq(scope, "department") ?? "Engineering",
+      unit: scopePrimaryEq(scope, "unit"),
+      team: scopePrimaryEq(scope, "team"),
+    };
   },
   get unit_lead() {
-    return demoRoleScope("unit_lead");
+    const scope = demoRoleScope("unit_lead");
+    return {
+      department: scopePrimaryEq(scope, "department") ?? "Engineering",
+      unit: scopePrimaryEq(scope, "unit") ?? "ProductDev",
+      team: scopePrimaryEq(scope, "team"),
+    };
   },
   get team_lead() {
-    return demoRoleScope("team_lead");
+    const scope = demoRoleScope("team_lead");
+    return {
+      department: scopePrimaryEq(scope, "department") ?? "Engineering",
+      unit: scopePrimaryEq(scope, "unit") ?? "ProductDev",
+      team: scopePrimaryEq(scope, "team") ?? "Frontend Web",
+    };
   },
 };
 
@@ -123,6 +184,16 @@ export function roleCanEditSalaryCatalog(role: UserRole): boolean {
   return role === "cb_admin";
 }
 
+/** Пункт «Версии» в навигации — C&B управляет версиями, остальные — согласование. */
+export function roleVersionsNavLabel(role: UserRole): string {
+  return roleCanManageVersions(role) ? "Версии" : "Согласование";
+}
+
+/** Переключатель всех версий в сайдбаре — только C&B. */
+export function roleCanSwitchPlanVersions(role: UserRole): boolean {
+  return role === "cb_admin";
+}
+
 /** Массовая индексация — только C&B (PRODUCT-MODEL §3, §5). */
 export function roleCanApplyMassIndexation(role: UserRole): boolean {
   return role === "cb_admin";
@@ -158,15 +229,15 @@ export function formatDemoRoleScope(role: UserRole): string | null {
       return "Вся оргструктура (компания)";
     case "director": {
       const scope = demoRoleScope("director");
-      return `Департамент: ${scope.department}`;
+      return formatAccessScopeBrief(scope);
     }
     case "unit_lead": {
       const scope = demoRoleScope("unit_lead");
-      return `Юнит: ${scope.department} / ${scope.unit}`;
+      return formatAccessScopeBrief(scope);
     }
     case "team_lead": {
       const scope = demoRoleScope("team_lead");
-      return `Команда: ${scope.department} / ${scope.unit} / ${scope.team}`;
+      return formatAccessScopeBrief(scope);
     }
     default:
       return null;
@@ -189,15 +260,15 @@ export function roleScopeDescription(role: UserRole, leadFrozen: boolean): strin
       return "Только просмотр и аудит по всей оргструктуре, без правок.";
     case "director": {
       const scope = demoRoleScope("director");
-      return `Срез: департамент ${scope.department} (все юниты). Можно закрыть правки лидов.${freezeNote}`;
+      return `Срез: ${formatAccessScopeBrief(scope)}. Можно править план и закрыть правки лидов.${freezeNote}`;
     }
     case "unit_lead": {
       const scope = demoRoleScope("unit_lead");
-      return `Срез: юнит ${scope.department} / ${scope.unit} (все команды юнита).${freezeNote}`;
+      return `Срез: ${formatAccessScopeBrief(scope)}.${freezeNote}`;
     }
     case "team_lead": {
       const scope = demoRoleScope("team_lead");
-      return `Срез: команда ${scope.department} / ${scope.unit} / ${scope.team}.${freezeNote}`;
+      return `Срез: ${formatAccessScopeBrief(scope)}.${freezeNote}`;
     }
     default:
       return "";
@@ -206,19 +277,7 @@ export function roleScopeDescription(role: UserRole, leadFrozen: boolean): strin
 
 export function positionMatchesRole(position: PositionRecord, role: UserRole): boolean {
   if (role === "cb_admin" || role === "gd" || role === "viewer") return true;
-  if (role === "director") {
-    return position.department === demoRoleScope("director").department;
-  }
-  if (role === "unit_lead") {
-    const scope = demoRoleScope("unit_lead");
-    return position.department === scope.department && position.unit === scope.unit;
-  }
-  const scope = demoRoleScope("team_lead");
-  return (
-    position.department === scope.department &&
-    position.unit === scope.unit &&
-    position.team === scope.team
-  );
+  return positionMatchesAccessScope(position, demoRoleScope(role));
 }
 
 export function filterPositionsByRole(positions: PositionRecord[], role: UserRole): PositionRecord[] {
@@ -230,24 +289,30 @@ export function filterPositionsByRole(positions: PositionRecord[], role: UserRol
 export function roleOrgFilterDefaults(role: UserRole): OrgFilterDefaults | null {
   if (role === "team_lead") {
     const scope = demoRoleScope("team_lead");
+    const departments = scopeEqValues(scope, "department");
+    const units = scopeEqValues(scope, "unit");
+    const teams = scopeEqValues(scope, "team");
     return {
-      departments: [scope.department],
-      units: scope.unit ? [scope.unit] : [],
-      teams: scope.team ? [scope.team] : [],
-      lockDepartment: true,
-      lockUnit: true,
-      lockTeam: true,
+      departments,
+      units,
+      teams,
+      lockDepartment: departments.length > 0,
+      lockUnit: units.length > 0,
+      lockTeam: teams.length > 0,
     };
   }
   if (role === "unit_lead") {
     const scope = demoRoleScope("unit_lead");
+    const departments = scopeEqValues(scope, "department");
+    const units = scopeEqValues(scope, "unit");
+    const teams = scopeEqValues(scope, "team");
     return {
-      departments: [scope.department],
-      units: scope.unit ? [scope.unit] : [],
-      teams: [],
-      lockDepartment: true,
-      lockUnit: true,
-      lockTeam: false,
+      departments,
+      units,
+      teams,
+      lockDepartment: departments.length > 0,
+      lockUnit: units.length > 0,
+      lockTeam: teams.length > 0,
     };
   }
   return null;

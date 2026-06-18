@@ -1,5 +1,6 @@
 import type { UserRole } from "./userAccess";
 import { demoRoleScope } from "./userAccess";
+import { scopeEqValues } from "./personaAccessScope";
 import { canRolePerformSubmissionAction, type SubmissionWorkflowAction } from "./submissionWorkflowPolicy";
 
 export type TeamSubmissionPhase =
@@ -101,20 +102,36 @@ function phaseForAction(action: SubmissionWorkflowAction): TeamSubmissionPhase {
   }
 }
 
-function actorScope(role: UserRole): { department?: string; unit?: string | null; team?: string | null } {
+function actorScope(role: UserRole): {
+  departments: string[];
+  units: string[];
+  teams: string[];
+} {
   if (role === "director") {
     const scope = demoRoleScope("director");
-    return { department: scope.department };
+    return {
+      departments: scopeEqValues(scope, "department"),
+      units: [],
+      teams: [],
+    };
   }
   if (role === "unit_lead") {
     const scope = demoRoleScope("unit_lead");
-    return { department: scope.department, unit: scope.unit ?? null };
+    return {
+      departments: scopeEqValues(scope, "department"),
+      units: scopeEqValues(scope, "unit"),
+      teams: scopeEqValues(scope, "team"),
+    };
   }
   if (role === "team_lead") {
     const scope = demoRoleScope("team_lead");
-    return { department: scope.department, unit: scope.unit ?? null, team: scope.team ?? null };
+    return {
+      departments: scopeEqValues(scope, "department"),
+      units: scopeEqValues(scope, "unit"),
+      teams: scopeEqValues(scope, "team"),
+    };
   }
-  return {};
+  return { departments: [], units: [], teams: [] };
 }
 
 export function applySubmissionAction(input: {
@@ -140,9 +157,9 @@ export function applySubmissionAction(input: {
   const actorOrg = actorScope(actor.role);
   const allowed = canRolePerformSubmissionAction(action, {
     actorRole: actor.role,
-    actorDepartment: actorOrg.department,
-    actorUnit: actorOrg.unit,
-    actorTeam: actorOrg.team,
+    actorDepartments: actorOrg.departments,
+    actorUnits: actorOrg.units,
+    actorTeams: actorOrg.teams,
     targetDepartment: department,
     targetUnit: unit,
     targetTeam: team,
@@ -261,6 +278,15 @@ export function summarizeSubmissionProgress(
     ...counts,
     completionPct: total > 0 ? Math.round((done / total) * 100) : 0,
   };
+}
+
+/** Мягкое предупреждение перед publish: команды не в cb_review (не блокер). */
+export function publishSubmissionHint(planVersionId: string): string | null {
+  const entries = listSubmissionEntriesForPlan(planVersionId);
+  if (entries.length === 0) return null;
+  const notReady = entries.filter((entry) => entry.record.phase !== "cb_review").length;
+  if (notReady === 0) return null;
+  return `${notReady} из ${entries.length} команд ещё не прошли согласование C&B.`;
 }
 
 export function markTeamSubmitted(planVersionId: string, department: string, unit: string, team: string): void {

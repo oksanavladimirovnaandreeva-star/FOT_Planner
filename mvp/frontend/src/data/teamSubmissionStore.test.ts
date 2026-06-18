@@ -11,6 +11,7 @@ import {
   reopenTeamEditing,
   returnTeamToEditing,
   summarizeSubmissionProgress,
+  publishSubmissionHint,
 } from "./teamSubmissionStore";
 
 const PLAN = "draft-test";
@@ -149,5 +150,15 @@ describe("teamSubmissionStore", () => {
     expect(summary.teamSubmitted).toBe(1);
     expect(summary.cbReview).toBe(1);
     expect(summary.completionPct).toBe(50);
+  });
+
+  it("publishSubmissionHint — мягкое предупреждение перед publish", () => {
+    markTeamSubmitted(PLAN, DEPT, UNIT, TEAM);
+    const hint = publishSubmissionHint(PLAN);
+    expect(hint).toMatch(/1 из 1 команд/);
+    markUnitApproved(PLAN, DEPT, UNIT, TEAM);
+    markDirectorApproved(PLAN, DEPT, UNIT, TEAM);
+    markCbReview(PLAN, DEPT, UNIT, TEAM);
+    expect(publishSubmissionHint(PLAN)).toBeNull();
   });
 });

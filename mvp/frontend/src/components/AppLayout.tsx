@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
-import { DemoRoleSelect } from "./DemoRoleSelect";
+import { DemoUserCard } from "./DemoUserCard";
+import { PlanWorkspaceContext } from "./PlanWorkspaceContext";
 import {
   BarChart3,
   CalendarRange,
@@ -9,12 +10,11 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useMvpApp } from "../context/MvpAppContext";
-import { formatPlanVersionOptionLabel } from "../data/planVersionDisplay";
-import { resolvePlanWorkspaceStatus } from "../data/planWorkspaceStatus";
-import { roleSettingsNavVisible } from "../data/userAccess";
+import { roleSettingsNavVisible, roleVersionsNavLabel } from "../data/userAccess";
+import { PLAN_SCENARIO_INCLUDES_FACT } from "../data/planScenario";
 import { HintTooltipLayer } from "./HintTooltipLayer";
 
-const NAV: {
+const NAV_BASE: {
   to: string;
   label: string;
   icon: typeof LayoutDashboard;
@@ -22,32 +22,19 @@ const NAV: {
 }[] = [
   { to: "/", label: "Обзор и итого", icon: LayoutDashboard, end: true },
   { to: "/planning", label: "Планирование", icon: CalendarRange },
-  { to: "/analytics", label: "Аналитика", icon: BarChart3 },
-  { to: "/versions", label: "Версии", icon: GitBranch },
+  ...(PLAN_SCENARIO_INCLUDES_FACT ? [{ to: "/analytics", label: "Аналитика", icon: BarChart3 }] : []),
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const {
-    planVersions,
-    planVersionId,
-    setPlanVersionId,
-    activePlan,
-    canEditPlan,
-    leadEditFrozenForRole,
-    workingDraft,
-    openVersion,
-    viewMode,
-    setViewMode,
-    userRole,
-  } = useMvpApp();
+  const { viewMode, setViewMode, userRole, canManagePlanVersions } = useMvpApp();
 
   const showSettingsNav = roleSettingsNavVisible(userRole);
-
-  const workspaceStatus = resolvePlanWorkspaceStatus({
-    activePlan,
-    canEditPlan,
-    leadEditFrozenForRole,
-  });
+  const versionsNavLabel = roleVersionsNavLabel(userRole);
+  const versionsNavTo = canManagePlanVersions ? "/versions" : "/versions?tab=approval";
+  const nav = [
+    ...NAV_BASE,
+    { to: versionsNavTo, label: versionsNavLabel, icon: GitBranch },
+  ];
 
   return (
     <div className="app-shell">
@@ -60,29 +47,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div className="app-sidebar__section app-sidebar__section--compact">
-          <label className="app-field">
-            <span>Версия плана</span>
-            <select value={planVersionId} onChange={(e) => setPlanVersionId(e.target.value)}>
-              {planVersions.map((version) => (
-                <option key={version.id} value={version.id}>
-                  {formatPlanVersionOptionLabel(version)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span className={`app-status-chip app-status-chip--${workspaceStatus.tone}`}>{workspaceStatus.label}</span>
-          {workingDraft && planVersionId !== workingDraft.id ? (
-            <button
-              type="button"
-              className="app-btn app-btn--ghost app-btn--sm app-sidebar__draft-link"
-              onClick={() => {
-                const result = openVersion(workingDraft.id);
-                if (!result.ok) window.alert(result.error);
-              }}
-            >
-              Открыть черновик корректировки
-            </button>
-          ) : null}
+          <PlanWorkspaceContext />
           <label className="app-field">
             <span>Режим просмотра</span>
             <select value={viewMode} onChange={(e) => setViewMode(e.target.value as "base" | "total")}>
@@ -90,11 +55,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <option value="total">Итого ФОТ</option>
             </select>
           </label>
-          <DemoRoleSelect compact />
+          <DemoUserCard />
         </div>
 
         <nav className="app-sidebar__nav" aria-label="Основное меню">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

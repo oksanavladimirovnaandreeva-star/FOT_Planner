@@ -152,7 +152,7 @@ export function getQuarterDeadlines(planYear: number): ConsolidationDeadline[] {
     },
     {
       id: "publish",
-      label: "Публикация v+1",
+      label: "Публикация следующей версии",
       dueDate: new Date(planYear, 5, 30, 23, 59),
       hint: "Финальная версия бюджета",
     },
@@ -169,16 +169,17 @@ function resolveTeamStatus(params: {
   draftSubmitted: boolean;
   editDeadlinePast: boolean;
 }): TeamLeadStatus {
+  void params.editDeadlinePast;
   if (params.draftSubmitted) return "submitted";
   if (params.deltaEvents === 0 && params.carryoverGaps === 0) {
-    return params.editDeadlinePast ? "overdue" : "not_started";
+    return "not_started";
   }
   if (params.deltaEvents > 0 && params.carryoverGaps === 0) {
     return "ready";
   }
   if (params.deltaEvents > 0) return "in_progress";
-  if (params.carryoverGaps > 0) return params.editDeadlinePast ? "overdue" : "in_progress";
-  return params.editDeadlinePast ? "overdue" : "not_started";
+  if (params.carryoverGaps > 0) return "in_progress";
+  return "not_started";
 }
 
 function mapAutoStatusToDisplay(autoStatus: TeamLeadStatus): TeamDisplayStatus {

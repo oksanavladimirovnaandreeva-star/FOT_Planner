@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMvpApp } from "../context/MvpAppContext";
 import { ConsolidationProgressDonut } from "../components/planning/ConsolidationProgressDonut";
-import { teamCorrectionHref, unitCorrectionHref } from "../data/consolidationNav";
+import { teamCorrectionHref } from "../data/consolidationNav";
 import { formatMoney } from "../data/formatDisplay";
-import { demoRoleScope } from "../data/userAccess";
+import { demoRoleActorOrg, demoRolePrimaryOrg } from "../data/userAccess";
 import {
   buildOrgConsolidationReport,
   formatDeadlineShort,
@@ -19,7 +19,8 @@ import {
 } from "../data/teamSubmissionStore";
 import { canRolePerformSubmissionAction } from "../data/submissionWorkflowPolicy";
 import { mapPositionsWithAppliedEvents } from "../data/planOperations";
-import { PLAN_VERSION_STATUS_LABELS } from "../data/planVersions";
+import { isBudgetLocked, PLAN_VERSION_STATUS_LABELS } from "../data/planVersions";
+import { formatPlanVersionTitle } from "../data/planVersionDisplay";
 import type { UserRole } from "../data/userAccess";
 
 function displayStatusClass(status: TeamDisplayStatus): string {
@@ -34,26 +35,46 @@ function formatSignedFotDelta(value: number): string {
 
 function resolveConsolidationScope(userRole: UserRole) {
   if (userRole === "unit_lead") {
-    const scope = demoRoleScope("unit_lead");
+    const primary = demoRolePrimaryOrg("unit_lead");
+    const actor = demoRoleActorOrg("unit_lead");
+    const unitLabel = actor.units.length > 1 ? actor.units.join(", ") : primary.unit;
     return {
-      department: scope.department,
-      unit: scope.unit ?? null,
-      team: null,
-      scopeLabel: `юнит ${scope.unit}`,
+      department: primary.department,
+      unit: primary.unit,
+      team: null as string | null,
+      departments: actor.departments,
+      units: actor.units,
+      teams: actor.teams,
+      scopeLabel: `юнит ${unitLabel ?? "—"}`,
     };
   }
   if (userRole === "team_lead") {
-    const scope = demoRoleScope("team_lead");
+    const primary = demoRolePrimaryOrg("team_lead");
+    const actor = demoRoleActorOrg("team_lead");
+    const teamLabel = actor.teams.length > 1 ? actor.teams.join(", ") : primary.team;
     return {
-      department: scope.department,
-      unit: scope.unit ?? null,
-      team: scope.team ?? null,
-      scopeLabel: `команда ${scope.team}`,
+      department: primary.department,
+      unit: primary.unit,
+      team: primary.team,
+      departments: actor.departments,
+      units: actor.units,
+      teams: actor.teams,
+      scopeLabel: `команда ${teamLabel ?? "—"}`,
     };
   }
-  const department =
-    userRole === "director" ? demoRoleScope("director").department : demoRoleScope("unit_lead").department;
-  return { department, unit: null, team: null, scopeLabel: `департамент ${department}` };
+  const role = userRole === "director" ? ("director" as const) : ("unit_lead" as const);
+  const primary = demoRolePrimaryOrg(role);
+  const actor = demoRoleActorOrg(role);
+  const deptLabel = actor.departments.length > 1 ? actor.departments.join(", ") : primary.department;
+  return {
+    department: primary.department,
+    unit: null as string | null,
+    team: null as string | null,
+    departments: actor.departments,
+    units: actor.units,
+    teams: actor.teams,
+    scopeLabel: `департамент ${deptLabel}`,
+  };
 }
 
 function canTeamLeadSubmitTeam(
@@ -66,9 +87,9 @@ function canTeamLeadSubmitTeam(
   if (!hasDraft) return false;
   return canRolePerformSubmissionAction("team_submit", {
     actorRole: userRole,
-    actorDepartment: scope.department,
-    actorUnit: scope.unit,
-    actorTeam: scope.team,
+    actorDepartments: scope.departments,
+    actorUnits: scope.units,
+    actorTeams: scope.teams,
     targetDepartment: team.department,
     targetUnit: team.unit,
     targetTeam: team.team,
@@ -83,9 +104,9 @@ function canUnitLeadReturnTeam(
 ): boolean {
   return canRolePerformSubmissionAction("return", {
     actorRole: userRole,
-    actorDepartment: scope.department,
-    actorUnit: scope.unit,
-    actorTeam: scope.team,
+    actorDepartments: scope.departments,
+    actorUnits: scope.units,
+    actorTeams: scope.teams,
     targetDepartment: team.department,
     targetUnit: team.unit,
     targetTeam: team.team,
@@ -99,9 +120,9 @@ function canUnitLeadApproveTeam(
 ): boolean {
   return canRolePerformSubmissionAction("unit_approve", {
     actorRole: userRole,
-    actorDepartment: scope.department,
-    actorUnit: scope.unit,
-    actorTeam: scope.team,
+    actorDepartments: scope.departments,
+    actorUnits: scope.units,
+    actorTeams: scope.teams,
     targetDepartment: team.department,
     targetUnit: team.unit,
     targetTeam: team.team,
@@ -115,9 +136,9 @@ function canUnitLeadApproveUnit(
 ): boolean {
   if (!canRolePerformSubmissionAction("unit_approve", {
     actorRole: userRole,
-    actorDepartment: scope.department,
-    actorUnit: scope.unit,
-    actorTeam: scope.team,
+    actorDepartments: scope.departments,
+    actorUnits: scope.units,
+    actorTeams: scope.teams,
     targetDepartment: scope.department,
     targetUnit: group.unit,
     targetTeam: group.teams[0]?.team ?? "",
@@ -143,7 +164,10 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
     leadEditFrozen,
     refreshTeamSubmissions,
     teamSubmissionRevision,
+    canManagePlanVersions,
   } = useMvpApp();
+
+  const annualBudgetOpen = Boolean(primaryBudget && !isBudgetLocked(primaryBudget));
 
   const scope = useMemo(() => resolveConsolidationScope(userRole), [userRole]);
   const planYear = primaryBudget?.planYear ?? activePlan.planYear ?? 2026;
@@ -174,7 +198,6 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
     });
   };
 
-  const now = new Date();
   const draftId = workingDraft?.id;
 
   const handleTeamSubmit = (team: TeamConsolidationRow) => {
@@ -271,26 +294,37 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
     return actions.length ? <div className="consolidation-team-actions">{actions}</div> : null;
   };
 
+  const isLeadRole = userRole === "team_lead" || userRole === "unit_lead";
+
   const body = (
     <>
-      {workingDraft ? (
+      {!isLeadRole && workingDraft ? (
         <div className="consolidation-draft-banner" role="status">
-          Черновик <strong>{workingDraft.label}</strong> · {PLAN_VERSION_STATUS_LABELS[workingDraft.status]}
-          {workingDraft.status === "DRAFT" ? (
+          Работаем в <strong>{formatPlanVersionTitle(workingDraft)}</strong> · {PLAN_VERSION_STATUS_LABELS[workingDraft.status]}
+          {canManagePlanVersions && workingDraft.status === "DRAFT" ? (
             <>
               {" "}
-              · <Link to="/versions?tab=approval">отправить на согласование</Link>
-              {" · "}
-              <Link to="/versions?tab=compare">сравнение и лимит</Link>
+              · <Link to="/versions?tab=compare">сравнение</Link>
             </>
           ) : null}
         </div>
-      ) : (
+      ) : !isLeadRole && annualBudgetOpen && primaryBudget ? (
+        <div className="consolidation-draft-banner" role="status">
+          Годовой <strong>{formatPlanVersionTitle(primaryBudget)}</strong> ещё не утверждён —{" "}
+          <Link to="/planning">планирование</Link>
+          {canManagePlanVersions ? (
+            <>
+              {" · "}
+              <Link to="/versions">утвердить</Link>
+            </>
+          ) : null}
+        </div>
+      ) : !isLeadRole && canManagePlanVersions ? (
         <div className="consolidation-draft-banner consolidation-draft-banner--warn" role="status">
           Квартальный черновик не создан.{" "}
-          <Link to="/versions">Создайте на «Версии»</Link>, чтобы отслеживать сдачу команд.
+          <Link to="/versions">Создать на «Версиях»</Link>
         </div>
-      )}
+      ) : null}
 
       {workingDraft && report.totals.filledTeams < report.totals.teams ? (
         <div className="consolidation-submit-banner" role="status">
@@ -298,26 +332,16 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
         </div>
       ) : null}
 
-      {userRole === "unit_lead" || userRole === "team_lead" ? (
+      {userRole === "unit_lead" ? (
         <section className="card consolidation-scope-banner" role="status">
           <strong>Срез: {scope.scopeLabel}</strong>
-          <span className="muted-line">
-            {userRole === "unit_lead"
-              ? "Сводка по командам вашего юнита · правки — в корректировке"
-              : "Сводка по вашей команде · правки — в корректировке"}
-          </span>
-          {scope.unit ? (
-            <Link className="secondary-btn consolidation-scope-banner__cta" to={unitCorrectionHref(scope.department, scope.unit)}>
-              Открыть корректировку юнита
-            </Link>
-          ) : null}
         </section>
       ) : null}
 
       <section className="card consolidation-campaign-head">
-        <h2 className="section-title">Кампания корректировки</h2>
+        <h2 className="section-title">Кампания планирования</h2>
         <p className="muted-line">
-          {workingDraft ? workingDraft.label : "Черновик не создан"} · {scope.scopeLabel}
+          {workingDraft ? formatPlanVersionTitle(workingDraft) : annualBudgetOpen && primaryBudget ? formatPlanVersionTitle(primaryBudget) : "Черновик не создан"} · {scope.scopeLabel}
         </p>
         <div className="consolidation-campaign-head__kpis">
           <span>{report.totals.headcount} поз.</span>
@@ -334,26 +358,16 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
       </section>
 
       <section className="consolidation-deadlines">
-        {report.deadlines.map((deadline) => {
-          const past = now.getTime() > deadline.dueDate.getTime();
-          return (
-            <article
-              key={deadline.id}
-              className={`card consolidation-deadline${past ? " consolidation-deadline--past" : ""}`}
-            >
+        {report.deadlines.map((deadline) => (
+            <article key={deadline.id} className="card consolidation-deadline">
               <h3 className="consolidation-deadline__label">{deadline.label}</h3>
               <p className="consolidation-deadline__date">{formatDeadlineShort(deadline.dueDate)}</p>
-              <p className="muted-line">{deadline.hint}</p>
             </article>
-          );
-        })}
+        ))}
       </section>
 
       <section className="card consolidation-tree">
         <h2 className="section-title">Дерево юнитов и команд</h2>
-        <p className="muted-line">
-          Статус согласования по командам · «Корректировка» откроет срез; при событиях — журнал diff.
-        </p>
         <ul className="consolidation-tree__list">
           {report.units.map((group) => {
             const expanded = expandedUnits.has(group.unit);
@@ -386,13 +400,6 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
                       Согласовать юнит
                     </button>
                   ) : null}
-                  <Link
-                    className="consolidation-tree__unit-link secondary-btn"
-                    to={unitCorrectionHref(scope.department, group.unit)}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    Корректировка
-                  </Link>
                 </button>
                 {expanded ? (
                   <table className="simple-table consolidation-tree__teams">
@@ -425,13 +432,8 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
                           <td className="consolidation-tree__actions">
                             {renderTeamActions(team)}
                             <Link className="ghost-btn" to={teamCorrectionHref(team)}>
-                              {team.deltaEvents > 0 ? "Журнал diff" : "Корректировка"}
+                              Планирование
                             </Link>
-                            {team.deltaEvents > 0 ? (
-                              <Link className="ghost-btn" to="/versions?tab=compare">
-                                Compare
-                              </Link>
-                            ) : null}
                           </td>
                         </tr>
                       ))}
@@ -444,23 +446,6 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
         </ul>
         {report.units.length === 0 && <p className="muted-line">Нет команд в выбранном срезе.</p>}
       </section>
-
-      {userRole === "team_lead" && scope.unit && scope.team ? (
-        <p className="muted-line">
-          Ваш срез —{" "}
-          <Link
-            to={teamCorrectionHref({
-              department: scope.department,
-              unit: scope.unit,
-              team: scope.team,
-              deltaPositionIds: [],
-            })}
-          >
-            открыть корректировку команды
-          </Link>
-          .
-        </p>
-      ) : null}
     </>
   );
 
@@ -477,17 +462,11 @@ export function ConsolidationPage({ embedded = false }: { embedded?: boolean }) 
           <p className="muted-line">{roleScopeHint}</p>
         </div>
         <div className="page-header__actions">
-          <Link className="secondary-btn" to="/planning?mode=correction">
-            Корректировка
-          </Link>
           {workingDraft ? (
             <Link className="secondary-btn" to="/versions?tab=compare">
               Сравнение
             </Link>
           ) : null}
-          <Link className="secondary-btn" to="/versions?tab=approval">
-            Согласование
-          </Link>
           <Link className="primary-btn" to="/planning">
             Планирование
           </Link>

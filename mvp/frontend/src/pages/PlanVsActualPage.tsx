@@ -16,7 +16,7 @@ import {
   collectPlanFactVarianceDrivers,
   summarizeVarianceDrivers,
 } from "../data/planFactVarianceDrivers";
-import { mapPositionsWithAppliedEvents } from "../data/planOperations";
+
 import {
   collectOccupancyMismatches,
   OCCUPANCY_MISMATCH_LABELS,
@@ -30,10 +30,7 @@ export function PlanVsActualPage({ embedded = false }: { embedded?: boolean }) {
   const [search, setSearch] = useState("");
   const [mismatchKind, setMismatchKind] = useState<OccupancyMismatchKind | "All">("All");
 
-  const appliedPositions = useMemo(
-    () => mapPositionsWithAppliedEvents(baseline.positions),
-    [baseline.positions],
-  );
+  const appliedPositions = baseline.appliedPositions;
 
   const filtered = useMemo(() => {
     return appliedPositions.filter((position) => {
@@ -62,7 +59,10 @@ export function PlanVsActualPage({ embedded = false }: { embedded?: boolean }) {
     [filtered, viewMode],
   );
 
-  const occupancyMismatches = useMemo(() => collectOccupancyMismatches(appliedPositions), [appliedPositions]);
+  const occupancyMismatches = useMemo(
+    () => collectOccupancyMismatches(appliedPositions),
+    [appliedPositions],
+  );
   const filteredMismatches = useMemo(() => {
     return occupancyMismatches.filter((item) => {
       if (mismatchKind !== "All" && item.kind !== mismatchKind) return false;
@@ -79,11 +79,13 @@ export function PlanVsActualPage({ embedded = false }: { embedded?: boolean }) {
 
   const body = (
     <>
-      <PlanFactBaselineBanner baseline={baseline} />
+      {!embedded ? <PlanFactBaselineBanner baseline={baseline} /> : null}
 
+      {!embedded ? (
       <div className="plan-fact-readonly-note" role="note">
         Всегда <strong>план − факт</strong>: плюс — экономия, минус — перерасход. Факт не меняет план.
       </div>
+      ) : null}
 
       <SliceToolbar
         search={search}

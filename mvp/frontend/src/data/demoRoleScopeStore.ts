@@ -1,12 +1,29 @@
 import type { UserRole } from "./userAccess";
+import {
+  legacyRoleScopeToAccessScope,
+  normalizeAccessScope,
+  parseStoredAccessScope,
+  type PersonaAccessScope,
+  type RoleScopeRecord,
+} from "./personaAccessScope";
+
+export type { PersonaAccessScope, RoleScopeRecord } from "./personaAccessScope";
+export {
+  ACCESS_FILTER_FIELD_LABELS,
+  ACCESS_FILTER_OPERATOR_LABELS,
+  buildAccessScope,
+  formatAccessScopeBrief,
+  nextAccessRuleId,
+  normalizeAccessScope,
+  orgTargetMatchesAccessScope,
+  parseStoredAccessScope,
+  positionMatchesAccessScope,
+  scopeEqValues,
+  scopeNeqValues,
+  scopePrimaryEq,
+} from "./personaAccessScope";
 
 export type ScopedRole = Exclude<UserRole, "cb_admin" | "gd" | "viewer">;
-
-export type RoleScopeRecord = {
-  department: string;
-  unit?: string;
-  team?: string;
-};
 
 const STORAGE_KEY = "fot_mvp_demo_role_scope";
 
@@ -16,7 +33,7 @@ export const DEFAULT_ROLE_SCOPES: Record<ScopedRole, RoleScopeRecord> = {
   team_lead: { department: "Engineering", unit: "ProductDev", team: "Frontend Web" },
 };
 
-function normalizeScope(scope: RoleScopeRecord): RoleScopeRecord {
+export function normalizeScope(scope: RoleScopeRecord): RoleScopeRecord {
   return {
     department: scope.department.trim(),
     unit: scope.unit?.trim() || undefined,
@@ -24,32 +41,47 @@ function normalizeScope(scope: RoleScopeRecord): RoleScopeRecord {
   };
 }
 
-export function readRoleScopes(): Record<ScopedRole, RoleScopeRecord> {
+export function readRoleScopes(): Record<ScopedRole, PersonaAccessScope> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_ROLE_SCOPES };
-    const parsed = JSON.parse(raw) as Partial<Record<ScopedRole, RoleScopeRecord>>;
+    if (!raw) {
+      return {
+        director: legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES.director),
+        unit_lead: legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES.unit_lead),
+        team_lead: legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES.team_lead),
+      };
+    }
+    const parsed = JSON.parse(raw) as Partial<Record<ScopedRole, unknown>>;
+    const resolve = (role: ScopedRole): PersonaAccessScope => {
+      const stored = parseStoredAccessScope(parsed[role]);
+      if (stored) return stored;
+      return legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES[role]);
+    };
     return {
-      director: normalizeScope(parsed.director ?? DEFAULT_ROLE_SCOPES.director),
-      unit_lead: normalizeScope(parsed.unit_lead ?? DEFAULT_ROLE_SCOPES.unit_lead),
-      team_lead: normalizeScope(parsed.team_lead ?? DEFAULT_ROLE_SCOPES.team_lead),
+      director: resolve("director"),
+      unit_lead: resolve("unit_lead"),
+      team_lead: resolve("team_lead"),
     };
   } catch {
-    return { ...DEFAULT_ROLE_SCOPES };
+    return {
+      director: legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES.director),
+      unit_lead: legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES.unit_lead),
+      team_lead: legacyRoleScopeToAccessScope(DEFAULT_ROLE_SCOPES.team_lead),
+    };
   }
 }
 
-export function writeRoleScopes(scopes: Record<ScopedRole, RoleScopeRecord>): void {
+export function writeRoleScopes(scopes: Record<ScopedRole, PersonaAccessScope>): void {
   localStorage.setItem(
     STORAGE_KEY,
     JSON.stringify({
-      director: normalizeScope(scopes.director),
-      unit_lead: normalizeScope(scopes.unit_lead),
-      team_lead: normalizeScope(scopes.team_lead),
+      director: normalizeAccessScope(scopes.director),
+      unit_lead: normalizeAccessScope(scopes.unit_lead),
+      team_lead: normalizeAccessScope(scopes.team_lead),
     }),
   );
 }
 
-export function roleScopeFor(role: ScopedRole): RoleScopeRecord {
+export function roleScopeFor(role: ScopedRole): PersonaAccessScope {
   return readRoleScopes()[role];
 }

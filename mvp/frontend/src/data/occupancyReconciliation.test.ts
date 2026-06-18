@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyEvents, initialPositions } from "./planningData";
+import { buildPilotPositions } from "./demoPlanSeed";
+import { applyEvents } from "./planningData";
 import { planOccupancyAtMonth } from "./occupancyTimeline";
 import { collectOccupancyMismatches } from "./occupancyReconciliation";
 import { clearFactStore, importEmployeeFacts, importFactPositionAssignments } from "./factStore";
 import type { PositionRecord } from "../types";
 
 function clonePositions(): PositionRecord[] {
-  return JSON.parse(JSON.stringify(initialPositions().map(applyEvents))) as PositionRecord[];
+  return JSON.parse(JSON.stringify(buildPilotPositions().map(applyEvents))) as PositionRecord[];
 }
 
 describe("occupancyTimeline", () => {

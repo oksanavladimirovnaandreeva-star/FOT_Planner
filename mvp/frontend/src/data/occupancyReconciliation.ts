@@ -6,7 +6,7 @@ import {
   listFactEmployeesOnPosition,
 } from "./factStore";
 import { monthLabel } from "./planningData";
-import { planOccupancyAtMonth } from "./occupancyTimeline";
+import { planOccupancyTimelineFast } from "./occupancyTimeline";
 import type { PositionRecord } from "../types";
 
 export type OccupancyMismatchKind =
@@ -39,7 +39,7 @@ export interface OccupancyMismatch {
   summary: string;
 }
 
-function isPlanVacantAtMonth(snapshot: ReturnType<typeof planOccupancyAtMonth>): boolean {
+function isPlanVacantAtMonth(snapshot: ReturnType<typeof planOccupancyTimelineFast>[number]): boolean {
   return snapshot.status === "Vacancy" || snapshot.status === "Closed" || !snapshot.employeeId;
 }
 
@@ -51,10 +51,11 @@ export function collectOccupancyMismatches(positions: PositionRecord[]): Occupan
 
   for (const position of applied) {
     if (position.status === "Closed") continue;
+    const occupancyTimeline = planOccupancyTimelineFast(position);
     const start = position.activeFromMonth;
 
     for (let month = start; month < 12; month += 1) {
-      const plan = planOccupancyAtMonth(position, month);
+      const plan = occupancyTimeline[month];
       if (plan.status === "Closed") continue;
 
       const factFromAssignment = getFactEmployeeOnPosition(position.positionId, month);
@@ -138,8 +139,9 @@ export function collectOccupancyMismatches(positions: PositionRecord[]): Occupan
 
   const planEmployeeMonths = new Set<string>();
   for (const position of applied) {
+    const occupancyTimeline = planOccupancyTimelineFast(position);
     for (let month = 0; month < 12; month += 1) {
-      const plan = planOccupancyAtMonth(position, month);
+      const plan = occupancyTimeline[month];
       if (plan.employeeId) planEmployeeMonths.add(`${plan.employeeId}\0${month}`);
     }
   }

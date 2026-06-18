@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { DemoRoleSelect } from "../components/DemoRoleSelect";
+import { DemoUserCard } from "../components/DemoUserCard";
 import { DemoAccessSettingsPanel } from "../components/settings/DemoAccessSettingsPanel";
 import { DataSettingsPanel } from "../components/settings/DataSettingsPanel";
 import { OrgStructureSettingsPanel } from "../components/settings/OrgStructureSettingsPanel";
@@ -56,14 +56,8 @@ export function SettingsPage() {
           </div>
         </header>
         <section className="card settings-section">
-          <h2 className="section-title">Роль (демо)</h2>
-          <p className="muted-line">Переключение роли для теста прав — доступно всем в MVP.</p>
-          <DemoRoleSelect />
-        </section>
-        <section className="card settings-stub">
-          <p>
-            Для загрузки факта, управления версиями и демо-набора обратитесь к <strong>C&B</strong>.
-          </p>
+          <h2 className="section-title">Текущий пользователь</h2>
+          <DemoUserCard />
           {leadEditFrozenForRole ? (
             <p className="settings-stub__warn">Правки для вашей роли закрыты директором.</p>
           ) : null}
@@ -84,9 +78,8 @@ export function SettingsPage() {
       </header>
 
       <section className="card settings-section">
-        <h2 className="section-title">Роль (демо)</h2>
-        <p className="muted-line">Только для тестирования прав доступа в MVP.</p>
-        <DemoRoleSelect />
+        <h2 className="section-title">Текущий пользователь</h2>
+        <DemoUserCard />
         {scopeLabel ? <p className="settings-scope">{scopeLabel}</p> : null}
         <p className="muted-line">{scopeHint}</p>
         {positions.length !== positionsTotalCount ? (

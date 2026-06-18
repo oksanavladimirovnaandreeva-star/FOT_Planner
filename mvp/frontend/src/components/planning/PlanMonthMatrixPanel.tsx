@@ -2,16 +2,13 @@ import { useMemo } from "react";
 import { MONTHS } from "../../types";
 import type { PositionRecord } from "../../types";
 import type { ViewMode } from "../../data/dashboardMetrics";
-import { hasFactData } from "../../data/factStore";
 import { formatMoneyShort } from "../../data/formatDisplay";
 import {
   isCorrectionMonthLocked,
-  planEventMonthBlockedMessage,
   type CorrectionWindowInfo,
 } from "../../data/planCorrectionWindow";
 import {
   buildPlanMonthCell,
-  MATRIX_DEVIATION_LABEL,
   matrixMonthOccupancyLabel,
   type PlanMonthCell,
 } from "../../data/planMonthMatrix";
@@ -37,13 +34,6 @@ function cellClass(cell: PlanMonthCell, monthLocked: boolean): string {
   } else if (cell.planStatus === "Occupied") {
     parts.push("plan-matrix__cell--status-occupied");
   }
-  if (
-    cell.deviation === "plan_fact_gap" ||
-    cell.deviation === "fact_over_plan" ||
-    cell.deviation === "multi_on_seat"
-  ) {
-    parts.push(`plan-matrix__cell--${cell.deviation}`);
-  }
   return parts.join(" ");
 }
 
@@ -55,7 +45,6 @@ export function PlanMonthMatrixPanel({
   correctionWindow = null,
   onOpenPosition,
 }: PlanMonthMatrixPanelProps) {
-  const factReady = hasFactData();
   const monthLocked = (month: number) =>
     correctionWindow != null && isCorrectionMonthLocked(month, correctionWindow);
 
@@ -63,26 +52,22 @@ export function PlanMonthMatrixPanel({
     () =>
       positions.map((position) => ({
         position,
-        cells: MONTHS.map((_, month) => buildPlanMonthCell(position, month, viewMode, factReady)),
+        cells: MONTHS.map((_, month) => buildPlanMonthCell(position, month, viewMode, false)),
       })),
-    [positions, viewMode, factReady],
+    [positions, viewMode],
   );
 
   return (
     <div className="plan-matrix-panel">
       <p className="plan-matrix-panel__legend muted-line">
-        План на <strong>конец месяца</strong> · суммы: <strong>{viewModeLabel}</strong>
-        {factReady
-          ? " · факт только для отклонений (план из факта не меняется)"
-          : " · факт не загружен — загрузите в «Данные»"}
+        План на <strong>конец месяца</strong> · <strong>{viewModeLabel}</strong>
         {correctionWindow?.enforced ? (
           <>
             {" · "}
-            <strong>серые столбцы</strong> — до {correctionWindow.startMonthLabel}: только просмотр (
-            {planEventMonthBlockedMessage(correctionWindow)})
+            <strong>серые столбцы</strong> — только просмотр до {correctionWindow.startMonthLabel}
           </>
         ) : (
-          " · занятость: зелёный · вакансия · жёлтый · закрыта · розовый"
+          " · зелёный — занято · жёлтый — вакансия · розовый — закрыто"
         )}
       </p>
       <div className="plan-matrix-scroll">
@@ -96,7 +81,7 @@ export function PlanMonthMatrixPanel({
                   <th
                     key={label}
                     className={locked ? "plan-matrix__col--locked" : undefined}
-                    data-hint={locked ? `Месяц закрыт для корректировки (до ${correctionWindow?.startMonthLabel})` : undefined}
+                    data-hint={locked ? `Месяц закрыт для правок (до ${correctionWindow?.startMonthLabel})` : undefined}
                   >
                     {label.slice(0, 3)}
                   </th>
@@ -118,20 +103,13 @@ export function PlanMonthMatrixPanel({
                 </td>
                 {cells.map((cell) => {
                   const locked = monthLocked(cell.month);
-                  const devLabel = MATRIX_DEVIATION_LABEL[cell.deviation];
                   const title = [
-                    locked ? `Месяц закрыт для корректировки (до ${correctionWindow?.startMonthLabel})` : null,
-                    `План: ${cell.planStatus === "Closed" ? "закрыт" : cell.planStatus}`,
-                    cell.planEmployeeName ? `· ${cell.planEmployeeName}` : "",
-                    `· ${formatMoneyShort(cell.planAmount)}`,
-                    factReady ? `Факт: ${formatMoneyShort(cell.factAmount)}` : "",
-                    cell.deltaPlanMinusFact !== 0 && factReady
-                      ? `Δ план−факт: ${formatMoneyShort(cell.deltaPlanMinusFact)}`
-                      : "",
-                    devLabel,
+                    locked ? `Месяц закрыт (до ${correctionWindow?.startMonthLabel})` : null,
+                    cell.planEmployeeName ? cell.planEmployeeName : null,
+                    formatMoneyShort(cell.planAmount),
                   ]
                     .filter(Boolean)
-                    .join(" ");
+                    .join(" · ");
 
                   return (
                     <td key={cell.month} className={locked ? "plan-matrix__td--locked" : undefined}>
@@ -145,10 +123,6 @@ export function PlanMonthMatrixPanel({
                           {matrixMonthOccupancyLabel(position, cell.month)}
                         </span>
                         <span className="plan-matrix__plan-amt">{formatMoneyShort(cell.planAmount)}</span>
-                        {factReady && cell.deviation !== "closed" ? (
-                          <span className="plan-matrix__fact-amt">{formatMoneyShort(cell.factAmount)}</span>
-                        ) : null}
-                        {devLabel ? <span className="plan-matrix__flag">{devLabel}</span> : null}
                       </button>
                     </td>
                   );

@@ -1,9 +1,8 @@
 import { monthAmountForPosition, monthFactAmount, type ViewMode } from "./dashboardMetrics";
 import { hasFactData, listFactEmployeesOnPosition } from "./factStore";
-import { mapPositionsWithAppliedEvents } from "./planOperations";
 import { monthLabel } from "./planningData";
 import { planFactDelta } from "./planFactMetrics";
-import { planOccupancyAtMonth } from "./occupancyTimeline";
+import { planOccupancyTimelineFast } from "./occupancyTimeline";
 import type { PositionRecord } from "../types";
 
 export type PlanFactVarianceDriverId =
@@ -64,7 +63,7 @@ function ytdMonthIndex(): number {
   return new Date().getMonth();
 }
 
-function isPlanVacantAtMonth(snapshot: ReturnType<typeof planOccupancyAtMonth>): boolean {
+function isPlanVacantAtMonth(snapshot: ReturnType<typeof planOccupancyTimelineFast>[number]): boolean {
   return snapshot.status === "Vacancy" || snapshot.status === "Closed" || !snapshot.employeeId;
 }
 
@@ -92,19 +91,19 @@ export function collectPlanFactVarianceDrivers(
   viewMode: ViewMode,
 ): PlanFactVarianceDriverCase[] {
   if (!hasFactData()) return [];
-  const applied = mapPositionsWithAppliedEvents(positions);
   const ytd = ytdMonthIndex();
   const cases: PlanFactVarianceDriverCase[] = [];
 
-  for (const position of applied) {
+  for (const position of positions) {
     if (position.status === "Closed") continue;
+    const occupancyTimeline = planOccupancyTimelineFast(position);
     for (let month = position.activeFromMonth; month <= ytd; month += 1) {
       const planAmount = monthAmountForPosition(position, month, viewMode);
       const factAmount = monthFactAmount(position, month, viewMode);
       const delta = planFactDelta(planAmount, factAmount);
       if (delta === 0) continue;
 
-      const planSnap = planOccupancyAtMonth(position, month);
+      const planSnap = occupancyTimeline[month];
       if (planSnap.status === "Closed") continue;
 
       const factEmployeeCount = listFactEmployeesOnPosition(position.positionId, month).length;

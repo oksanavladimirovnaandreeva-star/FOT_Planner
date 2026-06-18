@@ -2,11 +2,14 @@ import type { LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 import { ORG_STRUCTURE } from "./orgStructure";
 
 /** Версия демо-набора: при смене — авто-обновление seed в localStorage. */
-export const DEMO_SEED_VERSION = 3;
+export const DEMO_SEED_VERSION = 5;
 
 export const DEMO_SEED_VERSION_KEY = "fot_mvp_demo_seed_version";
 
-/** Целевой объём для пилотного тестирования (PILOT-1). */
+/** Обычный демо-план при старте и «Демо-план» в настройках. */
+export const DEFAULT_DEMO_POSITION_COUNT = 40;
+
+/** Целевой объём для пилотного стресс-теста (кнопка «Пилот (тяжёлый)»). */
 export const PILOT_POSITION_TARGET = 520;
 
 const twelve = <T,>(value: T): T[] => Array.from({ length: 12 }, () => value);
@@ -286,10 +289,11 @@ export function buildDecemberRosterSnapshot(positions: PositionRecord[]): Decemb
   }));
 }
 
-/** Генератор демо-плана: ≥500 позиций, декабрьский срез + события года. */
-export function buildDemoPositions(targetCount = PILOT_POSITION_TARGET): PositionRecord[] {
+/** Генератор демо-плана: декабрьский срез + события года. */
+export function buildDemoPositions(targetCount = DEFAULT_DEMO_POSITION_COUNT): PositionRecord[] {
   const teams = listTeams();
-  const slotsPerTeam = Math.max(3, Math.ceil(targetCount / teams.length));
+  /** Минимум 5 — иначе при компактном демо нет вакансий (slotIndex % 5 === 4). */
+  const slotsPerTeam = Math.max(5, Math.ceil(targetCount / teams.length));
   const positions: PositionRecord[] = [];
   let positionNum = 1;
   let employeeNum = 1;
@@ -362,4 +366,9 @@ export function buildDemoPositions(targetCount = PILOT_POSITION_TARGET): Positio
   }
 
   return positions;
+}
+
+/** Полный пилотный объём (~520 поз.) — только по кнопке «Пилот (тяжёлый)». */
+export function buildPilotPositions(): PositionRecord[] {
+  return buildDemoPositions(PILOT_POSITION_TARGET);
 }

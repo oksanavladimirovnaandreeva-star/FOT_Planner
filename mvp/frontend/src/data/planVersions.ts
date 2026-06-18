@@ -65,9 +65,29 @@ function draftId(planYear: number, baselineVersionId: string): string {
   return `draft-${planYear}-${suffix}`;
 }
 
+export function annualBudgetLabel(planYear: number): string {
+  return `Бюджет ${planYear}`;
+}
+
+export function quarterCorrectionLabel(planYear: number, quarterIndex: number): string {
+  const quarter = Math.max(1, Math.min(4, quarterIndex));
+  return `${quarter} Квартал ${planYear}`;
+}
+
+/** v1 = годовой бюджет; v2+ = утверждённая корректировка квартала. */
 export function defaultVersionLabel(planYear: number, versionNumber: number): string {
-  const quarter = Math.max(1, Math.min(4, versionNumber));
-  return `Бюджет ${planYear} · Версия ${versionNumber} · ${quarter} квартал ${planYear}`;
+  if (versionNumber === 1) {
+    return annualBudgetLabel(planYear);
+  }
+  return quarterCorrectionLabel(planYear, versionNumber - 1);
+}
+
+function draftLabelFor(baseline: { planYear: number; versionNumber: number }): string {
+  return quarterCorrectionLabel(baseline.planYear, baseline.versionNumber);
+}
+
+function versionStepLabel(version: { planYear: number; versionNumber: number }, suffix: string): string {
+  return `${defaultVersionLabel(version.planYear, version.versionNumber)} · ${suffix}`;
 }
 
 export function initialPlanVersions(planYear = 2026): PlanVersionMeta[] {
@@ -101,10 +121,26 @@ export function canEditVersion(version: PlanVersionMeta | undefined): boolean {
   return false;
 }
 
+export function repairVersionLabels(versions: PlanVersionMeta[]): PlanVersionMeta[] {
+  const byId = new Map(versions.map((version) => [version.id, version]));
+  return versions.map((version) => {
+    if (version.kind === "WORKING_DRAFT") {
+      const baseline = version.baselineVersionId ? byId.get(version.baselineVersionId) : null;
+      const baselineMeta = baseline ?? { planYear: version.planYear, versionNumber: version.versionNumber };
+      return { ...version, label: draftLabelFor(baselineMeta) };
+    }
+    if (version.kind === "APPROVED") {
+      return { ...version, label: defaultVersionLabel(version.planYear, version.versionNumber) };
+    }
+    return version;
+  });
+}
+
 export function repairDataByVersion(
   versions: PlanVersionMeta[],
   data: Record<string, PositionRecord[]>,
 ): Record<string, PositionRecord[]> {
+  let changed = false;
   const next: Record<string, PositionRecord[]> = { ...data };
   for (const version of versions) {
     if (version.kind !== "WORKING_DRAFT" || !version.baselineVersionId) continue;
@@ -112,9 +148,10 @@ export function repairDataByVersion(
     if (!baselineRows?.length) continue;
     if (!next[version.id]?.length) {
       next[version.id] = clonePositionList(baselineRows);
+      changed = true;
     }
   }
-  return next;
+  return changed ? next : data;
 }
 
 export type ApprovalStepState = "done" | "current" | "pending";
@@ -134,26 +171,37 @@ export function buildApprovalRoute(
   const latest = [...versions]
     .filter((version) => version.kind === "APPROVED")
     .sort((a, b) => b.versionNumber - a.versionNumber)[0];
-  const v1Locked = primary ? isBudgetLocked(primary) : false;
+  const primaryLocked = primary ? isBudgetLocked(primary) : false;
+  const nextVersionNumber = (latest?.versionNumber ?? 1) + 1;
+  const nextPublishMeta = {
+    planYear: latest?.planYear ?? primary?.planYear ?? 2026,
+    versionNumber: nextVersionNumber,
+  };
 
   const steps: ApprovalStep[] = [
     {
       id: "edit-v1",
-      label: "Бюджет v1 · правки",
+      label: primary
+        ? versionStepLabel(primary, "правки")
+        : versionStepLabel({ planYear: 2026, versionNumber: 1 }, "правки"),
       hint: "Пока не утверждён — редактируется на планировании",
-      state: primary && !v1Locked ? "current" : "done",
+      state: primary && !primaryLocked ? "current" : "done",
     },
     {
       id: "approve-v1",
-      label: "Утверждение v1",
+      label: primary
+        ? versionStepLabel(primary, "утверждение")
+        : versionStepLabel({ planYear: 2026, versionNumber: 1 }, "утверждение"),
       hint: "Фиксирует первую версию, дальше — только черновик",
-      state: primary && !v1Locked ? "current" : v1Locked ? "done" : "pending",
+      state: primary && !primaryLocked ? "current" : primaryLocked ? "done" : "pending",
     },
     {
       id: "quarter-draft",
-      label: "Квартальный черновик",
-      hint: "Полный функционал планирования",
-      state: workingDraft ? (workingDraft.status === "IN_APPROVAL" ? "done" : "current") : v1Locked ? "pending" : "pending",
+      label: workingDraft
+        ? workingDraft.label
+        : quarterCorrectionLabel(nextPublishMeta.planYear, latest?.versionNumber ?? 1),
+      hint: "Правки и сдача команд в корректировке",
+      state: workingDraft ? (workingDraft.status === "IN_APPROVAL" ? "done" : "current") : primaryLocked ? "pending" : "pending",
     },
     {
       id: "approval-route",
@@ -163,7 +211,7 @@ export function buildApprovalRoute(
     },
     {
       id: "publish",
-      label: `Публикация v${(latest?.versionNumber ?? 1) + 1}`,
+      label: `Публикация · ${defaultVersionLabel(nextPublishMeta.planYear, nextPublishMeta.versionNumber)}`,
       hint: "Новая версия бюджета, без перезаписи истории",
       state: "pending",
     },
@@ -183,7 +231,7 @@ export function loadPersistedVersions(): PlanVersionMeta[] | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    return parsed as PlanVersionMeta[];
+    return repairVersionLabels(parsed as PlanVersionMeta[]);
   } catch {
     return null;
   }
@@ -247,7 +295,7 @@ export function buildWorkingDraftMeta(source: PlanVersionMeta): PlanVersionMeta 
   const now = new Date().toISOString();
   return {
     id: draftId(source.planYear, source.id),
-    label: `Черновик к ${source.label}`,
+    label: draftLabelFor(source),
     planYear: source.planYear,
     versionNumber: source.versionNumber,
     kind: "WORKING_DRAFT",

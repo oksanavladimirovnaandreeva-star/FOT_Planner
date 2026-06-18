@@ -25,9 +25,9 @@ import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import { departmentOptions, LIMIT_FLAG_LABELS } from "../data/planningData";
 import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
 import { roleOrgFilterDefaults } from "../data/userAccess";
-import { hasFactData } from "../data/factStore";
 import { ExportCsvActions } from "../components/ExportCsvActions";
 import { PilotWelcomeBanner } from "../components/PilotWelcomeBanner";
+import { PLAN_SCENARIO_INCLUDES_FACT } from "../data/planScenario";
 import { WorkflowHint } from "../components/WorkflowHint";
 import { formatMoneyPlain } from "../data/formatDisplay";
 import type { LimitFlagKey } from "../types";
@@ -97,7 +97,7 @@ export function DashboardPage() {
         <div>
           <h1 className="page-header__title-row">Обзор и итого</h1>
           <p>
-            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"} · план и факт (факт — заглушка до импорта)
+            {activePlan.label} · {viewMode === "total" ? "итого ФОТ" : "оклад"}
           </p>
         </div>
         <div className="page-header__actions">
@@ -122,12 +122,7 @@ export function DashboardPage() {
       <PilotWelcomeBanner />
 
       <SliceToolbar
-        footer={
-          <>
-            {planVersionId} · {filtered.length} поз.
-            {!analytics.hasFactData ? " · факт не загружен" : ""}
-          </>
-        }
+        footer={<>{planVersionId} · {filtered.length} поз.</>}
       >
         <OrgSliceMultiSelect
           layout="toolbar"
@@ -189,31 +184,20 @@ export function DashboardPage() {
         </SliceToolbarSelect>
       </SliceToolbar>
 
-      {userRole === "cb_admin" && !hasFactData() ? (
+      {userRole === "cb_admin" && PLAN_SCENARIO_INCLUDES_FACT && !analytics.hasFactData ? (
         <WorkflowHint hintId="dashboard-fact" linkTo="/settings" linkLabel="Настройки → Данные">
-          Загрузите факт за месяц в настройках, чтобы увидеть план–факт и прогноз на год.
+          Импорт факта — в настройках (для раздела «Аналитика»).
         </WorkflowHint>
       ) : null}
 
         <AnalyticsSummaryStrip positions={filtered} viewMode={viewMode} salaryBands={salaryBands} showYtd />
 
+      {PLAN_SCENARIO_INCLUDES_FACT && analytics.hasFactData ? (
       <section className="card dashboard-chart-card">
         <h2 className="section-title">План и факт</h2>
         <p className="muted-line">
-          Слева — помесячные столбцы: план слоями по лимиту (в лимите / сверх), рядом столбец факта. Справа — доли
-          плана за год без разбивки по месяцам.
+          Подробнее — в <Link to="/analytics">аналитике</Link>.
         </p>
-        <div className="chart-legend">
-          <span>
-            <i className="legend-swatch legend-swatch--in" /> В лимите (план)
-          </span>
-          <span>
-            <i className="legend-swatch legend-swatch--over" /> Сверх лимита (план)
-          </span>
-          <span>
-            <i className="legend-swatch legend-swatch--fact" /> Факт (итого)
-          </span>
-        </div>
         <div className="dashboard-charts-grid">
           <div className="dashboard-charts-grid__main">
             <PlanFactMonthlyChart monthlyByLimit={monthlyByLimit} hasFactData={analytics.hasFactData} />
@@ -224,17 +208,16 @@ export function DashboardPage() {
           </aside>
         </div>
       </section>
+      ) : null}
 
       <div className="dashboard-split">
           <section className="card">
-            <h2 className="section-title">План / факт по месяцам (итого)</h2>
+            <h2 className="section-title">План по месяцам</h2>
             <table className="month-table">
               <thead>
                 <tr>
                   <th>Месяц</th>
                   <th>План</th>
-                  <th>Факт</th>
-                  <th>Δ</th>
                 </tr>
               </thead>
               <tbody>
@@ -242,8 +225,6 @@ export function DashboardPage() {
                   <tr key={row.month}>
                     <td>{row.label}</td>
                     <td>{formatMoneyPlain(row.plan)}</td>
-                    <td className="text-muted-strong">—</td>
-                    <td className="text-muted-strong">—</td>
                   </tr>
                 ))}
               </tbody>
@@ -251,14 +232,12 @@ export function DashboardPage() {
           </section>
 
           <section className="card">
-            <h2 className="section-title">План-факт и отклонение по лимиту (год)</h2>
+            <h2 className="section-title">План по лимиту (год)</h2>
             <table className="simple-table">
               <thead>
                 <tr>
                   <th>Лимит</th>
                   <th>План</th>
-                  <th>Факт</th>
-                  <th>Δ</th>
                 </tr>
               </thead>
               <tbody>
@@ -270,8 +249,6 @@ export function DashboardPage() {
                         <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
                       </td>
                       <td>{formatMoneyPlain(cell.plan)}</td>
-                      <td className="text-muted-strong">—</td>
-                      <td className="text-muted-strong">—</td>
                     </tr>
                   );
                 })}

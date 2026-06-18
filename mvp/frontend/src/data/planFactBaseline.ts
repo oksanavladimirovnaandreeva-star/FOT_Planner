@@ -3,11 +3,14 @@ import {
   PLAN_VERSION_STATUS_LABELS,
   type PlanVersionMeta,
 } from "./planVersions";
+import { mapPositionsWithAppliedEvents } from "./planOperations";
 import type { PositionRecord } from "../types";
 
 export type PlanFactBaseline = {
   planVersion: PlanVersionMeta;
   positions: PositionRecord[];
+  /** Позиции с применёнными событиями — для аналитики план–факт. */
+  appliedPositions: PositionRecord[];
   /** В сайдбаре выбрана другая версия, чем база для план–факт. */
   differsFromSidebar: boolean;
   sidebarVersion: PlanVersionMeta;
@@ -27,9 +30,12 @@ export function resolvePlanFactBaseline(
   const planVersion =
     approved && approved.kind === "APPROVED" && approved.status !== "ARCHIVED" ? approved : sidebar;
 
+  const positions = dataByVersion[planVersion.id] ?? [];
+
   return {
     planVersion,
-    positions: dataByVersion[planVersion.id] ?? [],
+    positions,
+    appliedPositions: mapPositionsWithAppliedEvents(positions),
     differsFromSidebar: planVersion.id !== sidebar.id,
     sidebarVersion: sidebar,
   };

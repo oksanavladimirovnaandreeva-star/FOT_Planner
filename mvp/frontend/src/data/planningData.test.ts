@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { PlannedEvent, PositionRecord } from "../types";
 import {
   applyEvents,
+  collectIndexationBatchesFromPositions,
   decToDec,
   initialPositions,
   removeEvent,
+  removeIndexationBatchFromPositions,
   sortEventsForApply,
   upsertEvent,
 } from "./planningData";
@@ -114,5 +116,35 @@ describe("decToDec", () => {
     expect(decToDec(0, 0)).toBe(0);
     expect(decToDec(0, 100_000)).toBe(100);
     expect(decToDec(100_000, 110_000)).toBeCloseTo(10);
+  });
+});
+
+describe("indexation batches", () => {
+  it("собирает пакеты по batchId из всех позиций", () => {
+    const a = isolatedPosition();
+    const b = { ...isolatedPosition(), positionId: "P999" };
+    const batchId = "batch-a";
+    const eventA = { ...indexationEvent(3, 5), payload: { month: 3, percent: 5, indexationBatchId: batchId } };
+    const eventB = { ...indexationEvent(3, 5, 2), payload: { month: 3, percent: 5, indexationBatchId: batchId } };
+    const batches = collectIndexationBatchesFromPositions([
+      upsertEvent(a, eventA),
+      upsertEvent(b, eventB),
+    ]);
+    expect(batches).toHaveLength(1);
+    expect(batches[0].affectedCount).toBe(2);
+    expect(batches[0].percent).toBe(5);
+    expect(batches[0].positionIds).toEqual(expect.arrayContaining([a.positionId, b.positionId]));
+  });
+
+  it("удаляет пакет и откатывает оклады", () => {
+    const base = isolatedPosition();
+    const before = applyEvents(base);
+    const withIdx = upsertEvent(base, indexationEvent(6, 10));
+    const indexed = applyEvents(withIdx);
+    expect(indexed.monthlyBase[6]).toBeGreaterThan(before.monthlyBase[6]);
+
+    const restored = removeIndexationBatchFromPositions([withIdx], "batch-6")[0];
+    expect(restored.events).toHaveLength(0);
+    expect(applyEvents(restored).monthlyBase[6]).toBe(before.monthlyBase[6]);
   });
 });

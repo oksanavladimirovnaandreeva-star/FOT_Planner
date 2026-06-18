@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { applyEvents, initialPositions } from "../data/planningData";
 import { DEMO_SEED_VERSION, DEMO_SEED_VERSION_KEY } from "../data/demoPlanSeed";
 import { diffPlanVersions, type PlanVersionDiffSummary } from "../data/planVersionDiff";
@@ -21,9 +21,11 @@ import {
   positionsForPublishedVersion,
   primaryBudgetVersion,
   repairDataByVersion,
+  repairVersionLabels,
   type ApprovalStep,
   type PlanVersionMeta,
 } from "../data/planVersions";
+import { mapPositionsWithAppliedEvents } from "../data/planOperations";
 import {
   extractImportablePositions,
   formatImportReport,
@@ -67,6 +69,7 @@ import {
   roleCanImportFact,
   roleCanImportPlan,
   roleCanManageVersions,
+  roleCanSwitchPlanVersions,
   roleCanToggleLeadFreeze,
   roleScopeDescription,
   saveLeadEditFrozen,
@@ -76,8 +79,19 @@ import {
 import type { ViewMode } from "../data/dashboardMetrics";
 import { resolvePlanFactBaseline, type PlanFactBaseline } from "../data/planFactBaseline";
 import { deletePlanVersionState } from "../data/planVersionDelete";
-import { buildPilotTestBundle, type PilotBundleResult } from "../data/pilotTestBundle";
+import {
+  applyPilotBundleSideEffects,
+  buildPilotPlanBundle,
+  type PilotBundleResult,
+} from "../data/pilotTestBundle";
+import { applyAnnualPlanningScenarioFactPolicy } from "../data/planScenario";
+import { yieldToMain } from "../data/asyncYield";
+import { formatPlanVersionTitle } from "../data/planVersionDisplay";
+import { canReopenPrimaryBudget, reopenPrimaryBudgetMeta } from "../data/planVersionLifecycle";
+import { clearPilotDemoStorage } from "../data/mvpStorageReset";
 import { clearSubmissionsForPlan, getTeamSubmission, isTeamEditingLocked } from "../data/teamSubmissionStore";
+import { scopePrimaryEq } from "../data/personaAccessScope";
+import { loadResolvedDemoPersona } from "../data/demoSessionStore";
 import type { PositionRecord, SalaryCatalogAccess, SalaryRangeBand } from "../types";
 
 export type { UserRole };
@@ -127,11 +141,11 @@ function hydrateState(): {
     const repaired = repairDataByVersion(persistedVersions, persistedData);
     const upgraded = applyDemoSeedUpgrade(persistedVersions, repaired);
     return {
-      versions: persistedVersions,
+      versions: repairVersionLabels(persistedVersions),
       dataByVersion: upgraded ?? repaired,
     };
   }
-  const versions = initialPlanVersions();
+  const versions = repairVersionLabels(initialPlanVersions());
   const dataByVersion = repairDataByVersion(versions, seedVersionData());
   localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
   return { versions, dataByVersion };
@@ -171,6 +185,7 @@ type MvpAppContextValue = {
     | { ok: true; versionId: string; versionLabel: string }
     | { ok: false; error: string };
   approvePrimaryBudget: () => { ok: true } | { ok: false; error: string };
+  reopenPrimaryBudget: () => { ok: true } | { ok: false; error: string };
   submitDraftForApproval: () => { ok: true } | { ok: false; error: string };
   draftApprovalCheck: DraftApprovalCheck;
   approvalRoute: ApprovalStep[];
@@ -208,8 +223,14 @@ type MvpAppContextValue = {
   refreshOperationHistory: () => void;
   resetDevPlanToDraft: () => { ok: true } | { ok: false; error: string };
   reloadDemoSeed: () => { ok: true; count: number } | { ok: false; error: string };
-  loadPilotTestBundle: () => { ok: true; summary: string } & PilotBundleResult | { ok: false; error: string };
+  loadPilotTestBundle: () => Promise<
+    { ok: true; summary: string } & PilotBundleResult | { ok: false; error: string }
+  >;
+  /** Сброс пилота/плана в браузере и перезагрузка страницы. */
+  clearPilotTestBundle: () => { ok: true } | { ok: false; error: string };
   demoRoleScopeLabel: string | null;
+  /** Имя пользователя на экране входа (Вася, C&B, …). */
+  demoPersonaLabel: string | null;
   refreshAppConfig: () => void;
   appConfigRevision: number;
   teamSubmissionRevision: number;
@@ -219,6 +240,8 @@ type MvpAppContextValue = {
 };
 
 const MvpAppContext = createContext<MvpAppContextValue | null>(null);
+
+const DATA_PERSIST_DEBOUNCE_MS = 300;
 
 export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const initial = useMemo(() => hydrateState(), []);
@@ -243,8 +266,24 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const [leadEditFrozen, setLeadEditFrozenState] = useState(() => loadLeadEditFrozen());
   const [configRevision, setConfigRevision] = useState(0);
   const [teamSubmissionRevision, setTeamSubmissionRevision] = useState(0);
+  const bulkHydratingRef = useRef(false);
+  const persistDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipPersistUntilReadyRef = useRef(true);
+
+  useEffect(() => {
+    applyAnnualPlanningScenarioFactPolicy();
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      skipPersistUntilReadyRef.current = false;
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const refreshAppConfig = useCallback(() => {
+    setUserRoleState(loadUserRole());
+    setLeadEditFrozenState(loadLeadEditFrozen());
     setConfigRevision((value) => value + 1);
   }, []);
 
@@ -253,11 +292,19 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (bulkHydratingRef.current || skipPersistUntilReadyRef.current) return;
     persistVersions(planVersions);
   }, [planVersions]);
 
   useEffect(() => {
-    persistDataByVersion(dataByVersion);
+    if (bulkHydratingRef.current || skipPersistUntilReadyRef.current) return;
+    if (persistDataTimerRef.current) clearTimeout(persistDataTimerRef.current);
+    persistDataTimerRef.current = setTimeout(() => {
+      persistDataByVersion(dataByVersion);
+    }, DATA_PERSIST_DEBOUNCE_MS);
+    return () => {
+      if (persistDataTimerRef.current) clearTimeout(persistDataTimerRef.current);
+    };
   }, [dataByVersion]);
 
   const refreshOperationHistory = useCallback(() => {
@@ -356,13 +403,21 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     [planVersions, dataByVersion, planVersionId],
   );
   const planFactBaseline = useMemo(
-    () => ({
-      ...planFactBaselineRaw,
-      positions: filterPositionsByRole(planFactBaselineRaw.positions, userRole),
-    }),
-    [planFactBaselineRaw, userRole],
+    () => {
+      const positions = filterPositionsByRole(planFactBaselineRaw.positions, userRole);
+      return {
+        ...planFactBaselineRaw,
+        positions,
+        appliedPositions: mapPositionsWithAppliedEvents(positions),
+      };
+    },
+    [planFactBaselineRaw, userRole, configRevision],
   );
-  const demoRoleScopeLabel = useMemo(() => formatDemoRoleScope(userRole), [userRole]);
+  const demoRoleScopeLabel = useMemo(() => formatDemoRoleScope(userRole), [userRole, configRevision]);
+  const demoPersonaLabel = useMemo(
+    () => loadResolvedDemoPersona()?.displayName ?? null,
+    [userRole, configRevision],
+  );
   const workingDraft = useMemo(() => {
     if (!latestApproved) return null;
     return findWorkingDraftForBaseline(planVersions, latestApproved.id) ?? null;
@@ -371,10 +426,13 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const isTeamSliceReadOnly = useMemo(() => {
     if (userRole !== "team_lead" || !workingDraft) return false;
     const scope = demoRoleScope("team_lead");
-    if (!scope.team || !scope.unit) return false;
-    const submission = getTeamSubmission(workingDraft.id, scope.department, scope.unit, scope.team);
+    const department = scopePrimaryEq(scope, "department");
+    const unit = scopePrimaryEq(scope, "unit");
+    const team = scopePrimaryEq(scope, "team");
+    if (!department || !unit || !team) return false;
+    const submission = getTeamSubmission(workingDraft.id, department, unit, team);
     return isTeamEditingLocked(submission);
-  }, [userRole, workingDraft, teamSubmissionRevision]);
+  }, [userRole, workingDraft, teamSubmissionRevision, configRevision]);
   const approvalRoute = useMemo(
     () => buildApprovalRoute(planVersions, workingDraft),
     [planVersions, workingDraft],
@@ -384,10 +442,19 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     setDataByVersion((prev) => repairDataByVersion(planVersions, prev));
   }, [planVersions]);
 
+  useEffect(() => {
+    if (roleCanSwitchPlanVersions(userRole)) return;
+    if (!workingDraft) return;
+    if (planVersionId === workingDraft.id) return;
+    openVersion(workingDraft.id);
+  }, [userRole, workingDraft, planVersionId, openVersion]);
+
   const approvePrimaryBudget = useCallback((): { ok: true } | { ok: false; error: string } => {
     const primary = primaryBudgetVersion(planVersions);
     if (!primary) return { ok: false, error: "Первая версия бюджета не найдена." };
-    if (isBudgetLocked(primary)) return { ok: false, error: "Бюджет v1 уже утверждён." };
+    if (isBudgetLocked(primary)) {
+      return { ok: false, error: `${formatPlanVersionTitle(primary)} уже утверждён.` };
+    }
     const rows = dataByVersion[primary.id];
     if (!rows?.length) return { ok: false, error: "Нет позиций для утверждения." };
     const now = new Date().toISOString();
@@ -400,6 +467,23 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     );
     return { ok: true };
   }, [planVersions, dataByVersion]);
+
+  const reopenPrimaryBudget = useCallback((): { ok: true } | { ok: false; error: string } => {
+    if (!canManagePlanVersions) {
+      return { ok: false, error: "Откат утверждения доступен только роли C&B." };
+    }
+    const policy = canReopenPrimaryBudget(planVersions);
+    if (!policy.ok) return policy;
+    const primary = primaryBudgetVersion(planVersions);
+    if (!primary) return { ok: false, error: "Первая версия бюджета не найдена." };
+    setPlanVersions((prev) =>
+      repairVersionLabels(
+        prev.map((version) => (version.id === primary.id ? reopenPrimaryBudgetMeta(version) : version)),
+      ),
+    );
+    setPlanVersionId(primary.id);
+    return { ok: true };
+  }, [planVersions, canManagePlanVersions]);
 
   const versionDiff = useMemo((): VersionDiffBundle => {
     const emptySummary: PlanVersionDiffSummary = {
@@ -707,25 +791,48 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     const fresh = initialPositions().map(applyEvents);
     setDataByVersion((prev) => ({ ...prev, [planVersionId]: fresh }));
     localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
+    applyAnnualPlanningScenarioFactPolicy();
     return { ok: true, count: fresh.length };
   }, [planVersionId]);
 
-  const loadPilotTestBundle = useCallback((): ReturnType<MvpAppContextValue["loadPilotTestBundle"]> => {
+  const loadPilotTestBundle = useCallback(async (): Promise<
+    ({ ok: true; summary: string } & PilotBundleResult) | { ok: false; error: string }
+  > => {
     if (!roleCanManageVersions(userRole)) {
       return { ok: false, error: "Пилотный набор доступен только роли C&B." };
     }
     try {
-      const bundle = buildPilotTestBundle();
-      setPlanVersions(bundle.versions);
-      setDataByVersion(bundle.dataByVersion);
-      setPlanVersionId(bundle.planVersionId);
-      setLeadEditFrozenState(false);
-      refreshAppConfig();
-      refreshTeamSubmissions();
+      await yieldToMain();
+      const plan = buildPilotPlanBundle();
+      await yieldToMain();
+      applyAnnualPlanningScenarioFactPolicy();
+      applyPilotBundleSideEffects();
+      const bundle: PilotBundleResult = {
+        ...plan,
+        fact: { employeeCount: 0, assignmentCount: 0, throughMonth: 0 },
+      };
+      await yieldToMain();
+      bulkHydratingRef.current = true;
+      try {
+        setPlanVersions(bundle.versions);
+        setDataByVersion(bundle.dataByVersion);
+        setPlanVersionId(bundle.planVersionId);
+        setLeadEditFrozenState(false);
+        refreshAppConfig();
+        refreshTeamSubmissions();
+      } finally {
+        persistVersions(bundle.versions);
+        persistDataByVersion(bundle.dataByVersion);
+        localStorage.setItem("fot_mvp_plan_version", bundle.planVersionId);
+        window.setTimeout(() => {
+          bulkHydratingRef.current = false;
+        }, 0);
+      }
+      const versionTitle = formatPlanVersionTitle(bundle.versions[0]);
       const summary =
         `Пилот: ${bundle.positionCount} поз. · ${bundle.orgTeamCount} команд · ` +
-        `факт ${bundle.fact.employeeCount} сотр. · Версия 1 утверждена. ` +
-        `Смените роль в сайдбаре для проверки срезов.`;
+        `${versionTitle} утверждён. ` +
+        `Смените пользователя на экране входа для проверки срезов.`;
       return { ok: true, summary, ...bundle };
     } catch (error) {
       return {
@@ -734,6 +841,22 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       };
     }
   }, [userRole, refreshAppConfig, refreshTeamSubmissions]);
+
+  const clearPilotTestBundle = useCallback((): { ok: true } | { ok: false; error: string } => {
+    if (!roleCanManageVersions(userRole)) {
+      return { ok: false, error: "Сброс пилота доступен только роли C&B." };
+    }
+    try {
+      clearPilotDemoStorage();
+      window.location.reload();
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Не удалось очистить данные пилота.",
+      };
+    }
+  }, [userRole]);
 
   const resetDevPlanToDraft = useCallback((): { ok: true } | { ok: false; error: string } => {
     const planYear = primaryBudget?.planYear ?? 2026;
@@ -768,6 +891,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       allPositions,
       positionsTotalCount,
       demoRoleScopeLabel,
+      demoPersonaLabel,
       workingDraft,
       latestApproved,
       primaryBudget,
@@ -777,6 +901,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       createWorkingDraft,
       publishWorkingDraft,
       approvePrimaryBudget,
+      reopenPrimaryBudget,
       submitDraftForApproval,
       draftApprovalCheck,
       openVersion,
@@ -803,6 +928,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       resetDevPlanToDraft,
       reloadDemoSeed,
       loadPilotTestBundle,
+      clearPilotTestBundle,
       refreshAppConfig,
       appConfigRevision: configRevision,
       teamSubmissionRevision,
@@ -825,6 +951,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       allPositions,
       positionsTotalCount,
       demoRoleScopeLabel,
+      demoPersonaLabel,
       workingDraft,
       latestApproved,
       primaryBudget,
@@ -834,6 +961,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       createWorkingDraft,
       publishWorkingDraft,
       approvePrimaryBudget,
+      reopenPrimaryBudget,
       submitDraftForApproval,
       draftApprovalCheck,
       openVersion,
@@ -856,6 +984,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       resetDevPlanToDraft,
       reloadDemoSeed,
       loadPilotTestBundle,
+      clearPilotTestBundle,
       refreshAppConfig,
       configRevision,
       teamSubmissionRevision,

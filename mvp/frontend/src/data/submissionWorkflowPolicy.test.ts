@@ -6,9 +6,9 @@ describe("submissionWorkflowPolicy", () => {
     expect(
       canRolePerformSubmissionAction("team_submit", {
         actorRole: "team_lead",
-        actorDepartment: "Engineering",
-        actorUnit: "ProductDev",
-        actorTeam: "Frontend Web",
+        actorDepartments: ["Engineering"],
+        actorUnits: ["ProductDev"],
+        actorTeams: ["Frontend Web"],
         targetDepartment: "Engineering",
         targetUnit: "ProductDev",
         targetTeam: "Frontend Web",
@@ -17,14 +17,28 @@ describe("submissionWorkflowPolicy", () => {
     expect(
       canRolePerformSubmissionAction("team_submit", {
         actorRole: "team_lead",
-        actorDepartment: "Engineering",
-        actorUnit: "ProductDev",
-        actorTeam: "Frontend Web",
+        actorDepartments: ["Engineering"],
+        actorUnits: ["ProductDev"],
+        actorTeams: ["Frontend Web"],
         targetDepartment: "Engineering",
         targetUnit: "ProductDev",
         targetTeam: "Backend Core",
       }),
     ).toBe(false);
+  });
+
+  it("unit_lead может согласовать несколько команд юнита", () => {
+    expect(
+      canRolePerformSubmissionAction("unit_approve", {
+        actorRole: "unit_lead",
+        actorDepartments: ["Engineering"],
+        actorUnits: ["ProductDev"],
+        actorTeams: ["Frontend Web", "Mobile"],
+        targetDepartment: "Engineering",
+        targetUnit: "ProductDev",
+        targetTeam: "Mobile",
+      }),
+    ).toBe(true);
   });
 
   it("cb_admin имеет полный доступ, viewer — нет", () => {

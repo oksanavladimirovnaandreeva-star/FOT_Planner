@@ -6,6 +6,6 @@ describe("planWorkspaceMode", () => {
     expect(planWorkspaceBasePath("planning")).toBe("/planning");
     expect(planWorkspaceBasePath("correction")).toBe("/planning?mode=correction");
     expect(planWorkspacePath("correction", { tab: "compare" })).toBe("/planning?mode=correction&tab=compare");
-    expect(PLAN_WORKSPACE_LABELS.correction).toBe("Корректировка");
+    expect(PLAN_WORKSPACE_LABELS.correction).toBe("Квартальное планирование");
   });
 });

@@ -55,17 +55,41 @@ export function submissionActionLabel(action: SubmissionWorkflowAction): string 
 
 type ScopeInput = {
   actorRole: UserRole;
-  actorDepartment?: string;
-  actorUnit?: string | null;
-  actorTeam?: string | null;
+  actorDepartments?: string[];
+  actorUnits?: string[];
+  actorTeams?: string[];
   targetDepartment: string;
   targetUnit: string;
   targetTeam: string;
   leadEditFrozen?: boolean;
 };
 
+function actorOrgMatchesTarget(input: ScopeInput): boolean {
+  const {
+    actorRole,
+    actorDepartments = [],
+    actorUnits = [],
+    actorTeams = [],
+    targetDepartment,
+    targetUnit,
+    targetTeam,
+  } = input;
+
+  if (actorDepartments.length > 0 && !actorDepartments.includes(targetDepartment)) return false;
+
+  if (actorRole === "unit_lead" || actorRole === "team_lead") {
+    if (actorUnits.length > 0 && !actorUnits.includes(targetUnit)) return false;
+  }
+
+  if (actorRole === "team_lead") {
+    if (actorTeams.length > 0 && !actorTeams.includes(targetTeam)) return false;
+  }
+
+  return true;
+}
+
 export function canRolePerformSubmissionAction(action: SubmissionWorkflowAction, scope: ScopeInput): boolean {
-  const { actorRole, actorDepartment, actorUnit, actorTeam, targetDepartment, targetUnit, targetTeam, leadEditFrozen } = scope;
+  const { actorRole, leadEditFrozen } = scope;
 
   if (actorRole === "viewer") return false;
   if (actorRole === "cb_admin") return true;
@@ -74,22 +98,22 @@ export function canRolePerformSubmissionAction(action: SubmissionWorkflowAction,
   if (action === "team_submit") {
     if (actorRole !== "team_lead") return false;
     if (leadEditFrozen) return false;
-    return actorDepartment === targetDepartment && actorUnit === targetUnit && actorTeam === targetTeam;
+    return actorOrgMatchesTarget(scope);
   }
 
   if (action === "unit_approve" || action === "return" || action === "reopen_editing") {
     if (actorRole === "unit_lead") {
       if (leadEditFrozen) return false;
-      return actorDepartment === targetDepartment && actorUnit === targetUnit;
+      return actorOrgMatchesTarget(scope);
     }
     if (actorRole === "director") {
-      return actorDepartment === targetDepartment;
+      return actorOrgMatchesTarget(scope);
     }
     return false;
   }
 
   if (action === "director_approve") {
-    return actorRole === "director" && actorDepartment === targetDepartment;
+    return actorRole === "director" && actorOrgMatchesTarget(scope);
   }
 
   if (action === "cb_review") {
