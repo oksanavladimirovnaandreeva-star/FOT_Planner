@@ -1,4 +1,4 @@
-name: Deploy GitHub Pages
+name: Deploy MVP to GitHub Pages
 
 on:
   push:
@@ -20,31 +20,23 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mvp/frontend
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: 22
           cache: npm
           cache-dependency-path: mvp/frontend/package-lock.json
 
-      - name: Install
-        run: npm ci
-
-      - name: Test
-        run: npm test
-
-      - name: Build
+      - name: Install and build
+        working-directory: mvp/frontend
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-        run: npm run build
-
-      - name: SPA fallback for GitHub Pages
-        run: cp dist/index.html dist/404.html
+        run: |
+          npm ci
+          npm test
+          npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -57,6 +49,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/configure-pages@v5
       - id: deployment
         uses: actions/deploy-pages@v4
