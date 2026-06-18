@@ -26,7 +26,6 @@ import { departmentOptions, LIMIT_FLAG_LABELS } from "../data/planningData";
 import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
 import { roleOrgFilterDefaults } from "../data/userAccess";
 import { ExportCsvActions } from "../components/ExportCsvActions";
-import { PilotWelcomeBanner } from "../components/PilotWelcomeBanner";
 import { PLAN_SCENARIO_INCLUDES_FACT } from "../data/planScenario";
 import { WorkflowHint } from "../components/WorkflowHint";
 import { formatMoneyPlain } from "../data/formatDisplay";
@@ -118,8 +117,6 @@ export function DashboardPage() {
           </Link>
         </div>
       </header>
-
-      <PilotWelcomeBanner />
 
       <SliceToolbar
         footer={<>{planVersionId} · {filtered.length} поз.</>}

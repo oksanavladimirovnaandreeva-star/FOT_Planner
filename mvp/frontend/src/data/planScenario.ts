@@ -1,10 +1,7 @@
 import { clearFactStore } from "./factStore";
 
-/**
- * Сценарий MVP: годовое планирование без план–факт.
- * Когда включим аналитику по факту — переключить в true и доработать импорт.
- */
-export const PLAN_SCENARIO_INCLUDES_FACT = false;
+/** Сценарий MVP: план + факт, аналитика и план–факт на обзоре. */
+export const PLAN_SCENARIO_INCLUDES_FACT = true;
 
 /** Очищает факт в localStorage, если сценарий без план–факт. */
 export function applyAnnualPlanningScenarioFactPolicy(): void {

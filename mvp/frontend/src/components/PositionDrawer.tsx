@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ExternalLink, ArrowRight, Briefcase, Calendar, History, Table2, Trash2, User, X } from "lucide-react";
 import {
   annualTotal,
@@ -111,18 +112,15 @@ function crTone(value: number): "warn" | "ok" | "danger" {
   return "danger";
 }
 
-function scenarioTitleForPosition(record: PositionRecord, scenario: ScenarioType): string {
-  if (applyEvents(record).status === "Vacancy" && scenario === "REVIEW") {
-    return "Плановый найм (оклад, спец., уровень)";
-  }
-  return SCENARIO_LABEL[scenario];
+function scenarioHintForPosition(_record: PositionRecord, scenario: ScenarioType): string {
+  return scenarioHelpText(scenario);
 }
 
-function scenarioHintForPosition(record: PositionRecord, scenario: ScenarioType): string {
-  if (applyEvents(record).status === "Vacancy" && scenario === "REVIEW") {
-    return "План выхода на вакансию: после сохранения можно оформить заявку на найм в Kaiten.";
+function scenarioGroupsForPosition(record: PositionRecord): typeof SCENARIO_GROUPS {
+  if (applyEvents(record).status === "Vacancy") {
+    return [{ label: "ФОТ и профиль компенсации", scenarios: ["REVIEW"] as ScenarioType[] }];
   }
-  return scenarioHelpText(scenario);
+  return SCENARIO_GROUPS;
 }
 
 export function PositionDrawer({
@@ -135,7 +133,7 @@ export function PositionDrawer({
   onDeletePosition,
   planPositions,
   employeeOptions,
-  suggestedNewEmployeeId,
+  suggestedNewEmployeeId: _suggestedNewEmployeeId,
   isPersisted,
   departmentOptions,
   unitOptionsForDepartment,
@@ -145,8 +143,20 @@ export function PositionDrawer({
 }: PositionDrawerProps) {
   const { salaryBands, activePlan, planVersionId, userRole, leadEditFrozen } = useMvpApp();
   const specOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
-  const selected = useMemo(() => record, [record]);
+  const view = useMemo(() => (record ? applyEvents(record) : null), [record]);
+  const scenarioGroups = useMemo(
+    () => (record ? scenarioGroupsForPosition(record) : SCENARIO_GROUPS),
+    [record],
+  );
   const composerRef = useRef<HTMLDivElement>(null);
+  const requestClose = useCallback(
+    (event?: { preventDefault(): void; stopPropagation(): void }) => {
+      event?.preventDefault();
+      event?.stopPropagation();
+      onClose();
+    },
+    [onClose],
+  );
   const [kaitenExportOpen, setKaitenExportOpen] = useState(false);
   const [kaitenInitialType, setKaitenInitialType] = useState<KaitenRequestType>("hire");
   const [kaitenModalEvent, setKaitenModalEvent] = useState<PlannedEvent | undefined>(undefined);
@@ -167,12 +177,12 @@ export function PositionDrawer({
     comment: "",
   });
   useEffect(() => {
-    if (!selected) return;
+    if (!view) return;
     const month = 0;
-    const specialization = selected.monthlySpec[month] || specOptions[0];
+    const specialization = view.monthlySpec[month] || specOptions[0];
     const levels = levelOptionsForSpecialization(specialization, salaryBands);
     const preferredDepartment =
-      departmentOptions.find((department) => department !== selected.department) || departmentOptions[0] || selected.department;
+      departmentOptions.find((department) => department !== view.department) || departmentOptions[0] || view.department;
     const units = unitOptionsForDepartment(preferredDepartment);
     const preferredUnit = units[0] || "";
     const teams = teamOptionsForUnit(preferredDepartment, preferredUnit);
@@ -180,10 +190,10 @@ export function PositionDrawer({
     setScenarioForm({
       scenario: "REVIEW",
       month,
-      base: selected.monthlyBase[month] || 0,
-      bonus: selected.monthlyBonus[month] || 0,
+      base: view.monthlyBase[month] || 0,
+      bonus: view.monthlyBonus[month] || 0,
       specialization,
-      level: selected.monthlyLevel[month] || levels[0],
+      level: view.monthlyLevel[month] || levels[0],
       transferToPositionId: "",
       replacementMode: "FROM_LIST",
       replacementEmployeeId: "",
@@ -192,31 +202,54 @@ export function PositionDrawer({
       targetTeam: preferredTeam,
       comment: "",
     });
-  }, [selected?.positionId, salaryBands, specOptions]);
+  }, [view?.positionId, salaryBands, specOptions]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") requestClose(event);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, requestClose]);
+
+  useEffect(() => {
+    document.body.classList.toggle("position-drawer-open", open);
+    return () => document.body.classList.remove("position-drawer-open");
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) setKaitenExportOpen(false);
-  }, [open, selected?.positionId]);
+  }, [open, view?.positionId]);
 
   useEffect(() => {
     setKaitenNudge(null);
     setKaitenModalEvent(undefined);
-  }, [open, selected?.positionId]);
+  }, [open, view?.positionId]);
 
   const planYear = activePlan.planYear;
 
   const drawerHistoryEvents = useMemo(
-    () => eventsForDrawerHistory(selected?.events ?? []),
-    [selected?.events],
+    () => eventsForDrawerHistory(record?.events ?? []),
+    [record?.events],
   );
 
-  if (!open || !selected) return null;
+  if (!open || !view || !record) return null;
   const transferMonth = scenarioForm.month;
-  const intraTransferPick = pickTransferVacancyTargets(planPositions, selected.positionId, transferMonth, {
-    department: selected.department,
-    unit: selected.unit,
+  const intraTransferPick = pickTransferVacancyTargets(planPositions, view.positionId, transferMonth, {
+    department: view.department,
+    unit: view.unit,
   });
-  const interTransferPick = pickTransferVacancyTargets(planPositions, selected.positionId, transferMonth, {
+  const interTransferPick = pickTransferVacancyTargets(planPositions, view.positionId, transferMonth, {
     department: scenarioForm.targetDepartment,
     unit: scenarioForm.targetUnit || undefined,
     team: scenarioForm.targetTeam || undefined,
@@ -225,13 +258,13 @@ export function PositionDrawer({
   const transferOptions = transferPick.options;
   const intraTransferHint =
     scenarioForm.scenario === "TRANSFER_INTRA" && transferOptions.length === 0
-      ? intraTransferVacancyHint(planPositions, selected, transferMonth)
+      ? intraTransferVacancyHint(planPositions, view, transferMonth)
       : null;
   const maternityReplacementOptions = listMaternityReplacementCandidates(planPositions, employeeOptions, {
-    employeeId: selected.employeeId ?? undefined,
-    department: selected.department,
+    employeeId: view.employeeId ?? undefined,
+    department: view.department,
   });
-  const scenarioHint = scenarioHintForPosition(selected, scenarioForm.scenario);
+  const scenarioHint = scenarioHintForPosition(view, scenarioForm.scenario);
 
   const renderTransferVacancyPicker = (emptyLabel: string) => (
     <div className="drawer-transfer-vacancy">
@@ -258,7 +291,7 @@ export function PositionDrawer({
                     unit: scenarioForm.targetUnit,
                     team: scenarioForm.targetTeam,
                   }
-                : { department: selected.department, unit: selected.unit },
+                : { department: view.department, unit: view.unit },
               true,
             )}
         </p>
@@ -277,14 +310,14 @@ export function PositionDrawer({
             <span className="muted-line">Без привязки к существующей вакансии</span>
           </button>
           {transferOptions.map((option) => {
-            const selectedId = scenarioForm.transferToPositionId === option.positionId;
+            const viewId = scenarioForm.transferToPositionId === option.positionId;
             return (
               <button
                 key={option.positionId}
                 type="button"
                 role="option"
-                aria-selected={selectedId}
-                className={`drawer-transfer-pick__item${selectedId ? " drawer-transfer-pick__item--active" : ""}`}
+                aria-selected={viewId}
+                className={`drawer-transfer-pick__item${viewId ? " drawer-transfer-pick__item--active" : ""}`}
                 onClick={() =>
                   setScenarioForm((prev) => ({ ...prev, transferToPositionId: option.positionId }))
                 }
@@ -300,7 +333,21 @@ export function PositionDrawer({
     </div>
   );
   const persistVacancyToPlan = () => {
-    onSaveDraft(selected, selected.positionId, true);
+    if (!record) return;
+    const applied = applyEvents(record);
+    const month = applied.activeFromMonth;
+    const spec = applied.monthlySpec[month] ?? "";
+    const level = applied.monthlyLevel[month] ?? "";
+    const base = applied.monthlyBase[month] ?? 0;
+    if (!spec || !level) {
+      window.alert("Укажите специализацию и уровень в блоке «Профиль компенсации».");
+      return;
+    }
+    if (base <= 0) {
+      window.alert("Укажите оклад больше 0 в блоке «Профиль компенсации».");
+      return;
+    }
+    onSaveDraft(record, record.positionId, true);
   };
 
   const createEvent = (type: PlannedEvent["type"], payload: PlannedEvent["payload"]): PlannedEvent => {
@@ -309,7 +356,7 @@ export function PositionDrawer({
       id: crypto.randomUUID(),
       type,
       createdAt: new Date().toISOString(),
-      createdOrder: selected.events.length + 1,
+      createdOrder: (record?.events.length ?? 0) + 1,
       payload: {
         ...payload,
         comment: comment || undefined,
@@ -317,12 +364,12 @@ export function PositionDrawer({
     };
   };
   const applyEventToRecord = (event: PlannedEvent) => {
-    if (readOnly) return;
+    if (readOnly || !record) return;
     if (isPersisted) {
-      onAddEvent(selected.positionId, event);
+      onAddEvent(record.positionId, event);
       return;
     }
-    onSaveDraft(upsertEvent(selected, event), selected.positionId, false);
+    onSaveDraft(upsertEvent(record, event), record.positionId, false);
   };
   const scrollToComposer = () => {
     composerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -339,12 +386,12 @@ export function PositionDrawer({
     maybeShowKaitenNudge(event);
   };
   const deleteEventFromRecord = (eventId: string) => {
-    if (readOnly) return;
+    if (readOnly || !record) return;
     if (isPersisted) {
-      onDeleteEvent(selected.positionId, eventId);
+      onDeleteEvent(record.positionId, eventId);
       return;
     }
-    onSaveDraft(removeEvent(selected, eventId), selected.positionId, false);
+    onSaveDraft(removeEvent(record, eventId), record.positionId, false);
   };
   const applyScenario = () => {
     if (readOnly) return;
@@ -357,39 +404,25 @@ export function PositionDrawer({
     const bonus = Number(scenarioForm.bonus);
     const specialization = scenarioForm.specialization;
     const level = scenarioForm.level;
-    if (selected.status !== "Occupied" && scenarioForm.scenario !== "REVIEW") {
+    if (view.status !== "Occupied" && scenarioForm.scenario !== "REVIEW") {
       window.alert("Операция доступна только для занятых сотрудников.");
       return;
     }
     switch (scenarioForm.scenario) {
       case "REVIEW":
-        if (applyEvents(selected).status === "Vacancy") {
-          applyEventWithNudge(
-            createEvent("PLANNED_HIRE", {
-              month,
-              base,
-              bonus,
-              specialization,
-              level,
-              employeeId: suggestedNewEmployeeId,
-              employeeName: "Плановый найм",
-            }),
-          );
-        } else {
-          applyEventToRecord(
-            createEvent("MANUAL_OVERRIDE", {
-              month,
-              base,
-              bonus,
-              specialization,
-              level,
-            }),
-          );
-        }
+        applyEventToRecord(
+          createEvent("MANUAL_OVERRIDE", {
+            month,
+            base,
+            bonus,
+            specialization,
+            level,
+          }),
+        );
         break;
       case "TRANSFER_INTRA":
       case "TRANSFER_INTER": {
-        if (!selected.employeeId || !selected.employeeName) {
+        if (!view.employeeId || !view.employeeName) {
           window.alert("Для перевода нужны employeeId и ФИО сотрудника.");
           return;
         }
@@ -410,8 +443,8 @@ export function PositionDrawer({
             targetDepartment: scenarioForm.scenario === "TRANSFER_INTER" ? scenarioForm.targetDepartment : undefined,
             targetUnit: scenarioForm.scenario === "TRANSFER_INTER" ? scenarioForm.targetUnit : undefined,
             targetTeam: scenarioForm.scenario === "TRANSFER_INTER" ? scenarioForm.targetTeam : undefined,
-            employeeId: selected.employeeId,
-            employeeName: selected.employeeName,
+            employeeId: view.employeeId,
+            employeeName: view.employeeName,
             base,
             bonus,
             specialization,
@@ -442,8 +475,8 @@ export function PositionDrawer({
           specialization,
           level,
           maternityMode: "SHARED_POSITION",
-          maternityPrimaryEmployeeId: selected.employeeId ?? undefined,
-          maternityPrimaryEmployeeName: selected.employeeName ?? undefined,
+          maternityPrimaryEmployeeId: view.employeeId ?? undefined,
+          maternityPrimaryEmployeeName: view.employeeName ?? undefined,
         };
         if (scenarioForm.replacementMode === "VACANCY") {
           payload.maternityReplacementKind = "VACANCY";
@@ -482,36 +515,36 @@ export function PositionDrawer({
       comment: "",
     }));
   };
-  const selectedTransferTarget =
+  const viewTransferTarget =
     transferOptions.find((item) => item.positionId === scenarioForm.transferToPositionId) || null;
   const monthLevels = levelOptionsForSpecialization(scenarioForm.specialization, salaryBands);
   const isReview = scenarioForm.scenario === "REVIEW";
   const isTransfer = scenarioForm.scenario === "TRANSFER_INTRA" || scenarioForm.scenario === "TRANSFER_INTER";
   const isInterTransfer = scenarioForm.scenario === "TRANSFER_INTER";
   const isMaternity = scenarioForm.scenario === "MATERNITY";
-  const transferButtonDisabled = selected.status !== "Occupied";
+  const transferButtonDisabled = view.status !== "Occupied";
 
   const renderDrawerMonthRows = (fromMonth: number, toMonth: number) =>
     Array.from({ length: toMonth - fromMonth }, (_, offset) => {
       const index = fromMonth + offset;
       const month = MONTHS[index]!;
-      const closeEvent = selected.events.find((event) => event.type === "CLOSE_POSITION");
+      const closeEvent = view.events.find((event) => event.type === "CLOSE_POSITION");
       const closedFrom = closeEvent?.payload.month;
       const isClosedMonth = closedFrom != null && index >= closedFrom;
-      const total = selected.monthlyBase[index] + selected.monthlyBonus[index];
+      const total = view.monthlyBase[index] + view.monthlyBonus[index];
       const cr = getMonthlyCR(
-        selected.monthlyBase[index],
-        selected.monthlySpec[index],
-        selected.monthlyLevel[index],
+        view.monthlyBase[index],
+        view.monthlySpec[index],
+        view.monthlyLevel[index],
         salaryBands,
       );
       return (
         <tr key={month} className={isClosedMonth ? "monthly-table__row--closed" : undefined}>
           <td>{month}</td>
-          <td className="monthly-table__readonly">{selected.monthlySpec[index]}</td>
-          <td className="monthly-table__readonly">{selected.monthlyLevel[index]}</td>
-          <td className="monthly-table__readonly">{selected.monthlyBase[index].toLocaleString("ru-RU")} ₽</td>
-          <td className="monthly-table__readonly">{selected.monthlyBonus[index].toLocaleString("ru-RU")} ₽</td>
+          <td className="monthly-table__readonly">{view.monthlySpec[index]}</td>
+          <td className="monthly-table__readonly">{view.monthlyLevel[index]}</td>
+          <td className="monthly-table__readonly">{view.monthlyBase[index].toLocaleString("ru-RU")} ₽</td>
+          <td className="monthly-table__readonly">{view.monthlyBonus[index].toLocaleString("ru-RU")} ₽</td>
           <td className="monthly-table__total">{formatMoney(total)}</td>
           <td>
             <span className={`cr-value cr-value--${crTone(cr)}`}>{cr.toFixed(2)}</span>
@@ -521,19 +554,19 @@ export function PositionDrawer({
     });
 
   const headerTitle =
-    selected.status === "Occupied" && selected.employeeName
-      ? employeeDisplayLine(selected)
-      : selected.role?.trim() || `Позиция ${selected.positionId}`;
-  const annualFotTotal = annualTotal(selected);
-  const decPrevBase = selected.previousDecemberBase;
-  const decPlanBase = selected.monthlyBase[11] ?? 0;
+    view.status === "Occupied" && view.employeeName
+      ? employeeDisplayLine(view)
+      : view.role?.trim() || `Позиция ${view.positionId}`;
+  const annualFotTotal = annualTotal(view);
+  const decPrevBase = view.previousDecemberBase;
+  const decPlanBase = view.monthlyBase[11] ?? 0;
   const decDelta = decPlanBase - decPrevBase;
   const decPct = decToDec(decPrevBase, decPlanBase);
-  const identitySpec = selected.monthlySpec[selected.activeFromMonth] ?? selected.monthlySpec[0] ?? "";
-  const identityLevel = selected.monthlyLevel[selected.activeFromMonth] ?? selected.monthlyLevel[0] ?? "";
-  const canExportKaiten = canShowKaitenExport(userRole, leadEditFrozen) && positionKaitenEligible(selected);
+  const identitySpec = view.monthlySpec[view.activeFromMonth] ?? view.monthlySpec[0] ?? "";
+  const identityLevel = view.monthlyLevel[view.activeFromMonth] ?? view.monthlyLevel[0] ?? "";
+  const canExportKaiten = canShowKaitenExport(userRole, leadEditFrozen) && positionKaitenEligible(view);
   const openKaitenExport = () => {
-    const initialType = defaultKaitenTypeForPosition(selected);
+    const initialType = defaultKaitenTypeForPosition(view);
     if (!initialType) return;
     setKaitenModalEvent(undefined);
     setKaitenInitialType(initialType);
@@ -552,10 +585,44 @@ export function PositionDrawer({
     setKaitenNudge(null);
   };
 
-  return (
+  const isVacancyDraft = view.status === "Vacancy" && !isPersisted;
+  const showPlanEvents = view.status !== "Vacancy" || isPersisted;
+  const vacancyProfileMonth = view.activeFromMonth;
+  const vacancyProfileSpec = view.monthlySpec[vacancyProfileMonth] ?? specOptions[0] ?? "";
+  const vacancyProfileLevel = view.monthlyLevel[vacancyProfileMonth] ?? "";
+  const vacancyProfileBase = view.monthlyBase[vacancyProfileMonth] ?? 0;
+  const vacancyProfileBonus = view.monthlyBonus[vacancyProfileMonth] ?? 0;
+  const vacancyProfileLevels = levelOptionsForSpecialization(vacancyProfileSpec, salaryBands);
+  const updateVacancyProfile = (patch: Partial<{ spec: string; level: string; base: number; bonus: number }>) => {
+    if (readOnly) return;
+    const month = record.activeFromMonth;
+    const spec = patch.spec ?? vacancyProfileSpec;
+    const levels = levelOptionsForSpecialization(spec, salaryBands);
+    const level =
+      patch.level ?? (levels.includes(vacancyProfileLevel) ? vacancyProfileLevel : (levels[0] ?? vacancyProfileLevel));
+    const base = patch.base ?? vacancyProfileBase;
+    const bonus = patch.bonus ?? vacancyProfileBonus;
+    const next = applyDirectEdit(record, (draft) => {
+      for (let index = month; index < 12; index += 1) {
+        draft.seedMonthlySpec[index] = spec;
+        draft.seedMonthlyLevel[index] = level;
+        draft.seedMonthlyBase[index] = base;
+        draft.seedMonthlyBonus[index] = bonus;
+      }
+    });
+    onSaveDraft(next, record.positionId);
+  };
+
+  return createPortal(
     <>
-    <div className="drawer-overlay" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="drawer drawer--workspace-full" onClick={(event) => event.stopPropagation()}>
+    <div className="drawer-overlay" role="dialog" aria-modal="true">
+      <button
+        type="button"
+        className="drawer-overlay__scrim"
+        aria-label="Закрыть"
+        onClick={requestClose}
+      />
+      <div className="drawer drawer--workspace-full">
         <header className="drawer-header">
           <div className="drawer-header__main">
             <h2>{headerTitle}</h2>
@@ -572,23 +639,28 @@ export function PositionDrawer({
                 Kaiten
               </button>
             ) : null}
-            {selected.status === "Vacancy" && (
+            {view.status === "Vacancy" && (
               <button
                 type="button"
                 className="icon-btn danger"
                 aria-label="Удалить позицию"
                 data-hint="Удалить позицию"
-                onClick={() => onDeletePosition(selected.positionId)}
+                onClick={() => onDeletePosition(view.positionId)}
               >
                 <Trash2 size={18} />
               </button>
             )}
-            {!isPersisted && selected.status === "Vacancy" && (
+            {!isPersisted && view.status === "Vacancy" && (
               <button type="button" className="primary-btn" onClick={persistVacancyToPlan}>
                 Сохранить позицию
               </button>
             )}
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="Закрыть">
+            <button
+              type="button"
+              className="icon-btn drawer-header-actions__close"
+              onClick={requestClose}
+              aria-label="Закрыть"
+            >
               <X size={18} />
             </button>
           </div>
@@ -605,31 +677,31 @@ export function PositionDrawer({
                     </span>
                     Позиция
                   </div>
-                  {selected.status === "Vacancy" ? (
+                  {view.status === "Vacancy" ? (
                     <input
                       className="drawer-identity__title-input"
                       type="text"
-                      value={selected.role}
+                      value={view.role}
                       disabled={readOnly}
                       placeholder="Название позиции"
                       onChange={(event) => {
-                        const next = applyDirectEdit(selected, (draft) => {
+                        const next = applyDirectEdit(record, (draft) => {
                           draft.role = event.target.value;
                         });
-                        onSaveDraft(next, selected.positionId);
+                        onSaveDraft(next, record.positionId);
                       }}
                     />
                   ) : (
                     <h3 className="drawer-identity__title">
-                      {selected.role?.trim() || `Позиция ${selected.positionId}`}
+                      {view.role?.trim() || `Позиция ${view.positionId}`}
                     </h3>
                   )}
                   <div className="drawer-identity__org-line">
-                    {selected.status === "Vacancy" ? (
+                    {view.status === "Vacancy" ? (
                       <>
                         <select
                           className="drawer-identity__org-select"
-                          value={selected.department}
+                          value={view.department}
                           disabled={readOnly}
                           onChange={(event) => {
                             const nextDepartment = event.target.value;
@@ -637,12 +709,12 @@ export function PositionDrawer({
                             const nextUnit = units[0] ?? "";
                             const teams = teamOptionsForUnit(nextDepartment, nextUnit);
                             const nextTeam = teams[0] ?? "";
-                            const next = applyDirectEdit(selected, (draft) => {
+                            const next = applyDirectEdit(record, (draft) => {
                               draft.department = nextDepartment;
                               draft.unit = nextUnit;
                               draft.team = nextTeam;
                             });
-                            onSaveDraft(next, selected.positionId);
+                            onSaveDraft(next, record.positionId);
                           }}
                         >
                           {departmentOptions.map((department) => (
@@ -654,40 +726,40 @@ export function PositionDrawer({
                         <span className="drawer-identity__sep">/</span>
                         <select
                           className="drawer-identity__org-select"
-                          value={selected.unit}
+                          value={view.unit}
                           disabled={readOnly}
                           onChange={(event) => {
                             const nextUnit = event.target.value;
-                            const teams = teamOptionsForUnit(selected.department, nextUnit);
+                            const teams = teamOptionsForUnit(view.department, nextUnit);
                             const nextTeam = teams[0] ?? "";
-                            const next = applyDirectEdit(selected, (draft) => {
+                            const next = applyDirectEdit(record, (draft) => {
                               draft.unit = nextUnit;
                               draft.team = nextTeam;
                             });
-                            onSaveDraft(next, selected.positionId);
+                            onSaveDraft(next, record.positionId);
                           }}
                         >
-                          {unitOptionsForDepartment(selected.department).map((unit) => (
+                          {unitOptionsForDepartment(view.department).map((unit) => (
                             <option key={unit} value={unit}>
                               {unit}
                             </option>
                           ))}
                         </select>
-                        {selected.team ? (
+                        {view.team ? (
                           <>
                             <span className="drawer-identity__sep">/</span>
                             <select
                               className="drawer-identity__org-select"
-                              value={selected.team}
+                              value={view.team}
                               disabled={readOnly}
                               onChange={(event) => {
-                                const next = applyDirectEdit(selected, (draft) => {
+                                const next = applyDirectEdit(record, (draft) => {
                                   draft.team = event.target.value;
                                 });
-                                onSaveDraft(next, selected.positionId);
+                                onSaveDraft(next, record.positionId);
                               }}
                             >
-                              {teamOptionsForUnit(selected.department, selected.unit).map((team) => (
+                              {teamOptionsForUnit(view.department, view.unit).map((team) => (
                                 <option key={team} value={team}>
                                   {team}
                                 </option>
@@ -698,9 +770,9 @@ export function PositionDrawer({
                       </>
                     ) : (
                       <>
-                        <span>{selected.department}</span>
+                        <span>{view.department}</span>
                         <span className="drawer-identity__sep">/</span>
-                        <span>{identitySpec || selected.unit}</span>
+                        <span>{identitySpec || view.unit}</span>
                         {identityLevel ? (
                           <>
                             <span className="drawer-identity__sep">·</span>
@@ -710,7 +782,7 @@ export function PositionDrawer({
                       </>
                     )}
                   </div>
-                  <p className="drawer-identity__id">{selected.positionId}</p>
+                  <p className="drawer-identity__id">{view.positionId}</p>
                 </div>
 
                 <div className="drawer-identity__bridge" aria-hidden>
@@ -724,15 +796,15 @@ export function PositionDrawer({
                     </span>
                     Сотрудник
                   </div>
-                  {selected.status === "Occupied" && selected.employeeName ? (
+                  {view.status === "Occupied" && view.employeeName ? (
                     <div className="drawer-identity__employee">
                       <span className="drawer-identity__avatar" aria-hidden>
-                        {employeeInitials(selected.employeeName)}
+                        {employeeInitials(view.employeeName)}
                         <span className="drawer-identity__avatar-dot" />
                       </span>
                       <div className="drawer-identity__employee-text">
-                        <p className="drawer-identity__employee-name">{employeeDisplayLine(selected)}</p>
-                        <p className="drawer-identity__employee-meta">{formatEmployeeDrawerMeta(selected, planYear)}</p>
+                        <p className="drawer-identity__employee-name">{employeeDisplayLine(view)}</p>
+                        <p className="drawer-identity__employee-meta">{formatEmployeeDrawerMeta(view, planYear)}</p>
                       </div>
                     </div>
                   ) : (
@@ -741,8 +813,8 @@ export function PositionDrawer({
                         —
                       </span>
                       <div className="drawer-identity__employee-text">
-                        <p className="drawer-identity__employee-name">{POSITION_STATUS_LABELS[selected.status]}</p>
-                        <p className="drawer-identity__employee-meta">{formatPositionHireLabel(selected, planYear)}</p>
+                        <p className="drawer-identity__employee-name">{POSITION_STATUS_LABELS[view.status]}</p>
+                        <p className="drawer-identity__employee-meta">{formatPositionHireLabel(view, planYear)}</p>
                       </div>
                     </div>
                   )}
@@ -755,11 +827,11 @@ export function PositionDrawer({
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">Тип позиции</span>
                   <select
-                    value={selected.slotType}
+                    value={view.slotType}
                     disabled={readOnly}
                     onChange={(event) => {
                       const slotType = event.target.value as PositionRecord["slotType"];
-                      const next = applyDirectEdit(selected, (draft) => {
+                      const next = applyDirectEdit(record, (draft) => {
                         draft.slotType = slotType;
                         if (slotType === "carryover") {
                           draft.limitFlag = "IN_LIMIT";
@@ -767,7 +839,7 @@ export function PositionDrawer({
                           draft.limitFlag = defaultLimitFlagForSlotType("new");
                         }
                       });
-                      onSaveDraft(next, selected.positionId);
+                      onSaveDraft(next, record.positionId);
                     }}
                   >
                     <option value="carryover">Перенос</option>
@@ -777,15 +849,15 @@ export function PositionDrawer({
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">Лимит</span>
                   <select
-                    className={`drawer-meta-field__limit drawer-meta-field__limit--${selected.limitFlag}`}
-                    value={selected.limitFlag}
-                    disabled={readOnly || selected.slotType === "carryover"}
+                    className={`drawer-meta-field__limit drawer-meta-field__limit--${view.limitFlag}`}
+                    value={view.limitFlag}
+                    disabled={readOnly || view.slotType === "carryover"}
                     onChange={(event) => {
                       const limitFlag = event.target.value as LimitFlagKey;
-                      const next = applyDirectEdit(selected, (draft) => {
+                      const next = applyDirectEdit(record, (draft) => {
                         draft.limitFlag = limitFlag;
                       });
-                      onSaveDraft(next, selected.positionId);
+                      onSaveDraft(next, record.positionId);
                     }}
                   >
                     {LIMIT_FLAG_OPTIONS.filter((option) => option.value !== "UNLIMITED").map((option) => (
@@ -798,18 +870,18 @@ export function PositionDrawer({
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">В плане с</span>
                   <select
-                    value={selected.activeFromMonth}
+                    value={view.activeFromMonth}
                     disabled={readOnly}
                     onChange={(event) => {
                       const month = Number(event.target.value);
-                      const next = applyDirectEdit(selected, (draft) => {
+                      const next = applyDirectEdit(record, (draft) => {
                         draft.activeFromMonth = month;
                         if (draft.vacancySinceMonth !== null && draft.vacancySinceMonth < month) {
                           draft.vacancySinceMonth = month;
                           draft.seedVacancySinceMonth = month;
                         }
                       });
-                      onSaveDraft(next, selected.positionId);
+                      onSaveDraft(next, record.positionId);
                     }}
                   >
                     {MONTHS.map((month, index) => (
@@ -821,7 +893,7 @@ export function PositionDrawer({
                 </label>
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">Статус</span>
-                  <select value={selected.status} disabled>
+                  <select value={view.status} disabled>
                     <option value="Occupied">{POSITION_STATUS_LABELS.Occupied}</option>
                     <option value="Vacancy">{POSITION_STATUS_LABELS.Vacancy}</option>
                     <option value="Closed">{POSITION_STATUS_LABELS.Closed}</option>
@@ -830,6 +902,74 @@ export function PositionDrawer({
               </div>
             </section>
 
+            {view.status === "Vacancy" ? (
+              <section className="drawer-card drawer-card--plan drawer-vacancy-profile">
+                <h3 className="drawer-section__title drawer-section__title--plan">
+                  Профиль компенсации
+                </h3>
+                {isVacancyDraft ? (
+                  <p className="drawer-field__hint drawer-vacancy-profile__hint">
+                    Заполните оклад, специализацию и уровень — затем нажмите «Сохранить позицию» в шапке.
+                  </p>
+                ) : (
+                  <p className="drawer-field__hint drawer-vacancy-profile__hint">
+                    С месяца «{MONTHS[vacancyProfileMonth]}» по конец года.
+                  </p>
+                )}
+                <div className="drawer-scenario-form__row drawer-scenario-form__row--four">
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Специализация</span>
+                    <select
+                      value={vacancyProfileSpec}
+                      disabled={readOnly}
+                      onChange={(event) => updateVacancyProfile({ spec: event.target.value })}
+                    >
+                      {specOptions.map((specialization) => (
+                        <option key={specialization} value={specialization}>
+                          {specialization}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Уровень</span>
+                    <select
+                      value={vacancyProfileLevel}
+                      disabled={readOnly}
+                      onChange={(event) => updateVacancyProfile({ level: event.target.value })}
+                    >
+                      {vacancyProfileLevels.map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Оклад, ₽</span>
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={readOnly}
+                      value={vacancyProfileBase}
+                      onChange={(event) => updateVacancyProfile({ base: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">Премия, ₽</span>
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={readOnly}
+                      value={vacancyProfileBonus}
+                      onChange={(event) => updateVacancyProfile({ bonus: Number(event.target.value) })}
+                    />
+                  </label>
+                </div>
+              </section>
+            ) : null}
+
+            {showPlanEvents ? (
             <section className="drawer-events-panel drawer-card drawer-card--plan" ref={composerRef}>
             <h3 className="drawer-section__title drawer-section__title--plan">
               <Calendar size={14} aria-hidden />
@@ -852,17 +992,17 @@ export function PositionDrawer({
                         transferToPositionId: "",
                         targetDepartment:
                           prev.targetDepartment ||
-                          departmentOptions.find((department) => department !== selected.department) ||
+                          departmentOptions.find((department) => department !== view.department) ||
                           departmentOptions[0] ||
                           "",
                       }))
                     }
                   >
-                    {SCENARIO_GROUPS.map((group) => (
+                    {scenarioGroups.map((group) => (
                       <optgroup key={group.label} label={group.label}>
                         {group.scenarios.map((scenarioKey) => (
                           <option key={scenarioKey} value={scenarioKey}>
-                            {scenarioTitleForPosition(selected, scenarioKey)}
+                            {SCENARIO_LABEL[scenarioKey]}
                           </option>
                         ))}
                       </optgroup>
@@ -875,18 +1015,18 @@ export function PositionDrawer({
                     value={scenarioForm.month}
                     onChange={(event) => {
                       const month = Number(event.target.value);
-                      const specialization = selected.monthlySpec[month] || scenarioForm.specialization;
+                      const specialization = view.monthlySpec[month] || scenarioForm.specialization;
                       const levels = levelOptionsForSpecialization(specialization, salaryBands);
-                      const level = levels.includes(selected.monthlyLevel[month])
-                        ? selected.monthlyLevel[month]
+                      const level = levels.includes(view.monthlyLevel[month])
+                        ? view.monthlyLevel[month]
                         : levels[0];
                       setScenarioForm((prev) => ({
                         ...prev,
                         month,
                         specialization,
                         level,
-                        base: selected.monthlyBase[month] || prev.base,
-                        bonus: selected.monthlyBonus[month] || prev.bonus,
+                        base: view.monthlyBase[month] || prev.base,
+                        bonus: view.monthlyBonus[month] || prev.bonus,
                       }));
                     }}
                   >
@@ -970,13 +1110,13 @@ export function PositionDrawer({
                     transferToPositionId: "",
                     targetDepartment:
                       prev.targetDepartment ||
-                      departmentOptions.find((department) => department !== selected.department) ||
+                      departmentOptions.find((department) => department !== view.department) ||
                       departmentOptions[0] ||
                       "",
                   }))
                 }
               >
-                {SCENARIO_GROUPS.map((group) => (
+                {scenarioGroups.map((group) => (
                   <optgroup key={group.label} label={group.label}>
                     {group.scenarios.map((scenarioKey) => (
                       <option key={scenarioKey} value={scenarioKey}>
@@ -993,16 +1133,16 @@ export function PositionDrawer({
                 value={scenarioForm.month}
                 onChange={(event) => {
                   const month = Number(event.target.value);
-                  const specialization = selected.monthlySpec[month] || scenarioForm.specialization;
+                  const specialization = view.monthlySpec[month] || scenarioForm.specialization;
                   const levels = levelOptionsForSpecialization(specialization, salaryBands);
-                  const level = levels.includes(selected.monthlyLevel[month]) ? selected.monthlyLevel[month] : levels[0];
+                  const level = levels.includes(view.monthlyLevel[month]) ? view.monthlyLevel[month] : levels[0];
                   setScenarioForm((prev) => ({
                     ...prev,
                     month,
                     specialization,
                     level,
-                    base: selected.monthlyBase[month] || prev.base,
-                    bonus: selected.monthlyBonus[month] || prev.bonus,
+                    base: view.monthlyBase[month] || prev.base,
+                    bonus: view.monthlyBonus[month] || prev.bonus,
                   }));
                 }}
               >
@@ -1105,7 +1245,7 @@ export function PositionDrawer({
                       }}
                     >
                       {departmentOptions
-                        .filter((department) => department !== selected.department)
+                        .filter((department) => department !== view.department)
                         .map((department) => (
                           <option key={department} value={department}>
                             {department}
@@ -1232,9 +1372,9 @@ export function PositionDrawer({
             </button>
             </div>
           </div>
-          {selectedTransferTarget && (
+          {viewTransferTarget && (
             <p className="drawer-events-block__hint">
-              → {selectedTransferTarget.positionId} ({selectedTransferTarget.team || selectedTransferTarget.unit})
+              → {viewTransferTarget.positionId} ({viewTransferTarget.team || viewTransferTarget.unit})
             </p>
           )}
           {kaitenNudge ? (
@@ -1255,6 +1395,7 @@ export function PositionDrawer({
             </div>
           ) : null}
             </section>
+            ) : null}
 
             <section className="drawer-history-section drawer-card">
               <h3 className="drawer-section__title drawer-section__title--history">
@@ -1364,7 +1505,7 @@ export function PositionDrawer({
       <KaitenExportModal
         open={kaitenExportOpen}
         onClose={() => setKaitenExportOpen(false)}
-        position={selected}
+        position={view}
         planVersionId={planVersionId}
         planYear={planYear}
         userRole={userRole}
@@ -1373,5 +1514,7 @@ export function PositionDrawer({
       />
     ) : null}
     </>
+    ,
+    document.body,
   );
 }

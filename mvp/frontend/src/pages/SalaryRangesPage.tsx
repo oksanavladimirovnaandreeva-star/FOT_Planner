@@ -351,7 +351,7 @@ export function SalaryRangesPage() {
         <CollapsibleSection
           title="Доступ к диапазонам (демо C&B)"
           summary="По пользователям, как срезы на экране входа"
-          defaultOpen={false}
+          defaultOpen
         >
           <SalaryCatalogAccessPanel onSaved={refreshAppConfig} />
         </CollapsibleSection>

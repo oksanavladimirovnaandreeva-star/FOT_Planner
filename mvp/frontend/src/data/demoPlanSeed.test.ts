@@ -14,13 +14,12 @@ describe("demoPlanSeed", () => {
     const positions = buildDemoPositions();
     expect(positions.length).toBeGreaterThanOrEqual(DEFAULT_DEMO_POSITION_COUNT);
     expect(positions.length).toBeLessThan(PILOT_POSITION_TARGET);
-    expect(DEMO_SEED_VERSION).toBe(5);
+    expect(DEMO_SEED_VERSION).toBe(6);
 
     const carryover = positions.filter((position) => position.slotType === "carryover");
     expect(carryover.every((position) => position.events.some((event) => event.type === "POSITION_CARRYOVER"))).toBe(
       true,
     );
-    expect(positions.some((position) => position.events.some((event) => event.type === "PLANNED_HIRE"))).toBe(true);
     expect(positions.some((position) => position.events.some((event) => event.type === "INDEXATION"))).toBe(true);
   });
 
@@ -43,7 +42,6 @@ describe("demoPlanSeed", () => {
     expect(carryover.every((position) => position.events.some((event) => event.type === "POSITION_CARRYOVER"))).toBe(
       true,
     );
-    expect(positions.some((position) => position.events.some((event) => event.type === "PLANNED_HIRE"))).toBe(true);
     expect(positions.some((position) => position.events.some((event) => event.type === "INDEXATION"))).toBe(true);
   });
 

@@ -1767,10 +1767,43 @@ tbody tr.table-row--closed:hover {
 .drawer-overlay {
   position: fixed;
   inset: 0;
+  z-index: 1300;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(1320px, 92vw));
+  pointer-events: auto;
+}
+
+.drawer-overlay__scrim {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+  padding: 0;
+  border: none;
   background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  justify-content: flex-end;
-  z-index: 20;
+  cursor: default;
+  min-height: 100%;
+  width: 100%;
+}
+
+.drawer-overlay > .drawer {
+  grid-column: 2;
+  grid-row: 1;
+  height: 100%;
+  max-height: 100vh;
+  width: 100%;
+  max-width: none;
+  position: relative;
+  z-index: 1;
+}
+
+body.position-drawer-open .app-shell,
+body.drawer-close-guard .app-shell {
+  pointer-events: none;
+}
+
+body.position-drawer-open .drawer-overlay,
+body.drawer-close-guard .drawer-overlay {
+  pointer-events: auto;
 }
 
 .drawer {
@@ -3162,6 +3195,18 @@ tbody tr.table-row--closed:hover {
   gap: 6px;
   align-items: end;
   width: 100%;
+}
+
+.drawer-scenario-form__row--four {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+  width: 100%;
+}
+
+.drawer-vacancy-profile__hint {
+  margin: 0 0 8px;
 }
 
 .drawer-scenario-form__row--six .drawer-field {

@@ -83,7 +83,8 @@ import {
   buildPilotPlanBundle,
   type PilotBundleResult,
 } from "../data/pilotTestBundle";
-import { applyAnnualPlanningScenarioFactPolicy } from "../data/planScenario";
+import { applyAnnualPlanningScenarioFactPolicy, PLAN_SCENARIO_INCLUDES_FACT } from "../data/planScenario";
+import { hasFactData, seedDemoFactFromPlan } from "../data/factStore";
 import { yieldToMain } from "../data/asyncYield";
 import { formatPlanVersionTitle } from "../data/planVersionDisplay";
 import { canReopenPrimaryBudget, reopenPrimaryBudgetMeta } from "../data/planVersionLifecycle";
@@ -269,10 +270,19 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   const bulkHydratingRef = useRef(false);
   const persistDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipPersistUntilReadyRef = useRef(true);
+  const demoFactSeededRef = useRef(false);
 
   useEffect(() => {
     applyAnnualPlanningScenarioFactPolicy();
   }, []);
+
+  useEffect(() => {
+    if (demoFactSeededRef.current || !PLAN_SCENARIO_INCLUDES_FACT || hasFactData()) return;
+    const rows = dataByVersion[planVersionId];
+    if (!rows?.length) return;
+    seedDemoFactFromPlan(rows);
+    demoFactSeededRef.current = true;
+  }, [dataByVersion, planVersionId]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -802,6 +812,9 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     setDataByVersion((prev) => ({ ...prev, [planVersionId]: fresh }));
     localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
     applyAnnualPlanningScenarioFactPolicy();
+    if (PLAN_SCENARIO_INCLUDES_FACT) {
+      seedDemoFactFromPlan(fresh);
+    }
     return { ok: true, count: fresh.length };
   }, [planVersionId]);
 

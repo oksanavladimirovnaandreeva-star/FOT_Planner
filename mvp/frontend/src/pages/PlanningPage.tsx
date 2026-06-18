@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { PlanContextBar } from "../components/planning/PlanContextBar";
+import { MassIndexationCompact } from "../components/planning/MassIndexationCompact";
 import { PlanIndexationSection } from "../components/planning/PlanIndexationSection";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
@@ -34,6 +35,7 @@ import {
   annualTotal,
   applyEvents,
   collectIndexationBatchesFromPositions,
+  applyExistingIndexationBatches,
   decToDec,
   departmentOptions,
   defaultLimitFlagForSlotType,
@@ -63,6 +65,7 @@ import {
   mergePlanPositionsWithDraft,
   removePlanEvent,
   removePlanPosition,
+  withAppliedEvents,
 } from "../data/planOperations";
 import { useMvpApp } from "../context/MvpAppContext";
 import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
@@ -200,6 +203,8 @@ export function PlanningPage() {
     }
   }, [workspaceMode, workingDraft, planVersionId, openVersion]);
 
+  const showQuarterlyWorkspace = Boolean(workingDraft);
+
   const canMassIndexation = roleCanApplyMassIndexation(userRole);
   const canApplyMassIndexation = canMassIndexation && canEditWorkspace;
 
@@ -281,6 +286,34 @@ export function PlanningPage() {
   const [journalMonthFilter, setJournalMonthFilter] = useState("All");
   const [journalTypeFilter, setJournalTypeFilter] = useState<EventType | "All">("All");
   const [active, setActive] = useState<PositionRecord | null>(null);
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const suppressDrawerOpenUntil = useRef(0);
+  const activeRawRef = useRef<PositionRecord | null>(null);
+  const closeGuardTimerRef = useRef<number | null>(null);
+
+  const openDrawer = useCallback(
+    (row: PositionRecord) => {
+      activeRawRef.current = positions.find((position) => position.positionId === row.positionId) ?? null;
+      setActive(row);
+      setActiveSourceId(row.positionId);
+    },
+    [positions],
+  );
+
+  const closeDrawer = useCallback(() => {
+    suppressDrawerOpenUntil.current = Date.now() + 400;
+    if (closeGuardTimerRef.current !== null) {
+      window.clearTimeout(closeGuardTimerRef.current);
+    }
+    document.body.classList.add("drawer-close-guard");
+    closeGuardTimerRef.current = window.setTimeout(() => {
+      document.body.classList.remove("drawer-close-guard");
+      closeGuardTimerRef.current = null;
+    }, 400);
+    activeRawRef.current = null;
+    setActive(null);
+    setActiveSourceId(null);
+  }, []);
   const [idxPercent, setIdxPercent] = useState(5);
   const [idxMonth, setIdxMonth] = useState(8);
   useEffect(() => {
@@ -309,16 +342,20 @@ export function PlanningPage() {
       if (bulkFeedbackTimer.current !== null) {
         window.clearTimeout(bulkFeedbackTimer.current);
       }
+      if (closeGuardTimerRef.current !== null) {
+        window.clearTimeout(closeGuardTimerRef.current);
+        document.body.classList.remove("drawer-close-guard");
+      }
     },
     [],
   );
-  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [addSlotOpen, setAddSlotOpen] = useState(false);
   const [addSlotKind, setAddSlotKind] = useState<"vacancy" | "occupied">("vacancy");
   const [addSlotEmployeeId, setAddSlotEmployeeId] = useState("");
   const [addSlotEmployeeName, setAddSlotEmployeeName] = useState("");
   const [addSlotSpec, setAddSlotSpec] = useState("");
   const [addSlotLevel, setAddSlotLevel] = useState("");
+  const [addSlotBase, setAddSlotBase] = useState<number | "">("");
   const [pendingAddSlot, setPendingAddSlot] = useState(false);
 
   const catalogSpecOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
@@ -336,14 +373,32 @@ export function PlanningPage() {
     const defaultSpec = catalogSpecOptions[0] ?? "";
     setAddSlotSpec(defaultSpec);
     setAddSlotLevel(levelOptionsForSpecialization(defaultSpec, salaryBands)[0] ?? "");
+    const defaultBand = findSalaryBand(defaultSpec, levelOptionsForSpecialization(defaultSpec, salaryBands)[0] ?? "", salaryBands);
+    setAddSlotBase(defaultBand?.midpoint ?? "");
     setAddSlotOpen(true);
   }, [pendingAddSlot, canEditWorkspace, allPositions, catalogSpecOptions, salaryBands]);
 
-  const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(allPositions), [allPositions]);
-  const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
+  const indexationBatches = useMemo(
+    () => collectIndexationBatchesFromPositions(allPositions),
+    [allPositions],
+  );
+  const indexationTargetPositions = useMemo(
+    () => allPositions.filter((position) => applyEvents(position).status !== "Closed"),
+    [allPositions],
+  );
+  const draftForTable = useMemo(() => {
+    if (!active) return null;
+    if (positions.some((position) => position.positionId === active.positionId)) return null;
+    return active;
+  }, [active, positions]);
+
+  const appliedPositions = useMemo(
+    () => mapPositionsWithAppliedEvents(mergePlanPositionsWithDraft(positions, draftForTable)),
+    [positions, draftForTable],
+  );
   const planPositionsForDrawer = useMemo(
-    () => mergePlanPositionsWithDraft(positions, active),
-    [positions, active],
+    () => mergePlanPositionsWithDraft(positions, draftForTable),
+    [positions, draftForTable],
   );
 
   const journalDiffPositionIds = useMemo(() => {
@@ -377,6 +432,18 @@ export function PlanningPage() {
     setSearchParams(next, { replace: true });
   };
 
+  useEffect(() => {
+    if (workspaceMode !== "correction" || showQuarterlyWorkspace) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("mode");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [workspaceMode, showQuarterlyWorkspace, setSearchParams]);
+
   const openPositionFromJournal = (positionId: string) => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", "positions");
@@ -387,11 +454,10 @@ export function PlanningPage() {
   };
 
   const openPositionInDrawer = (positionId: string) => {
+    if (Date.now() < suppressDrawerOpenUntil.current) return;
     const raw = positions.find((item) => item.positionId === positionId);
     if (!raw) return;
-    const row = mapPositionsWithAppliedEvents([raw])[0];
-    setActive(row);
-    setActiveSourceId(positionId);
+    openDrawer(mapPositionsWithAppliedEvents([raw])[0]);
   };
 
   useEffect(() => {
@@ -405,25 +471,30 @@ export function PlanningPage() {
   }, [searchParams, positions, setSearchParams, workspaceTab]);
 
   useEffect(() => {
-    if (!active) return;
-    const refreshedByActive = positions.find((position) => position.positionId === active.positionId) ?? null;
-    const refreshedBySource =
-      activeSourceId && activeSourceId !== active.positionId
-        ? positions.find((position) => position.positionId === activeSourceId) ?? null
-        : null;
-    const refreshed = refreshedByActive ?? refreshedBySource;
-    if (!refreshed) {
-      const isDraftRecord = !positions.some((position) => position.positionId === active.positionId);
-      if (isDraftRecord) return;
-      setActive(null);
-      setActiveSourceId(null);
-      return;
-    }
-    if (refreshed !== active) {
-      setActive(refreshed);
-      setActiveSourceId(refreshed.positionId);
-    }
-  }, [positions, active, activeSourceId]);
+    setActive((current) => {
+      if (!current) {
+        activeRawRef.current = null;
+        return null;
+      }
+      const refreshedByActive = positions.find((position) => position.positionId === current.positionId) ?? null;
+      const refreshedBySource =
+        activeSourceId && activeSourceId !== current.positionId
+          ? positions.find((position) => position.positionId === activeSourceId) ?? null
+          : null;
+      const refreshed = refreshedByActive ?? refreshedBySource;
+      if (!refreshed) {
+        const isDraftRecord = !positions.some((position) => position.positionId === current.positionId);
+        if (isDraftRecord) return current;
+        activeRawRef.current = null;
+        return null;
+      }
+      if (activeRawRef.current === refreshed) {
+        return current;
+      }
+      activeRawRef.current = refreshed;
+      return withAppliedEvents(refreshed);
+    });
+  }, [positions, activeSourceId]);
 
   const filtered = useMemo(() => {
     return appliedPositions.filter((position) => {
@@ -450,7 +521,7 @@ export function PlanningPage() {
   }, [filtered]);
 
 
-  const applyIndexationToFiltered = () => {
+  const applyIndexationToPlan = () => {
     if (!canEditWorkspace) {
       blockEdit();
       return;
@@ -463,20 +534,21 @@ export function PlanningPage() {
       window.alert(planEventMonthBlockedMessage(correctionWindow));
       return;
     }
-    const targetIds = filtered.filter((item) => item.status !== "Closed").map((item) => item.positionId);
-    if (targetIds.length === 0) {
-      showBulkFeedback("warning", "Нет активных позиций для индексации по текущему фильтру.");
+    const targets = indexationTargetPositions;
+    if (targets.length === 0) {
+      showBulkFeedback("warning", "Нет активных позиций в плане для индексации.");
       return;
     }
     const confirmed = window.confirm(
-      `Применить индексацию +${idxPercent}% с ${monthLabel(idxMonth)} для ${targetIds.length} позиций?`,
+      `Применить индексацию +${idxPercent}% с ${monthLabel(idxMonth)} ко всем позициям плана (${targets.length}, включая вакансии)?`,
     );
     if (!confirmed) return;
     const batchId = crypto.randomUUID();
+    const targetIds = new Set(targets.map((item) => item.positionId));
 
     setPositions((prev) =>
       prev.map((position) => {
-        if (!targetIds.includes(position.positionId)) return position;
+        if (!targetIds.has(position.positionId)) return position;
         const event: PlannedEvent = {
           id: crypto.randomUUID(),
           type: "INDEXATION",
@@ -491,10 +563,13 @@ export function PlanningPage() {
         return upsertEvent(position, event);
       }),
     );
-    setRecentlyIndexedIds(targetIds);
+    const visibleIds = targets
+      .filter((item) => matchesOrgSlice(item, orgSlice))
+      .map((item) => item.positionId);
+    setRecentlyIndexedIds(visibleIds);
     showBulkFeedback(
       "success",
-      `Индексация +${idxPercent}% с ${monthLabel(idxMonth)} применена к ${targetIds.length} позициям.`,
+      `Индексация +${idxPercent}% с ${monthLabel(idxMonth)} применена к ${targets.length} позициям плана.`,
     );
     window.setTimeout(() => {
       setRecentlyIndexedIds([]);
@@ -532,18 +607,25 @@ export function PlanningPage() {
     }
     const sourceId = sourcePositionId ?? updated.positionId;
     const recalculated = applyEvents(updated);
+    const withIndexation = forceCreate
+      ? applyExistingIndexationBatches(recalculated, allPositions)
+      : recalculated;
     setPositions((prev) => {
       const existsBySource = prev.some((position) => position.positionId === sourceId);
       if (existsBySource) {
-        return prev.map((position) => (position.positionId === sourceId ? recalculated : position));
+        return prev.map((position) => (position.positionId === sourceId ? withIndexation : position));
       }
       if (forceCreate) {
-        return [...prev, recalculated];
+        return [...prev, withIndexation];
       }
       return prev;
     });
-    setActive(recalculated);
-    setActiveSourceId(recalculated.positionId);
+    setActive(withIndexation);
+    setActiveSourceId(withIndexation.positionId);
+    activeRawRef.current = withIndexation;
+    if (forceCreate) {
+      showBulkFeedback("success", `Позиция ${withIndexation.positionId} сохранена в плане.`);
+    }
   };
 
   const addEvent = (positionId: string, event: PlannedEvent) => {
@@ -568,7 +650,7 @@ export function PlanningPage() {
     if (event.type === "TRANSFER") {
       const result = applyPlanTransferFromDrawerEvent(positions, positionId, event, {
         nextPositionId: (list) => nextPositionId(list),
-        applyIndexationBatches: (record) => record,
+        applyIndexationBatches: (record, all) => applyExistingIndexationBatches(record, all),
       });
       if (!result.ok) {
         window.alert(result.error);
@@ -612,6 +694,7 @@ export function PlanningPage() {
     const result = removePlanPosition(positions, positionId);
     if (!result.ok) {
       if (!isPersisted && active?.positionId === positionId) {
+        activeRawRef.current = null;
         setActive(null);
         setActiveSourceId(null);
         showBulkFeedback("success", "Черновик позиции удалён.");
@@ -621,6 +704,7 @@ export function PlanningPage() {
       return;
     }
     setPositions(result.positions);
+    activeRawRef.current = null;
     setActive(null);
     setActiveSourceId(null);
     showBulkFeedback("success", `Позиция ${positionId} удалена из плана.`);
@@ -642,6 +726,9 @@ export function PlanningPage() {
       const defaultSpec = specializationOptions(salaryBands)[0] ?? "";
       setAddSlotSpec(defaultSpec);
       setAddSlotLevel(levelOptionsForSpecialization(defaultSpec, salaryBands)[0] ?? "");
+      const defaultLevel = levelOptionsForSpecialization(defaultSpec, salaryBands)[0] ?? "";
+      const defaultBand = findSalaryBand(defaultSpec, defaultLevel, salaryBands);
+      setAddSlotBase(defaultBand?.midpoint ?? "");
       setAddSlotOpen(true);
       return;
     }
@@ -696,7 +783,8 @@ export function PlanningPage() {
       return;
     }
     const band = findSalaryBand(spec, level, salaryBands);
-    const baseSalary = band?.midpoint ?? 150_000;
+    const baseSalary =
+      addSlotBase !== "" && Number(addSlotBase) > 0 ? Number(addSlotBase) : (band?.midpoint ?? 150_000);
     const record: PositionRecord = {
       positionId: newId,
       role: isOccupied ? employeeName : "Новая вакансия",
@@ -725,9 +813,9 @@ export function PlanningPage() {
       seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
       events: [],
     };
-    saveDraftPosition(record, record.positionId, true);
+    openDrawer(record);
     setAddSlotOpen(false);
-    showBulkFeedback("success", `Позиция ${newId} добавлена в план.`);
+    showBulkFeedback("success", `Позиция ${newId}: укажите оклад и нажмите «Сохранить позицию».`);
   };
 
   return (
@@ -752,6 +840,20 @@ export function PlanningPage() {
           )}
         </div>
         <div className="page-header__actions planning-toolbar">
+          {canMassIndexation && workspaceTab === "positions" ? (
+            <MassIndexationCompact
+              activeCount={indexationTargetPositions.length}
+              idxPercent={idxPercent}
+              idxMonth={idxMonth}
+              correctionWindow={correctionWindow}
+              canEditWorkspace={canEditWorkspace}
+              indexationBatches={indexationBatches}
+              onPercentChange={setIdxPercent}
+              onMonthChange={setIdxMonth}
+              onApply={applyIndexationToPlan}
+              onDeleteBatch={deleteIndexationBatch}
+            />
+          ) : null}
           <ExportCsvActions
             positions={filtered}
             viewMode={viewMode}
@@ -807,13 +909,15 @@ export function PlanningPage() {
         >
           Годовое планирование
         </button>
-        <button
-          type="button"
-          className={`planning-workspace-tabs__btn${workspaceMode === "correction" ? " planning-workspace-tabs__btn--active" : ""}`}
-          onClick={() => setWorkspaceMode("correction")}
-        >
-          Квартальное планирование
-        </button>
+        {showQuarterlyWorkspace ? (
+          <button
+            type="button"
+            className={`planning-workspace-tabs__btn${workspaceMode === "correction" ? " planning-workspace-tabs__btn--active" : ""}`}
+            onClick={() => setWorkspaceMode("correction")}
+          >
+            Квартальное планирование
+          </button>
+        ) : null}
       </nav>
 
       <nav
@@ -859,18 +963,18 @@ export function PlanningPage() {
         canToggleLeadFreeze={canToggleLeadFreeze}
       />
 
-      {workspaceTab === "positions" && (canMassIndexation || indexationBatches.length > 0) ? (
+      {workspaceTab === "positions" && !canMassIndexation && indexationBatches.length > 0 ? (
         <PlanIndexationSection
           batches={indexationBatches}
-          isIndexationAdmin={canMassIndexation}
+          isIndexationAdmin={false}
           canEditWorkspace={canEditWorkspace}
-          activeCount={filtered.filter((item) => item.status !== "Closed").length}
+          activeCount={indexationTargetPositions.length}
           idxPercent={idxPercent}
           idxMonth={idxMonth}
           correctionWindow={correctionWindow}
           onPercentChange={setIdxPercent}
           onMonthChange={setIdxMonth}
-          onApply={applyIndexationToFiltered}
+          onApply={applyIndexationToPlan}
           onDeleteBatch={deleteIndexationBatch}
         />
       ) : null}
@@ -1019,11 +1123,17 @@ export function PlanningPage() {
               return (
                 <tr
                   key={row.positionId}
-                  onClick={() => {
-                    setActive(row);
-                    setActiveSourceId(row.positionId);
+                  onPointerDown={(event) => {
+                    if (Date.now() < suppressDrawerOpenUntil.current) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }
                   }}
-                  className={positionTableRowClass(row.status, rowExtra)}
+                  onClick={() => {
+                    if (Date.now() < suppressDrawerOpenUntil.current) return;
+                    openDrawer(row);
+                  }}
+                  className={positionTableRowClass(row, rowExtra)}
                   data-hint="Открыть карточку позиции"
                 >
                   <td>
@@ -1146,7 +1256,10 @@ export function PlanningPage() {
                     const spec = event.target.value;
                     setAddSlotSpec(spec);
                     const levels = levelOptionsForSpecialization(spec, salaryBands);
-                    setAddSlotLevel(levels[0] ?? "");
+                    const level = levels[0] ?? "";
+                    setAddSlotLevel(level);
+                    const band = findSalaryBand(spec, level, salaryBands);
+                    setAddSlotBase(band?.midpoint ?? "");
                   }}
                 >
                   {catalogSpecOptions.map((spec) => (
@@ -1158,13 +1271,33 @@ export function PlanningPage() {
               </label>
               <label>
                 Уровень
-                <select value={addSlotLevel} onChange={(event) => setAddSlotLevel(event.target.value)}>
+                <select
+                  value={addSlotLevel}
+                  onChange={(event) => {
+                    const level = event.target.value;
+                    setAddSlotLevel(level);
+                    const band = findSalaryBand(addSlotSpec, level, salaryBands);
+                    if (addSlotBase === "" && band) setAddSlotBase(band.midpoint);
+                  }}
+                >
                   {catalogLevelOptions.map((level) => (
                     <option key={level} value={level}>
                       {level}
                     </option>
                   ))}
                 </select>
+              </label>
+              <label>
+                Оклад, ₽
+                <input
+                  type="number"
+                  min={0}
+                  value={addSlotBase}
+                  onChange={(event) =>
+                    setAddSlotBase(event.target.value === "" ? "" : Number(event.target.value))
+                  }
+                  placeholder="из справочника"
+                />
               </label>
               <label>
                 ФИО
@@ -1202,10 +1335,7 @@ export function PlanningPage() {
       <PositionDrawer
         open={Boolean(active)}
         record={active}
-        onClose={() => {
-          setActive(null);
-          setActiveSourceId(null);
-        }}
+        onClose={closeDrawer}
         onSaveDraft={saveDraftPosition}
         onAddEvent={addEvent}
         onDeleteEvent={deleteEvent}

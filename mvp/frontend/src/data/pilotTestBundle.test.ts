@@ -6,6 +6,7 @@ import { roleScopeFor } from "./demoRoleScopeStore";
 import { scopeEqValues } from "./personaAccessScope";
 import { isBudgetLocked } from "./planVersions";
 import { buildPilotTestBundle, isPilotBundleApplied } from "./pilotTestBundle";
+import { PLAN_SCENARIO_INCLUDES_FACT } from "./planScenario";
 import { loadLeadEditFrozen } from "./userAccess";
 
 describe("pilotTestBundle", () => {
@@ -22,14 +23,14 @@ describe("pilotTestBundle", () => {
     });
   });
 
-  it("собирает оргструктуру, доступы и план v1 без факта в годовом сценарии", () => {
+  it("собирает оргструктуру, доступы и план v1", () => {
     const bundle = buildPilotTestBundle();
 
     expect(bundle.positionCount).toBeGreaterThanOrEqual(PILOT_POSITION_TARGET);
     expect(bundle.orgTeamCount).toBeGreaterThan(0);
     expect(isPilotBundleApplied()).toBe(true);
     expect(isBudgetLocked(bundle.versions[0])).toBe(true);
-    expect(hasFactData()).toBe(false);
+    expect(hasFactData()).toBe(PLAN_SCENARIO_INCLUDES_FACT);
     expect(loadLeadEditFrozen()).toBe(false);
 
     const teamLead = roleScopeFor("team_lead");
@@ -39,7 +40,12 @@ describe("pilotTestBundle", () => {
 
     const tree = readOrgTree();
     expect(tree.Engineering?.ProductDev).toContain("Frontend Web");
-    expect(bundle.fact.employeeCount).toBe(0);
-    expect(bundle.fact.assignmentCount).toBe(0);
+    if (PLAN_SCENARIO_INCLUDES_FACT) {
+      expect(bundle.fact.employeeCount).toBeGreaterThan(0);
+      expect(bundle.fact.assignmentCount).toBeGreaterThan(0);
+    } else {
+      expect(bundle.fact.employeeCount).toBe(0);
+      expect(bundle.fact.assignmentCount).toBe(0);
+    }
   });
 });

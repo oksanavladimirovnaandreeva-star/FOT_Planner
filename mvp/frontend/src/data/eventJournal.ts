@@ -75,11 +75,20 @@ export function tableRowStatusClass(status: PositionRecord["status"]): string {
   return "";
 }
 
+/** Цвет строки: вакансия с плановым наймом остаётся жёлтой до фактического занятия слота. */
+export function tableRowStatusForDisplay(record: PositionRecord): PositionRecord["status"] {
+  if (record.seedStatus === "Vacancy" && record.seedEmployeeId == null) {
+    if (record.status === "Vacancy") return "Vacancy";
+    if (record.events.some((event) => event.type === "PLANNED_HIRE")) return "Vacancy";
+  }
+  return record.status;
+}
+
 export function positionTableRowClass(
-  status: PositionRecord["status"],
+  record: PositionRecord,
   extraClasses?: string,
 ): string {
-  const parts = ["positions-table__row", tableRowStatusClass(status)];
+  const parts = ["positions-table__row", tableRowStatusClass(tableRowStatusForDisplay(record))];
   if (extraClasses) parts.push(extraClasses);
   return parts.filter(Boolean).join(" ");
 }

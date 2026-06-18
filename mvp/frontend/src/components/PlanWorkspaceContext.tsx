@@ -9,6 +9,7 @@ import { canReopenPrimaryBudget } from "../data/planVersionLifecycle";
 import { isBudgetLocked } from "../data/planVersions";
 import { resolvePlanWorkspaceStatus } from "../data/planWorkspaceStatus";
 import { roleCanSwitchPlanVersions } from "../data/userAccess";
+import { planWorkspacePath } from "../data/planWorkspaceMode";
 
 export function PlanWorkspaceContext() {
   const navigate = useNavigate();
@@ -26,6 +27,7 @@ export function PlanWorkspaceContext() {
     openVersion,
     reopenPrimaryBudget,
     canManagePlanVersions,
+    createWorkingDraft,
   } = useMvpApp();
 
   const canSwitchVersions = roleCanSwitchPlanVersions(userRole);
@@ -69,6 +71,27 @@ export function PlanWorkspaceContext() {
     Boolean(workingDraft) ||
     (canEditPlan && activePlan.kind === "APPROVED" && activePlan.status === "DRAFT");
 
+  const canCreateQuarterlyDraft =
+    canManagePlanVersions &&
+    canEditPlan &&
+    Boolean(latestApproved) &&
+    Boolean(primaryBudget && isBudgetLocked(primaryBudget)) &&
+    !workingDraft;
+
+  const handleCreateQuarterlyDraft = () => {
+    const result = createWorkingDraft(latestApproved?.id);
+    if (!result.ok) {
+      window.alert(result.error);
+      return;
+    }
+    const opened = openVersion(result.draftId);
+    if (!opened.ok) {
+      window.alert(opened.error);
+      return;
+    }
+    navigate(planWorkspacePath("correction"));
+  };
+
   return (
     <div className="plan-workspace-context">
       <div className="plan-workspace-context__grid">
@@ -87,6 +110,12 @@ export function PlanWorkspaceContext() {
       </div>
 
       <span className={`app-status-chip app-status-chip--${workspaceStatus.tone}`}>{workspaceStatus.label}</span>
+
+      {canCreateQuarterlyDraft ? (
+        <button type="button" className="app-btn app-btn--primary app-btn--sm" onClick={handleCreateQuarterlyDraft}>
+          Создать квартальный черновик
+        </button>
+      ) : null}
 
       {canSwitchVersions ? (
         <>

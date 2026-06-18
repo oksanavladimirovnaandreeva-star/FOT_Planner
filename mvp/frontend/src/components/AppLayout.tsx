@@ -46,6 +46,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <span className="app-sidebar__title">ФОТ-планировщик</span>
         </div>
 
+        <DemoUserCard />
+
         <div className="app-sidebar__section app-sidebar__section--compact">
           <PlanWorkspaceContext />
           <label className="app-field">
@@ -55,7 +57,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <option value="total">Итого ФОТ</option>
             </select>
           </label>
-          <DemoUserCard />
         </div>
 
         <nav className="app-sidebar__nav" aria-label="Основное меню">

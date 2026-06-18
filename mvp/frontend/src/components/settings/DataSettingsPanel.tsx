@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatImportReport, useMvpApp } from "../../context/MvpAppContext";
 import { DEFAULT_DEMO_POSITION_COUNT } from "../../data/demoPlanSeed";
-import { formatPilotHeavyLoadConfirm } from "../../data/pilotTestBundle";
 import { PLAN_SCENARIO_INCLUDES_FACT } from "../../data/planScenario";
 import type { ImportReport } from "../../data/snapshotImport";
 import { inspectFactImport, parseFactPayload, type FactImportPreview } from "../../data/factImport";
@@ -36,8 +35,6 @@ export function DataSettingsPanel() {
     refreshOperationHistory,
     resetDevPlanToDraft,
     reloadDemoSeed,
-    loadPilotTestBundle,
-    clearPilotTestBundle,
   } = useMvpApp();
 
   const [dataMessage, setDataMessage] = useState<string | null>(null);
@@ -66,7 +63,6 @@ export function DataSettingsPanel() {
     };
   } | null>(null);
   const [importMode, setImportMode] = useState<"replace" | "merge">("replace");
-  const [pilotLoading, setPilotLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const factFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -301,7 +297,8 @@ export function DataSettingsPanel() {
   return (
     <div className="settings-data">
       <p className="muted-line">
-        Импорт и экспорт плана, демо-набор для пилота. Технический формат JSON — в разделе ниже.
+        Импорт и экспорт плана, демо-набор ~{DEFAULT_DEMO_POSITION_COUNT} поз. Сброс:{" "}
+        <code>?reset=demo</code> в URL.
       </p>
 
       <div className="app-data-panel__block">
@@ -365,8 +362,8 @@ export function DataSettingsPanel() {
         <details className="settings-help">
           <summary>Формат файла факта</summary>
           <p className="muted-line">
-            JSON с помесячными строками: ID сотрудника, при необходимости ID позиции, месяц, суммы. Для пилота —
-            также демо-кнопка ниже.
+            JSON с помесячными строками: ID сотрудника, при необходимости ID позиции, месяц, суммы. Или
+            кнопка «Заполнить демо-факт» ниже.
           </p>
         </details>
         {pendingFactImport ? (
@@ -495,59 +492,6 @@ export function DataSettingsPanel() {
         <div className="app-data-panel__report" role="status">
           <strong>Отчёт импорта</strong>
           <p>{formatImportReport(lastImportReport)}</p>
-        </div>
-      ) : null}
-
-      {canImportPlan ? (
-        <div className="app-data-panel__block app-data-panel__block--pilot">
-          <strong>Пилот (тяжёлый)</strong>
-          <p className="muted-line">
-            Стресс-тест: оргструктура, 520+ позиций, утверждённый бюджет и пресеты доступов. Браузер может
-            подвиснуть на 10–30 с. Для обычной работы используйте демо-план ~{DEFAULT_DEMO_POSITION_COUNT} позиций ниже.
-          </p>
-          <div className="app-data-panel__actions">
-            <button
-              type="button"
-              className="app-btn app-btn--primary"
-              disabled={pilotLoading}
-              onClick={() => {
-                void (async () => {
-                  if (!window.confirm(formatPilotHeavyLoadConfirm())) return;
-                  setPilotLoading(true);
-                  try {
-                    const result = await loadPilotTestBundle();
-                    setFactLoaded(PLAN_SCENARIO_INCLUDES_FACT && hasFactData());
-                    setFactStats(factStoreStats());
-                    setDataMessage(result.ok ? result.summary : result.error);
-                  } finally {
-                    setPilotLoading(false);
-                  }
-                })();
-              }}
-            >
-              {pilotLoading ? "Загрузка…" : "Загрузить пилот (тяжёлый)"}
-            </button>
-            <button
-              type="button"
-              className="app-btn app-btn--ghost"
-              disabled={pilotLoading}
-              onClick={() => {
-                const confirmed = window.confirm(
-                  "Удалить пилотный набор и план из браузера? Страница перезагрузится с пустым демо-планом.",
-                );
-                if (!confirmed) return;
-                const result = clearPilotTestBundle();
-                if (!result.ok) setDataMessage(result.error);
-              }}
-            >
-              Сбросить пилот / план
-            </button>
-          </div>
-          <p className="muted-line app-data-panel__hint">
-            Если интерфейс завис — откройте{" "}
-            <code>?reset=demo</code> в адресе (например <code>/settings?reset=demo</code>) или в консоли:{" "}
-            <code>localStorage.removeItem(&quot;fot_mvp_plan_data_by_version&quot;)</code> и обновите страницу.
-          </p>
         </div>
       ) : null}
 

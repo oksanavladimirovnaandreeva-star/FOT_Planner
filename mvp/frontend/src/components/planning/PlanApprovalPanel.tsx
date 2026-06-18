@@ -126,6 +126,26 @@ export function PlanApprovalPanel() {
   const actorScope = actorOrgScope(userRole);
   const cycleBadge = formatCorrectionCycleBadge(activePlan);
 
+  if (!workingDraft) {
+    return (
+      <div className="plan-approval-panel">
+        <section className="card workflow-hint" role="status">
+          <h2 className="section-title">Сдача команд ещё не открыта</h2>
+          <p className="workflow-hint__text">
+            {canManagePlanVersions
+              ? "Квартальный черновик создаётся на вкладке «Версии бюджета»: сначала утвердите годовой бюджет, затем «Создать · 1 Квартал». После этого команды смогут сдавать план здесь."
+              : "C&B ещё не открыл квартальный черновик. Когда черновик появится, здесь будет сдача вашей команды."}
+          </p>
+          {canManagePlanVersions ? (
+            <Link className="workflow-hint__link" to="/versions">
+              Версии бюджета → создать квартальный черновик
+            </Link>
+          ) : null}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="plan-approval-panel">
       <section className="approval-control-tower card">
@@ -184,8 +204,7 @@ export function PlanApprovalPanel() {
         <ConsolidationPage embedded />
       </section>
 
-      {workingDraft ? (
-        <section className="card approval-teams-queue">
+      <section className="card approval-teams-queue">
           <h3 className="section-title">Очередь команд</h3>
           {submissionRows.length === 0 ? (
             <p className="muted-line">Записей пока нет — сдача начинается в блоке «Ход планирования» выше.</p>
@@ -256,7 +275,6 @@ export function PlanApprovalPanel() {
             </div>
           )}
         </section>
-      ) : null}
 
       {triggeredRules.length > 0 ? (
         <section className="card plan-approval-panel__cb-alert" role="status">

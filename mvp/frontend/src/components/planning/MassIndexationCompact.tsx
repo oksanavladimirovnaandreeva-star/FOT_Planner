@@ -20,7 +20,7 @@ type Props = {
   onDeleteBatch: (batchId: string) => void;
 };
 
-const SCOPE_HINT = "По активным позициям в текущем срезе фильтра (глобально по плану).";
+const SCOPE_HINT = "На все позиции плана (занятые и вакансии, кроме закрытых). Задаёт только C&B.";
 
 export function MassIndexationCompact({
   activeCount,

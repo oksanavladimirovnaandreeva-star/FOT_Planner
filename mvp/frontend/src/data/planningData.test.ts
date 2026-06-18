@@ -3,6 +3,7 @@ import type { PlannedEvent, PositionRecord } from "../types";
 import {
   applyEvents,
   collectIndexationBatchesFromPositions,
+  applyExistingIndexationBatches,
   decToDec,
   initialPositions,
   removeEvent,
@@ -146,5 +147,18 @@ describe("indexation batches", () => {
     const restored = removeIndexationBatchFromPositions([withIdx], "batch-6")[0];
     expect(restored.events).toHaveLength(0);
     expect(applyEvents(restored).monthlyBase[6]).toBe(before.monthlyBase[6]);
+  });
+});
+
+describe("applyExistingIndexationBatches", () => {
+  it("подтягивает существующие пакеты на новую позицию", () => {
+    const base = isolatedPosition();
+    const indexed = upsertEvent(base, indexationEvent(2, 5));
+    const plan = [indexed, { ...isolatedPosition(), positionId: "P999", events: [] }];
+    const fresh = { ...isolatedPosition(), positionId: "P888", events: [] };
+    const withBatches = applyExistingIndexationBatches(fresh, plan);
+    expect(withBatches.events.some((event) => event.type === "INDEXATION")).toBe(true);
+    const applied = applyEvents(withBatches);
+    expect(applied.monthlyBase[2]).toBeGreaterThan(applyEvents(fresh).monthlyBase[2]);
   });
 });

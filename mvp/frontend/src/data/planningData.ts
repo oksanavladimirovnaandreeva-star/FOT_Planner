@@ -473,6 +473,41 @@ export function collectIndexationBatchesFromPositions(positions: PositionRecord[
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Подтягивает уже заданные C&B пакеты индексации на новую/вакансию позицию. */
+export function applyExistingIndexationBatches(
+  record: PositionRecord,
+  allPositions: PositionRecord[],
+): PositionRecord {
+  const batches = collectIndexationBatchesFromPositions(allPositions);
+  if (batches.length === 0) return record;
+
+  const existingBatchIds = new Set(
+    record.events
+      .filter((event) => event.type === "INDEXATION" && typeof event.payload.indexationBatchId === "string")
+      .map((event) => event.payload.indexationBatchId as string),
+  );
+
+  const missingBatches = batches
+    .filter((batch) => !existingBatchIds.has(batch.id))
+    .sort((a, b) => a.month - b.month || a.createdAt.localeCompare(b.createdAt));
+
+  if (missingBatches.length === 0) return record;
+
+  const extraEvents: PlannedEvent[] = missingBatches.map((batch, index) => ({
+    id: crypto.randomUUID(),
+    type: "INDEXATION",
+    createdAt: batch.createdAt,
+    createdOrder: record.events.length + index + 1,
+    payload: {
+      month: batch.month,
+      percent: batch.percent,
+      indexationBatchId: batch.id,
+    },
+  }));
+
+  return applyEvents({ ...record, events: [...record.events, ...extraEvents] });
+}
+
 export function monthLabel(index: number): string {
   return MONTHS[Math.max(0, Math.min(11, index))];
 }

@@ -2,7 +2,7 @@ import type { LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 import { ORG_STRUCTURE } from "./orgStructure";
 
 /** Версия демо-набора: при смене — авто-обновление seed в localStorage. */
-export const DEMO_SEED_VERSION = 5;
+export const DEMO_SEED_VERSION = 6;
 
 export const DEMO_SEED_VERSION_KEY = "fot_mvp_demo_seed_version";
 
@@ -219,23 +219,6 @@ function attachPilotPlanningEvents(position: PositionRecord, globalIndex: number
     order += 1;
   };
 
-  if (position.status === "Vacancy" && globalIndex % 19 === 0) {
-    push({
-      id: `seed-hire-${position.positionId}`,
-      type: "PLANNED_HIRE",
-      createdAt: "2026-03-15T10:00:00.000Z",
-      payload: {
-        month: 2,
-        employeeId: `E-HIRE-${position.positionId}`,
-        employeeName: `Плановый найм ${position.positionId}`,
-        base: position.monthlyBase[0],
-        bonus: 0,
-        specialization: position.monthlySpec[0],
-        level: position.monthlyLevel[0],
-      },
-    });
-  }
-
   if (position.status === "Occupied" && globalIndex % 23 === 0) {
     const raised = Math.round(position.monthlyBase[0] * 1.08);
     push({
@@ -252,7 +235,11 @@ function attachPilotPlanningEvents(position: PositionRecord, globalIndex: number
     });
   }
 
-  if (position.limitFlag === "IN_LIMIT" && globalIndex % 31 === 0) {
+  if (
+    position.limitFlag === "IN_LIMIT" &&
+    globalIndex % 31 === 0 &&
+    position.status !== "Closed"
+  ) {
     push({
       id: `seed-idx-${position.positionId}`,
       type: "INDEXATION",

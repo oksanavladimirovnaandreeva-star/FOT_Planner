@@ -186,6 +186,14 @@ export function VersionsPage() {
     ? `Утвердить · ${formatPlanVersionTitle(primaryBudget)}`
     : "Утвердить бюджет";
 
+  const showVersionActions =
+    canManagePlanVersions &&
+    (tab === "versions" ||
+      canApproveFirstVersion ||
+      canCreateDraft ||
+      canSubmitApproval ||
+      canPublish);
+
   return (
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
@@ -195,7 +203,7 @@ export function VersionsPage() {
             <p className="muted-line">Утверждённый бюджет готов — создайте квартальный черновик для сдачи команд.</p>
           ) : null}
         </div>
-        {((tab === "versions" && canManagePlanVersions) || (tab === "approval" && canManagePlanVersions && (canCreateDraft || canApproveFirstVersion))) ? (
+        {showVersionActions ? (
         <div className="versions-page__actions">
           {canApproveFirstVersion ? (
             <button type="button" className="primary-btn" onClick={handleApproveV1}>
@@ -267,6 +275,24 @@ export function VersionsPage() {
           </button>
         ) : null}
       </nav>
+
+      {tab === "versions" && canManagePlanVersions ? (
+        <section className="card workflow-hint" role="status">
+          {canApproveFirstVersion ? (
+            <p className="workflow-hint__text">
+              <strong>Шаг 1.</strong> Утвердите годовой бюджет кнопкой «{approveButtonLabel}» в шапке — без этого квартальный черновик недоступен.
+            </p>
+          ) : canCreateDraft ? (
+            <p className="workflow-hint__text">
+              <strong>Шаг 2.</strong> Создайте квартальный черновик — «Создать · 1 Квартал» в шапке или кнопка в сайдбаре. После этого появится вкладка «Квартальное планирование».
+            </p>
+          ) : workingDraft ? (
+            <p className="workflow-hint__text">
+              Квартальный черновик открыт. Правки — в <Link to={planWorkspacePath("correction")}>квартальном планировании</Link>, сдача команд — на вкладке «Согласование и сдача».
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       {tab === "approval" && showApprovalTab ? (
         <section className="planning-workspace-panel planning-workspace-panel--approval">
