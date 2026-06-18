@@ -157,14 +157,14 @@ export function roleCanToggleLeadFreeze(role: UserRole): boolean {
 
 export type SettingsAccess = "full" | "stub";
 
-/** Полный доступ к настройкам — C&B и директор; остальные видят заглушку. */
+/** Полный доступ к настройкам — только C&B (данные, пилот, оргструктура). */
 export function roleSettingsAccess(role: UserRole): SettingsAccess {
-  return role === "cb_admin" || role === "gd" || role === "director" ? "full" : "stub";
+  return role === "cb_admin" ? "full" : "stub";
 }
 
-/** Пункт «Настройки» в навигации — только C&B и директор. */
+/** Пункт «Настройки» в навигации — только C&B. */
 export function roleSettingsNavVisible(role: UserRole): boolean {
-  return role === "cb_admin" || role === "gd" || role === "director";
+  return role === "cb_admin";
 }
 
 /** Жизненный цикл версий, импорт факта, админ-операции — только C&B. */

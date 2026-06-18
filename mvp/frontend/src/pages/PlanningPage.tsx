@@ -29,6 +29,7 @@ import {
 } from "../data/orgSliceFilters";
 import { OrgSliceMultiSelect } from "../components/OrgSliceMultiSelect";
 import { SliceToolbar, SliceToolbarSelect } from "../components/SliceToolbar";
+import { ToolbarMultiSelect } from "../components/ToolbarMultiSelect";
 import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
 import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults } from "../data/userAccess";
 import {
@@ -52,7 +53,7 @@ import {
   unitOptions,
   upsertEvent,
 } from "../data/planningData";
-import { positionTableRowClass, JOURNAL_EVENT_TYPE_OPTIONS } from "../data/eventJournal";
+import { positionTableRowClass, JOURNAL_EVENT_TYPE_FILTERS } from "../data/eventJournal";
 import {
   findSalaryBand,
   levelOptionsForSpecialization,
@@ -73,7 +74,7 @@ import { ExportCsvActions } from "../components/ExportCsvActions";
 import { PositionIdentityCell } from "../components/planning/PositionIdentityCell";
 import { PositionDrawer } from "../components/PositionDrawer";
 import { formatCrCoefficient } from "../data/positionDisplay";
-import type { PlannedEvent, PositionRecord, SalaryRangeBand, EventType } from "../types";
+import type { PlannedEvent, PositionRecord, SalaryRangeBand } from "../types";
 import { MONTHS } from "../types";
 
 type EmployeeOption = {
@@ -283,8 +284,8 @@ export function PlanningPage() {
 
   const [limitFilter, setLimitFilter] = useState<"All" | "IN_LIMIT" | "OVER_LIMIT">("All");
   const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy" | "Closed">("All");
-  const [journalMonthFilter, setJournalMonthFilter] = useState("All");
-  const [journalTypeFilter, setJournalTypeFilter] = useState<EventType | "All">("All");
+  const [journalMonthFilter, setJournalMonthFilter] = useState<string[]>([]);
+  const [journalTypeFilter, setJournalTypeFilter] = useState<string[]>([]);
   const [active, setActive] = useState<PositionRecord | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const suppressDrawerOpenUntil = useRef(0);
@@ -362,6 +363,14 @@ export function PlanningPage() {
   const catalogLevelOptions = useMemo(
     () => levelOptionsForSpecialization(addSlotSpec || catalogSpecOptions[0] || "", salaryBands),
     [addSlotSpec, catalogSpecOptions, salaryBands],
+  );
+  const journalMonthOptions = useMemo(
+    () => MONTHS.map((_month, index) => ({ value: String(index), label: monthLabel(index) })),
+    [],
+  );
+  const journalTypeOptions = useMemo(
+    () => JOURNAL_EVENT_TYPE_FILTERS.map((group) => ({ value: group.id, label: group.label })),
+    [],
   );
 
   useEffect(() => {
@@ -1039,25 +1048,18 @@ export function PlanningPage() {
           ) : null}
           {workspaceTab === "journal" ? (
             <>
-              <SliceToolbarSelect label="Месяц" value={journalMonthFilter} onChange={setJournalMonthFilter}>
-                <option value="All">Все</option>
-                {MONTHS.map((month, index) => (
-                  <option key={month} value={index}>
-                    {monthLabel(index)}
-                  </option>
-                ))}
-              </SliceToolbarSelect>
-              <SliceToolbarSelect
+              <ToolbarMultiSelect
+                label="Месяц"
+                options={journalMonthOptions}
+                value={journalMonthFilter}
+                onChange={setJournalMonthFilter}
+              />
+              <ToolbarMultiSelect
                 label="Тип"
+                options={journalTypeOptions}
                 value={journalTypeFilter}
-                onChange={(value) => setJournalTypeFilter(value as EventType | "All")}
-              >
-                {JOURNAL_EVENT_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </SliceToolbarSelect>
+                onChange={setJournalTypeFilter}
+              />
             </>
           ) : null}
         </SliceToolbar>

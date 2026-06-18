@@ -18,6 +18,7 @@ import {
   POSITION_STATUS_LABELS,
   removeEvent,
   upsertEvent,
+  hasCarryoverEvent,
 } from "../data/planningData";
 import { formatMoney } from "../data/formatDisplay";
 import { specializationOptions } from "../data/salaryRangeData";
@@ -98,7 +99,7 @@ const SCENARIO_LABEL = Object.fromEntries(SCENARIO_CARDS.map((c) => [c.id, c.tit
 const SCENARIO_GROUPS: { label: string; scenarios: ScenarioType[] }[] = [
   {
     label: "ФОТ и профиль компенсации",
-    scenarios: ["REVIEW"],
+    scenarios: ["REVIEW", "GRADE_CHANGE"],
   },
   {
     label: "Занятость позиции",
@@ -118,7 +119,7 @@ function scenarioHintForPosition(_record: PositionRecord, scenario: ScenarioType
 
 function scenarioGroupsForPosition(record: PositionRecord): typeof SCENARIO_GROUPS {
   if (applyEvents(record).status === "Vacancy") {
-    return [{ label: "ФОТ и профиль компенсации", scenarios: ["REVIEW"] as ScenarioType[] }];
+    return [{ label: "ФОТ и профиль компенсации", scenarios: ["REVIEW", "GRADE_CHANGE"] as ScenarioType[] }];
   }
   return SCENARIO_GROUPS;
 }
@@ -347,7 +348,17 @@ export function PositionDrawer({
       window.alert("Укажите оклад больше 0 в блоке «Профиль компенсации».");
       return;
     }
-    onSaveDraft(record, record.positionId, true);
+    let draft = record;
+    if (record.slotType === "carryover" && !hasCarryoverEvent(record)) {
+      draft = upsertEvent(record, {
+        id: crypto.randomUUID(),
+        type: "POSITION_CARRYOVER",
+        createdAt: new Date().toISOString(),
+        createdOrder: record.events.length + 1,
+        payload: { month: record.activeFromMonth },
+      });
+    }
+    onSaveDraft(draft, record.positionId, true);
   };
 
   const createEvent = (type: PlannedEvent["type"], payload: PlannedEvent["payload"]): PlannedEvent => {
@@ -420,6 +431,22 @@ export function PositionDrawer({
           }),
         );
         break;
+      case "GRADE_CHANGE": {
+        const currentSpec = view.monthlySpec[month] ?? "";
+        const currentLevel = view.monthlyLevel[month] ?? "";
+        if (specialization === currentSpec && level === currentLevel) {
+          window.alert("Укажите новую специализацию или уровень.");
+          return;
+        }
+        applyEventToRecord(
+          createEvent("CLASSIFICATION_CHANGE", {
+            month,
+            specialization,
+            level,
+          }),
+        );
+        break;
+      }
       case "TRANSFER_INTRA":
       case "TRANSFER_INTER": {
         if (!view.employeeId || !view.employeeName) {
@@ -519,6 +546,8 @@ export function PositionDrawer({
     transferOptions.find((item) => item.positionId === scenarioForm.transferToPositionId) || null;
   const monthLevels = levelOptionsForSpecialization(scenarioForm.specialization, salaryBands);
   const isReview = scenarioForm.scenario === "REVIEW";
+  const isGradeChange = scenarioForm.scenario === "GRADE_CHANGE";
+  const isCompensationForm = isReview || isGradeChange;
   const isTransfer = scenarioForm.scenario === "TRANSFER_INTRA" || scenarioForm.scenario === "TRANSFER_INTER";
   const isInterTransfer = scenarioForm.scenario === "TRANSFER_INTER";
   const isMaternity = scenarioForm.scenario === "MATERNITY";
@@ -976,7 +1005,7 @@ export function PositionDrawer({
               Плановое изменение
             </h3>
           <div className="drawer-scenario-form">
-            {isReview ? (
+            {isCompensationForm ? (
               <div className="drawer-scenario-form__row drawer-scenario-form__row--six">
                 <label className="drawer-field">
                   <span className="drawer-field__label drawer-field__label--with-help">
@@ -1047,6 +1076,7 @@ export function PositionDrawer({
                   <input
                     type="number"
                     value={scenarioForm.base}
+                    disabled={isGradeChange}
                     onChange={(event) => setScenarioForm((prev) => ({ ...prev, base: Number(event.target.value) }))}
                   />
                 </label>
@@ -1089,6 +1119,7 @@ export function PositionDrawer({
                   <input
                     type="number"
                     value={scenarioForm.bonus}
+                    disabled={isGradeChange}
                     onChange={(event) => setScenarioForm((prev) => ({ ...prev, bonus: Number(event.target.value) }))}
                   />
                 </label>

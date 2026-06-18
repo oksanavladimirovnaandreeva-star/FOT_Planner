@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { DemoUserCard } from "../components/DemoUserCard";
 import { DemoAccessSettingsPanel } from "../components/settings/DemoAccessSettingsPanel";
 import { DataSettingsPanel } from "../components/settings/DataSettingsPanel";
 import { OrgStructureSettingsPanel } from "../components/settings/OrgStructureSettingsPanel";
@@ -56,11 +55,12 @@ export function SettingsPage() {
           </div>
         </header>
         <section className="card settings-section">
-          <h2 className="section-title">Текущий пользователь</h2>
-          <DemoUserCard />
+          <h2 className="section-title">Доступ</h2>
           {leadEditFrozenForRole ? (
             <p className="settings-stub__warn">Правки для вашей роли закрыты директором.</p>
-          ) : null}
+          ) : (
+            <p className="muted-line">Импорт данных и администрирование — роль C&B.</p>
+          )}
         </section>
       </div>
     );
@@ -79,7 +79,6 @@ export function SettingsPage() {
 
       <section className="card settings-section">
         <h2 className="section-title">Текущий пользователь</h2>
-        <DemoUserCard />
         {scopeLabel ? <p className="settings-scope">{scopeLabel}</p> : null}
         <p className="muted-line">{scopeHint}</p>
         {positions.length !== positionsTotalCount ? (
@@ -89,7 +88,7 @@ export function SettingsPage() {
         ) : null}
       </section>
 
-      {canToggleLeadFreeze ? (
+      {canToggleLeadFreeze && access === "full" ? (
         <section className="card settings-section">
           <h2 className="section-title">Закрытие правок</h2>
           <label className="settings-freeze">
@@ -100,7 +99,7 @@ export function SettingsPage() {
             />
             <span>Закрыть правки тимлидов и юнит-лидов</span>
           </label>
-          <p className="muted-line">Директор может заблокировать корректировки ниже по иерархии.</p>
+          <p className="muted-line">То же переключение — в сайдбаре под режимом просмотра.</p>
         </section>
       ) : null}
 

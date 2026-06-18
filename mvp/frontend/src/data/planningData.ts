@@ -146,6 +146,63 @@ function round(value: number): number {
   return Math.round(value);
 }
 
+function padMonthlyNumbers(values: number[], anchorIndex = 0): number[] {
+  const anchor = values[anchorIndex] ?? values.find((value) => value > 0) ?? 0;
+  return Array.from({ length: 12 }, (_, index) => {
+    const value = values[index];
+    return typeof value === "number" && !Number.isNaN(value) ? value : anchor;
+  });
+}
+
+function padMonthlyStrings(values: string[], anchorIndex = 0): string[] {
+  const anchor = values[anchorIndex] ?? values.find((value) => value.length > 0) ?? "";
+  return Array.from({ length: 12 }, (_, index) => {
+    const value = values[index];
+    return typeof value === "string" && value.length > 0 ? value : anchor;
+  });
+}
+
+function normalizeSeedMonthlyArrays(record: PositionRecord): PositionRecord {
+  const start = Math.max(0, Math.min(11, record.activeFromMonth));
+  return {
+    ...record,
+    seedMonthlyBase: padMonthlyNumbers(record.seedMonthlyBase, start),
+    seedMonthlyBonus: padMonthlyNumbers(record.seedMonthlyBonus, start),
+    seedMonthlySpec: padMonthlyStrings(record.seedMonthlySpec, start),
+    seedMonthlyLevel: padMonthlyStrings(record.seedMonthlyLevel, start),
+  };
+}
+
+/** Заполняет «дыры» в профиле: оклад с месяца старта позиции тянется до декабря. */
+function forwardFillMonthlyCompensation(record: PositionRecord): void {
+  if (record.status === "Closed") return;
+  const start = Math.max(0, Math.min(11, record.activeFromMonth));
+
+  let lastBase = record.monthlyBase[start] ?? 0;
+  let lastSpec = record.monthlySpec[start] ?? "";
+  let lastLevel = record.monthlyLevel[start] ?? "";
+
+  for (let index = start; index < 12; index += 1) {
+    if (record.monthlyBase[index] > 0) {
+      lastBase = record.monthlyBase[index];
+    } else if (lastBase > 0) {
+      record.monthlyBase[index] = lastBase;
+    }
+
+    if (record.monthlySpec[index]) {
+      lastSpec = record.monthlySpec[index];
+    } else if (lastSpec) {
+      record.monthlySpec[index] = lastSpec;
+    }
+
+    if (record.monthlyLevel[index]) {
+      lastLevel = record.monthlyLevel[index];
+    } else if (lastLevel) {
+      record.monthlyLevel[index] = lastLevel;
+    }
+  }
+}
+
 export function annualTotal(record: PositionRecord): number {
   return record.monthlyBase.reduce((sum, item) => sum + item, 0) + record.monthlyBonus.reduce((sum, item) => sum + item, 0);
 }
@@ -280,16 +337,17 @@ export function applyEventsUntil(
 }
 
 export function applyEvents(base: PositionRecord): PositionRecord {
+  const normalized = normalizeSeedMonthlyArrays(base);
   const next: PositionRecord = {
-    ...base,
-    employeeName: base.seedEmployeeName,
-    employeeId: base.seedEmployeeId,
-    status: base.seedStatus,
-    vacancySinceMonth: base.seedVacancySinceMonth,
-    monthlySpec: [...base.seedMonthlySpec],
-    monthlyLevel: [...base.seedMonthlyLevel],
-    monthlyBase: [...base.seedMonthlyBase],
-    monthlyBonus: [...base.seedMonthlyBonus],
+    ...normalized,
+    employeeName: normalized.seedEmployeeName,
+    employeeId: normalized.seedEmployeeId,
+    status: normalized.seedStatus,
+    vacancySinceMonth: normalized.seedVacancySinceMonth,
+    monthlySpec: [...normalized.seedMonthlySpec],
+    monthlyLevel: [...normalized.seedMonthlyLevel],
+    monthlyBase: [...normalized.seedMonthlyBase],
+    monthlyBonus: [...normalized.seedMonthlyBonus],
   };
 
   for (let index = 0; index < next.activeFromMonth; index += 1) {
@@ -297,7 +355,7 @@ export function applyEvents(base: PositionRecord): PositionRecord {
     next.monthlyBonus[index] = 0;
   }
 
-  const sorted = sortEventsForApply(base.events);
+  const sorted = sortEventsForApply(normalized.events);
 
   for (const event of sorted) {
     const month = Math.max(0, Math.min(11, event.payload.month));
@@ -393,6 +451,8 @@ export function applyEvents(base: PositionRecord): PositionRecord {
         break;
     }
   }
+
+  forwardFillMonthlyCompensation(next);
 
   return next;
 }

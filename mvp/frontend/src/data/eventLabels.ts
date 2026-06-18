@@ -9,7 +9,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
   PLANNED_HIRE: "Найм",
   POSITION_CARRYOVER: "Перенос бюджета",
   INDEXATION: "Индексация",
-  CLASSIFICATION_CHANGE: "Пересмотр",
+  CLASSIFICATION_CHANGE: "Смена грейда",
   TARGET_SALARY: "Пересмотр",
   CANCEL_VACANCY: "Сокращение",
 };

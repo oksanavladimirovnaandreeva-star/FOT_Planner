@@ -6,6 +6,7 @@ import {
 } from "./planningData";
 import type { EventType, PlannedEvent, PositionRecord } from "../types";
 import { eventTypeLabel } from "./eventLabels";
+import { isMultiSelectNone } from "./multiSelectFilter";
 
 const TABLE_EVENT_TYPES = new Set<EventType>([
   "INDEXATION",
@@ -21,8 +22,11 @@ const TABLE_EVENT_TYPES = new Set<EventType>([
   "CANCEL_VACANCY",
 ]);
 
-/** В drawer не показываем массовую индексацию — только панель на Planning. */
-const DRAWER_HIDDEN_EVENT_TYPES = new Set<EventType>(["INDEXATION"]);
+/** Служебные события — не показываем в журнале и истории drawer. */
+const JOURNAL_HIDDEN_EVENT_TYPES = new Set<EventType>(["INDEXATION", "POSITION_CARRYOVER"]);
+
+/** В drawer не показываем массовую индексацию и служебный перенос с прошлого года. */
+const DRAWER_HIDDEN_EVENT_TYPES = JOURNAL_HIDDEN_EVENT_TYPES;
 
 export function eventsForDrawerHistory(events: PlannedEvent[]): PlannedEvent[] {
   return sortEventsForApply(events).filter(
@@ -178,6 +182,7 @@ export function collectPlanEventJournalRows(positions: PositionRecord[]): PlanEv
   for (const position of positions) {
     for (const event of sortEventsForApply(position.events)) {
       if (!TABLE_EVENT_TYPES.has(event.type)) continue;
+      if (JOURNAL_HIDDEN_EVENT_TYPES.has(event.type)) continue;
       const change = summarizeEventChange(position, event);
       rows.push({
         event,
@@ -212,3 +217,22 @@ export const JOURNAL_EVENT_TYPE_OPTIONS: { value: EventType | "All"; label: stri
   { value: "CLASSIFICATION_CHANGE", label: "Смена грейда" },
   { value: "POSITION_CARRYOVER", label: "Перенос бюджета" },
 ];
+
+/** Группы для фильтра журнала (один пункт «Пересмотр» на оба типа события). */
+export const JOURNAL_EVENT_TYPE_FILTERS: { id: string; label: string; types: EventType[] }[] = [
+  { id: "TRANSFER", label: "Перевод", types: ["TRANSFER"] },
+  { id: "PLANNED_HIRE", label: "Плановый найм", types: ["PLANNED_HIRE"] },
+  { id: "TERMINATION_TO_VACANCY", label: "Увольнение", types: ["TERMINATION_TO_VACANCY"] },
+  { id: "CLOSE_POSITION", label: "Сокращение", types: ["CLOSE_POSITION"] },
+  { id: "INDEXATION", label: "Индексация", types: ["INDEXATION"] },
+  { id: "REVIEW", label: "Пересмотр", types: ["MANUAL_OVERRIDE", "TARGET_SALARY"] },
+  { id: "CLASSIFICATION_CHANGE", label: "Смена грейда", types: ["CLASSIFICATION_CHANGE"] },
+];
+
+export function journalEventMatchesTypeFilter(eventType: EventType, selectedFilterIds: string[]): boolean {
+  if (isMultiSelectNone(selectedFilterIds)) return false;
+  if (selectedFilterIds.length === 0) return true;
+  return JOURNAL_EVENT_TYPE_FILTERS.some(
+    (group) => selectedFilterIds.includes(group.id) && group.types.includes(eventType),
+  );
+}

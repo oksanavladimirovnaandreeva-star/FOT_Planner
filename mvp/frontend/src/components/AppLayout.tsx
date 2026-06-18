@@ -26,7 +26,15 @@ const NAV_BASE: {
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { viewMode, setViewMode, userRole, canManagePlanVersions } = useMvpApp();
+  const {
+    viewMode,
+    setViewMode,
+    userRole,
+    canManagePlanVersions,
+    canToggleLeadFreeze,
+    leadEditFrozen,
+    setLeadEditFrozen,
+  } = useMvpApp();
 
   const showSettingsNav = roleSettingsNavVisible(userRole);
   const versionsNavLabel = roleVersionsNavLabel(userRole);
@@ -57,6 +65,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <option value="total">Итого ФОТ</option>
             </select>
           </label>
+          {canToggleLeadFreeze ? (
+            <label className="app-sidebar__freeze">
+              <input
+                type="checkbox"
+                checked={leadEditFrozen}
+                onChange={(event) => setLeadEditFrozen(event.target.checked)}
+              />
+              <span>Закрыть правки тимлидов и юнит-лидов</span>
+            </label>
+          ) : null}
         </div>
 
         <nav className="app-sidebar__nav" aria-label="Основное меню">

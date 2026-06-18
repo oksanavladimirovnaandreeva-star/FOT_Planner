@@ -3,8 +3,10 @@ import { ExternalLink, MessageSquare } from "lucide-react";
 import {
   collectPlanEventJournalRows,
   formatEventChangeLine,
+  journalEventMatchesTypeFilter,
   tableRowStatusClass,
 } from "../../data/eventJournal";
+import { isMultiSelectNone, multiSelectMatches } from "../../data/multiSelectFilter";
 import { mapPositionsWithAppliedEvents } from "../../data/planOperations";
 import { formatIsoDateTime } from "../../data/formatDisplay";
 import { matchesOrgSlice, type OrgSliceSelection } from "../../data/orgSliceFilters";
@@ -13,7 +15,6 @@ import { journalEventKaitenEligible, kaitenTypeForEventType, type KaitenRequestT
 import { canShowKaitenExport } from "../../data/userAccess";
 import { KaitenExportModal } from "../KaitenExportModal";
 import { PositionIdentityCell } from "./PositionIdentityCell";
-import type { EventType } from "../../types";
 
 export type PlanJournalPanelProps = {
   onOpenPosition: (positionId: string) => void;
@@ -22,8 +23,8 @@ export type PlanJournalPanelProps = {
   variant?: "full" | "sidebar";
   orgSlice: OrgSliceSelection;
   query: string;
-  monthFilter: string;
-  typeFilter: EventType | "All";
+  monthFilter: string[];
+  typeFilter: string[];
 };
 
 export function PlanJournalPanel({
@@ -67,8 +68,10 @@ export function PlanJournalPanel({
       ) {
         return false;
       }
-      if (monthFilter !== "All" && row.change.month !== Number(monthFilter)) return false;
-      if (typeFilter !== "All" && row.event.type !== typeFilter) return false;
+      if (isMultiSelectNone(monthFilter)) return false;
+      if (monthFilter.length > 0 && !multiSelectMatches(monthFilter, String(row.change.month))) return false;
+      if (isMultiSelectNone(typeFilter)) return false;
+      if (typeFilter.length > 0 && !journalEventMatchesTypeFilter(row.event.type, typeFilter)) return false;
       const haystack = [
         row.positionId,
         row.role,

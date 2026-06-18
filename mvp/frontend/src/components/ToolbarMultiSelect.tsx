@@ -1,30 +1,21 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { MultiSelectMenu, multiSelectSummary } from "./MultiSelectMenu";
+import { MultiSelectMenu, multiSelectSummary, type MultiSelectOption } from "./MultiSelectMenu";
+
+export type ToolbarMultiOption = MultiSelectOption;
 
 type Props = {
   label: string;
-  options: string[];
+  options: ToolbarMultiOption[];
   value: string[];
   onChange: (value: string[]) => void;
   disabled?: boolean;
-  /** stacked — подпись сверху; toolbar — компактная кнопка в панели срезов */
-  layout?: "stacked" | "toolbar";
 };
 
-export function OrgSliceMultiSelect({
-  label,
-  options,
-  value,
-  onChange,
-  disabled,
-  layout = "stacked",
-}: Props) {
-  const isToolbar = layout === "toolbar";
+export function ToolbarMultiSelect({ label, options, value, onChange, disabled }: Props) {
   const groupId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const menuOptions = options.map((option) => ({ value: option, label: option }));
 
   useEffect(() => {
     if (!open) return;
@@ -45,31 +36,30 @@ export function OrgSliceMultiSelect({
   }, [open]);
 
   return (
-    <label
-      className={`org-slice-filter${disabled ? " org-slice-filter--disabled" : ""}${isToolbar ? " org-slice-filter--toolbar" : ""}`}
+    <div
+      className={`org-slice-filter org-slice-filter--toolbar${disabled ? " org-slice-filter--disabled" : ""}`}
+      ref={rootRef}
     >
-      {!isToolbar ? <span className="org-slice-filter__label">{label}</span> : null}
-      <div className="org-slice-filter__control" ref={rootRef}>
+      <div className="org-slice-filter__control">
         <button
           type="button"
           className="org-slice-filter__trigger"
           disabled={disabled}
           aria-haspopup="listbox"
           aria-expanded={open}
-          aria-label={isToolbar ? `${label}: ${multiSelectSummary(value, menuOptions)}` : undefined}
-          aria-labelledby={isToolbar ? undefined : groupId}
+          aria-label={`${label}: ${multiSelectSummary(value, options)}`}
           onClick={() => {
             if (!disabled) setOpen((current) => !current);
           }}
         >
-          {isToolbar ? <span className="org-slice-filter__trigger-prefix">{label}</span> : null}
-          <span className="org-slice-filter__value">{multiSelectSummary(value, menuOptions)}</span>
+          <span className="org-slice-filter__trigger-prefix">{label}</span>
+          <span className="org-slice-filter__value">{multiSelectSummary(value, options)}</span>
           <ChevronDown size={14} strokeWidth={2} aria-hidden className="org-slice-filter__chevron" />
         </button>
         {open && !disabled ? (
-          <MultiSelectMenu options={menuOptions} value={value} onChange={onChange} menuId={groupId} />
+          <MultiSelectMenu options={options} value={value} onChange={onChange} menuId={groupId} />
         ) : null}
       </div>
-    </label>
+    </div>
   );
 }

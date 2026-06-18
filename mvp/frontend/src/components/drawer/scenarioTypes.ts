@@ -4,6 +4,7 @@ import type { PositionRecord } from "../../types";
 
 export type ScenarioType =
   | "REVIEW"
+  | "GRADE_CHANGE"
   | "TRANSFER_INTRA"
   | "TRANSFER_INTER"
   | "TERMINATION"
@@ -34,7 +35,8 @@ export const SCENARIO_CARDS: {
   short: string;
   occupiedOnly?: boolean;
 }[] = [
-  { id: "REVIEW", title: "Пересмотр (оклад, спец., уровень)", short: "Оклад, уровень, специализация с месяца" },
+  { id: "REVIEW", title: "Пересмотр (оклад, премия)", short: "Оклад и премия с выбранного месяца" },
+  { id: "GRADE_CHANGE", title: "Смена грейда", short: "Специализация и уровень с месяца" },
   { id: "TRANSFER_INTRA", title: "Перевод внутри юнита", short: "На другую вакансию в том же юните", occupiedOnly: true },
   { id: "TRANSFER_INTER", title: "Перевод в другой департамент", short: "Смена оргструктуры", occupiedOnly: true },
   { id: "TERMINATION", title: "Увольнение", short: "Позиция станет вакансией", occupiedOnly: true },
@@ -45,7 +47,9 @@ export const SCENARIO_CARDS: {
 export function scenarioHelpText(scenario: ScenarioType): string {
   switch (scenario) {
     case "REVIEW":
-      return "С выбранного месяца меняются оклад, премия (если указана), специализация и уровень — дальше по году подтянется автоматически.";
+      return "С выбранного месяца меняются оклад и премия — дальше по году подтянется автоматически.";
+    case "GRADE_CHANGE":
+      return "С выбранного месяца меняются специализация и уровень (грейд) — оклад не меняется.";
     case "TRANSFER_INTRA":
       return "Сотрудник переводится на выбранную вакансию внутри департамента и юнита.";
     case "TRANSFER_INTER":
