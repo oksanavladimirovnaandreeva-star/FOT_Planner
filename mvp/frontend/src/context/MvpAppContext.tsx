@@ -65,7 +65,6 @@ import {
   loadUserRole,
   mergeScopedPositionUpdates,
   roleCanEdit,
-  roleCanEditSalaryCatalog,
   roleCanImportFact,
   roleCanImportPlan,
   roleCanManageVersions,
@@ -91,7 +90,12 @@ import { canReopenPrimaryBudget, reopenPrimaryBudgetMeta } from "../data/planVer
 import { clearPilotDemoStorage } from "../data/mvpStorageReset";
 import { clearSubmissionsForPlan, getTeamSubmission, isTeamEditingLocked } from "../data/teamSubmissionStore";
 import { scopePrimaryEq } from "../data/personaAccessScope";
-import { loadResolvedDemoPersona } from "../data/demoSessionStore";
+import {
+  loadResolvedCatalogAccess,
+  loadResolvedDemoPersona,
+  readPersonaCatalogAccessOverrides,
+  writePersonaCatalogAccessOverrides,
+} from "../data/demoSessionStore";
 import type { PositionRecord, SalaryCatalogAccess, SalaryRangeBand } from "../types";
 
 export type { UserRole };
@@ -258,10 +262,6 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     return stored === "total" ? "total" : "base";
   });
   const [salaryBands, setSalaryBands] = useState<SalaryRangeBand[]>(() => initialSalaryBands());
-  const [catalogAccess, setCatalogAccessState] = useState<SalaryCatalogAccess>(() => {
-    const stored = localStorage.getItem("fot_mvp_catalog_access");
-    return stored === "write" ? "write" : "read";
-  });
   const [userRole, setUserRoleState] = useState<UserRole>(() => loadUserRole());
   const [leadEditFrozen, setLeadEditFrozenState] = useState(() => loadLeadEditFrozen());
   const [configRevision, setConfigRevision] = useState(0);
@@ -312,9 +312,19 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setCatalogAccess = (access: SalaryCatalogAccess) => {
-    localStorage.setItem("fot_mvp_catalog_access", access);
-    setCatalogAccessState(access);
+    const persona = loadResolvedDemoPersona();
+    if (persona) {
+      writePersonaCatalogAccessOverrides({
+        ...readPersonaCatalogAccessOverrides(),
+        [persona.id]: access,
+      });
+    } else {
+      localStorage.setItem("fot_mvp_catalog_access", access);
+    }
+    setConfigRevision((value) => value + 1);
   };
+
+  const catalogAccess = useMemo(() => loadResolvedCatalogAccess(), [userRole, configRevision]);
 
   const setUserRole = (role: UserRole) => {
     saveUserRole(role);
@@ -915,7 +925,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       setSalaryBands,
       catalogAccess,
       setCatalogAccess,
-      canEditSalaryCatalog: roleCanEditSalaryCatalog(userRole) && catalogAccess === "write",
+      canEditSalaryCatalog: catalogAccess === "write",
       exportCurrentSnapshot,
       inspectSnapshot: inspectSnapshotForImport,
       backupBeforeImport,

@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { PlanContextBar } from "../components/planning/PlanContextBar";
-import { PlanIndexationBanner } from "../components/planning/PlanIndexationBanner";
+import { PlanIndexationSection } from "../components/planning/PlanIndexationSection";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
-import { MassIndexationCompact } from "../components/planning/MassIndexationCompact";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
 import {
   isPlanEventMonthAllowed,
@@ -52,6 +51,11 @@ import {
   upsertEvent,
 } from "../data/planningData";
 import { positionTableRowClass, JOURNAL_EVENT_TYPE_OPTIONS } from "../data/eventJournal";
+import {
+  findSalaryBand,
+  levelOptionsForSpecialization,
+  specializationOptions,
+} from "../data/salaryRangeData";
 import {
   applyPlanTransferFromDrawerEvent,
   applyTerminationToVacancy,
@@ -196,7 +200,8 @@ export function PlanningPage() {
     }
   }, [workspaceMode, workingDraft, planVersionId, openVersion]);
 
-  const canMassIndexation = roleCanApplyMassIndexation(userRole) && canEditWorkspace;
+  const canMassIndexation = roleCanApplyMassIndexation(userRole);
+  const canApplyMassIndexation = canMassIndexation && canEditWorkspace;
 
   const canAddPosition =
     roleCanEdit(userRole, leadEditFrozen) &&
@@ -312,7 +317,15 @@ export function PlanningPage() {
   const [addSlotKind, setAddSlotKind] = useState<"vacancy" | "occupied">("vacancy");
   const [addSlotEmployeeId, setAddSlotEmployeeId] = useState("");
   const [addSlotEmployeeName, setAddSlotEmployeeName] = useState("");
+  const [addSlotSpec, setAddSlotSpec] = useState("");
+  const [addSlotLevel, setAddSlotLevel] = useState("");
   const [pendingAddSlot, setPendingAddSlot] = useState(false);
+
+  const catalogSpecOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
+  const catalogLevelOptions = useMemo(
+    () => levelOptionsForSpecialization(addSlotSpec || catalogSpecOptions[0] || "", salaryBands),
+    [addSlotSpec, catalogSpecOptions, salaryBands],
+  );
 
   useEffect(() => {
     if (!pendingAddSlot || !canEditWorkspace) return;
@@ -320,8 +333,11 @@ export function PlanningPage() {
     setAddSlotKind("vacancy");
     setAddSlotEmployeeId(nextEmployeeId(allPositions));
     setAddSlotEmployeeName("");
+    const defaultSpec = catalogSpecOptions[0] ?? "";
+    setAddSlotSpec(defaultSpec);
+    setAddSlotLevel(levelOptionsForSpecialization(defaultSpec, salaryBands)[0] ?? "");
     setAddSlotOpen(true);
-  }, [pendingAddSlot, canEditWorkspace, allPositions]);
+  }, [pendingAddSlot, canEditWorkspace, allPositions, catalogSpecOptions, salaryBands]);
 
   const indexationBatches = useMemo(() => collectIndexationBatchesFromPositions(allPositions), [allPositions]);
   const appliedPositions = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
@@ -439,8 +455,8 @@ export function PlanningPage() {
       blockEdit();
       return;
     }
-    if (!canMassIndexation) {
-      window.alert("Массовая индексация доступна только C&B.");
+    if (!canApplyMassIndexation) {
+      window.alert("Массовая индексация доступна только C&B в режиме правки.");
       return;
     }
     if (!isPlanEventMonthAllowed(idxMonth, correctionWindow)) {
@@ -492,6 +508,10 @@ export function PlanningPage() {
     }
     if (!canMassIndexation) {
       window.alert("Удаление пакетов индексации доступно только C&B.");
+      return;
+    }
+    if (!canEditWorkspace) {
+      window.alert("Откройте черновик бюджета или квартальный черновик для удаления пакета.");
       return;
     }
     const batch = indexationBatches.find((item) => item.id === batchId);
@@ -619,6 +639,9 @@ export function PlanningPage() {
       setAddSlotKind("vacancy");
       setAddSlotEmployeeId(nextEmployeeId(allPositions));
       setAddSlotEmployeeName("");
+      const defaultSpec = specializationOptions(salaryBands)[0] ?? "";
+      setAddSlotSpec(defaultSpec);
+      setAddSlotLevel(levelOptionsForSpecialization(defaultSpec, salaryBands)[0] ?? "");
       setAddSlotOpen(true);
       return;
     }
@@ -666,7 +689,14 @@ export function PlanningPage() {
       return;
     }
 
-    const baseSalary = 150_000;
+    const spec = addSlotSpec.trim() || catalogSpecOptions[0];
+    const level = addSlotLevel.trim() || catalogLevelOptions[0];
+    if (!spec || !level) {
+      window.alert("Выберите специализацию и уровень из справочника диапазонов.");
+      return;
+    }
+    const band = findSalaryBand(spec, level, salaryBands);
+    const baseSalary = band?.midpoint ?? 150_000;
     const record: PositionRecord = {
       positionId: newId,
       role: isOccupied ? employeeName : "Новая вакансия",
@@ -685,12 +715,12 @@ export function PlanningPage() {
       seedEmployeeId: isOccupied ? employeeId : null,
       seedStatus: isOccupied ? "Occupied" : "Vacancy",
       seedVacancySinceMonth: isOccupied ? null : activeFromMonth,
-      monthlySpec: Array.from({ length: 12 }, () => "Engineering"),
-      monthlyLevel: Array.from({ length: 12 }, () => "Middle"),
+      monthlySpec: Array.from({ length: 12 }, () => spec),
+      monthlyLevel: Array.from({ length: 12 }, () => level),
       monthlyBase: Array.from({ length: 12 }, () => baseSalary),
       monthlyBonus: Array.from({ length: 12 }, () => 0),
-      seedMonthlySpec: Array.from({ length: 12 }, () => "Engineering"),
-      seedMonthlyLevel: Array.from({ length: 12 }, () => "Middle"),
+      seedMonthlySpec: Array.from({ length: 12 }, () => spec),
+      seedMonthlyLevel: Array.from({ length: 12 }, () => level),
       seedMonthlyBase: Array.from({ length: 12 }, () => baseSalary),
       seedMonthlyBonus: Array.from({ length: 12 }, () => 0),
       events: [],
@@ -722,20 +752,6 @@ export function PlanningPage() {
           )}
         </div>
         <div className="page-header__actions planning-toolbar">
-          {canMassIndexation && workspaceTab === "positions" ? (
-            <MassIndexationCompact
-              activeCount={filtered.filter((item) => item.status !== "Closed").length}
-              idxPercent={idxPercent}
-              idxMonth={idxMonth}
-              correctionWindow={correctionWindow}
-              canEditWorkspace={canEditWorkspace}
-              indexationBatches={indexationBatches}
-              onPercentChange={setIdxPercent}
-              onMonthChange={setIdxMonth}
-              onApply={applyIndexationToFiltered}
-              onDeleteBatch={deleteIndexationBatch}
-            />
-          ) : null}
           <ExportCsvActions
             positions={filtered}
             viewMode={viewMode}
@@ -843,8 +859,20 @@ export function PlanningPage() {
         canToggleLeadFreeze={canToggleLeadFreeze}
       />
 
-      {!canMassIndexation && indexationBatches.length > 0 ? (
-        <PlanIndexationBanner batches={indexationBatches} />
+      {workspaceTab === "positions" && (canMassIndexation || indexationBatches.length > 0) ? (
+        <PlanIndexationSection
+          batches={indexationBatches}
+          isIndexationAdmin={canMassIndexation}
+          canEditWorkspace={canEditWorkspace}
+          activeCount={filtered.filter((item) => item.status !== "Closed").length}
+          idxPercent={idxPercent}
+          idxMonth={idxMonth}
+          correctionWindow={correctionWindow}
+          onPercentChange={setIdxPercent}
+          onMonthChange={setIdxMonth}
+          onApply={applyIndexationToFiltered}
+          onDeleteBatch={deleteIndexationBatch}
+        />
       ) : null}
 
       {workspaceTab === "positions" || workspaceTab === "matrix" || workspaceTab === "journal" ? (
@@ -1110,6 +1138,34 @@ export function PlanningPage() {
               </label>
             </div>
             <div className="add-slot-employee-fields">
+              <label>
+                Специализация
+                <select
+                  value={addSlotSpec}
+                  onChange={(event) => {
+                    const spec = event.target.value;
+                    setAddSlotSpec(spec);
+                    const levels = levelOptionsForSpecialization(spec, salaryBands);
+                    setAddSlotLevel(levels[0] ?? "");
+                  }}
+                >
+                  {catalogSpecOptions.map((spec) => (
+                    <option key={spec} value={spec}>
+                      {spec}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Уровень
+                <select value={addSlotLevel} onChange={(event) => setAddSlotLevel(event.target.value)}>
+                  {catalogLevelOptions.map((level) => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>
                 ФИО
                 <input

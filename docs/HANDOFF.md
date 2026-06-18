@@ -1,39 +1,35 @@
 # Handoff: ФОТ-планировщик MVP
 
-**Обновлено:** 2026-06-14  
-**Чекпоинт:** `UX-3-workspace-drawer` (F1–F5 + UX-3, **69 tests**, без F2/Kaiten и UX-4) · git `a33d116`
-**Проект:** [`C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner`](C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner)  
-**Актуальный код:** [`mvp/frontend/`](../mvp/frontend/) — единственный UI в работе. PG/API — после фронта.
+**Обновлено:** 2026-06-18  
+**Чекпоинт:** `pilot-annual-planning` · git `cf462b7`+ · **132 tests**  
+**Проект:** [`mvp/frontend/`](../mvp/frontend/) — единственный UI в работе. PG/API — после фронта.
 
-**Документы:** [`PRODUCT-MODEL.md`](PRODUCT-MODEL.md) · [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md) · [`SECURITY-REQUIREMENTS.md`](SECURITY-REQUIREMENTS.md) · [`NEW-CHAT-PROMPT.md`](NEW-CHAT-PROMPT.md) · [`CONTEXT-MAP.md`](CONTEXT-MAP.md)
-
-**Дизайн (референс):** [`docs/design/annual-budget-planning-app/source/`](../docs/design/annual-budget-planning-app/source/)
+**Документы:** [`PRODUCT-MODEL.md`](PRODUCT-MODEL.md) · [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md) · [`SECURITY-REQUIREMENTS.md`](SECURITY-REQUIREMENTS.md) · [`CONTEXT-MAP.md`](CONTEXT-MAP.md)
 
 ---
 
 ## Запуск
 
 ```powershell
-cd C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
-
-npm run dev          # из корня → Vite в mvp/frontend
-# или
-.\scripts\start-web.ps1
-```
-
-Откройте URL из терминала (`Local:`). Обычно **http://localhost:5174**.
-
-```powershell
 cd mvp\frontend
 npm install          # первый раз
-npm test             # 69 тестов
+npm run dev          # http://localhost:5174/
+npm test             # 132 теста
 npm run build
 ```
 
-**Данные:** localStorage + sessionStorage (`mvp.orgSlice`). API и PostgreSQL **не нужны**.
+**Данные:** localStorage + sessionStorage. API и PostgreSQL **не нужны**.
 
-**Демо:** роль **admin** → **Настройки** → «Данные» → «Загрузить расширенное демо» (~70 позиций).  
-**Смена роли (демо):** выпадающий список **«Роль (демо)»** в сайдбаре (виден у всех ролей) или `/settings`.
+**Вход:** `/login` — выбор персоны (ФИО · роль). Сессия в `fot_mvp_demo_persona_id`.
+
+**Пилот:** C&B → **Настройки → Данные** → «Пилот (тяжёлый)» (~520 поз.) или демо ~40 поз.  
+**Сброс:** `?reset=demo` в URL или «Сбросить пилот / план» в настройках.
+
+---
+
+## Сценарий MVP (июнь 2026)
+
+**Годовое планирование без факта:** `PLAN_SCENARIO_INCLUDES_FACT = false` в `data/planScenario.ts` — факт не сидится, «Аналитика» скрыта, `/analytics` → `/planning`. План–факт вернём отдельной итерацией.
 
 ---
 
@@ -41,105 +37,76 @@ npm run build
 
 | Маршрут | Назначение |
 |---------|------------|
-| `/` | **Обзор и итого** — KPI, `SliceToolbar`, план/факт |
+| `/login` | Вход по персоне (демо) |
+| `/` | **Обзор и итого** — KPI, план (без факта в текущем сценарии) |
 | `/planning` | **Планирование** — позиции, матрица, журнал |
-| `/planning?mode=correction` | **Корректировка** (тот же UI, квартальный черновик) |
-| `/analytics` | **Аналитика** — план-факт, отклонения, прогноз |
-| `/analytics?tab=deviation` | Отклонения + «почему» (драйверы Δ) |
-| `/versions` | **Версии** — список, согласование, сравнение |
-| `/versions?tab=approval` | Согласование (`PlanApprovalPanel`) |
-| `/versions?tab=compare` | Сравнение черновика (`CorrectionComparePanel`) |
+| `/planning?mode=correction` | **Квартальное планирование** (квартальный черновик) |
+| `/versions` | **Версии** (C&B) или **Согласование** (лиды) |
+| `/versions?tab=approval` | Control Tower согласования |
+| `/versions?tab=compare` | Сравнение черновика |
 | `/versions?tab=consolidation` | Консолидация тимлидов |
-| `/settings` | Настройки (полные — admin/director; stub — остальные + смена роли) |
-| `/salary-ranges` | Справочники окладов |
+| `/settings` | Настройки (C&B / директор / GD — полные) |
+| `/salary-ranges` | Справочник диапазонов окладов |
 
-**Редиректы:** `/correction` → planning+correction · `/consolidation` → versions · `/plan-vs-actual` → analytics · `/audit` → planning?tab=journal
+**Редиректы:** `/correction` → planning+correction · `/consolidation` → versions · `/analytics` → planning (пока сценарий без факта)
 
-**Вкладки планирования:** `?tab=positions|matrix|journal` (без approval/compare — они на `/versions`)
-
-**Query для среза из консолидации:** `sliceDept`, `sliceUnit`, `sliceTeam` → PlanningPage применяет org slice.
+**Вкладки планирования:** `?tab=positions|matrix|journal`
 
 ---
 
-## Продукт (кратко)
+## Версии (именование)
 
-| Блок | Суть |
-|------|------|
-| A Планирование | События → пересчёт плана |
-| B Факт | Импорт; **только отклонения**, факт не правит план |
-| C Корректировка | С событиями только с M<sub>open</sub> (после квартала) |
-| D План–факт | vs **утверждённая** версия; **Δ = план − факт** (+ экономия, − перерасход) |
-| E Kaiten | **F2 — не начат** (UI без API) |
+| Версия | UI-название |
+|--------|-------------|
+| Первая утверждённая | **Бюджет {год}** |
+| Квартальный черновик / опубликованная корректировка | **{n} Квартал {год}** |
 
-**Терминология UI:** **«позиция»** (не «слот»).
+C&B: утверждение / открытие бюджета / удаление единственной v1 / создание квартального черновика — `VersionsPage`, `planVersionLifecycle.ts`.
+
+---
+
+## Индексация (массовая, C&B)
+
+- UI: `PlanIndexationSection` на вкладке **Позиции** (под контекстным баром).
+- C&B: форма + **таблица истории** с урной на каждый пакет (`MassIndexationCompact`).
+- Лиды / остальные: баннер **«Индексация в плане»** со списком всех пакетов (`PlanIndexationBanner`).
+- Удаление пакета → `removeIndexationBatchFromPositions` + пересчёт окладов.
+- Автоприменение индексации к новым позициям при найме/переводе **отключено**.
+
+---
+
+## Диапазоны окладов
+
+- `/salary-ranges` — таблица с **сортировкой по любому столбцу** (клик по заголовку).
+- **Доступ к редактированию** — по персонам (C&B → collapse «Доступ к диапазонам»), `demoSessionStore` + `SalaryCatalogAccessPanel`.
+- При **добавлении позиции** — специализация и уровень только из справочника; оклад по умолчанию = мид диапазона.
+
+---
+
+## RBAC (демо)
+
+- Персоны: `demoPersonas.ts`, срезы: `personaAccessScope.ts`, вход: `LoginPage` + `RequireDemoSession`.
+- Массовая индексация — только `cb_admin`.
+- Версии / импорт / пилот — только C&B.
+- Сайдбар: `PlanWorkspaceContext` — **Утверждённый бюджет** vs **Работаем в**.
 
 ---
 
 ## Сделано (не откатывать)
 
-### Движок и процесс (#1–#10)
-- Версии, `planOperations`, approval, `teamConsolidation`
-- Матрица, мульти-employee факт, сокращение → Closed с M
-- Квартал: `planCorrectionWindow`, блок событий до M<sub>open</sub>
-- RBAC: `userAccess.ts`, freeze лидов
-- Корректировка: `planWorkspaceMode`, compare + лимит
-- Декрет: `FROM_LIST` | `VACANCY`
-- Факт: `factStore`, `factImport`, `occupancyReconciliation`
-
-### UX-3-workspace-drawer (2026-06-14, не откатывать)
-- **PositionDrawer** `drawer--workspace`: вкладки **«Слот и занятость»** · **«События и ФОТ»**
-- На вкладке ФОТ: история событий, форма сценариев, **таблица по месяцам** (спец, уровень, оклад, премия, итого, CR)
-- **PlanningPage:** «Добавить позицию» активна на утверждённом бюджете (роли с правом правки) → авто-переход в квартальный черновик
-- **Массовая индексация:** только **C&B** (`cb_admin`); UI — `MassIndexationCompact` в шапке на вкладке «Позиции»; на «Журнале» — только баннер в `PlanContextBar`, без формы
-- **Vite** `strictPort: true` на **5174**; `start-web.ps1` убивает старый процесс на порту
-- Архив compact-drawer: `docs/archive/PositionDrawer.baseline.tsx` (не подменять основной drawer)
-
-### UX-структура (июнь 2026, без смены shell)
-- **PlanContextBar** — один контекстный бар вместо 4–5 баннеров на Planning
-- **Согласование / Сравнение** перенесены на `/versions?tab=…`
-- **Compact KPI** на Planning (`AnalyticsSummaryStrip planningCompact`)
-- **persistedOrgSlice** — sessionStorage `mvp.orgSlice` (Обзор + Planning)
-- **planVersionDisplay** — лейблы «Не утверждён», «Черновик корректировки»
-- **WorkflowHint** + сброс в Settings
-- **Settings nav** — только admin/director; **DemoRoleSelect** в сайдbar для всех
-- **SliceToolbar** — единая панель срезов (Обзор, Planning, Аналитика план-факт)
-- **Control Tower** (`/versions?tab=approval`): KPI, прогресс сдачи команд, очередь со статус-бейджами, исключения C&B; матрица прав — в collapse
-
-### F1–F5 (фронт продолжение)
-| # | Статус | Суть |
-|---|--------|------|
-| F1 | `[x]` | CSV экспорт плана/факта + `exportAuditLog` в Settings |
-| F2 | `[ ]` | Kaiten UI — **следующий приоритет** |
-| F3 | `[x]` | Консолидация unit_lead: срез юнита, Δ ФОТ, ссылки в корректировку/compare |
-| F4 | `[x]` | Матрица: закрытые месяцы до M<sub>open</sub> (штриховка) |
-| F5 | `[x]` | План–факт: **план − факт**, драйверы «почему» (`planFactVarianceDrivers.ts`), multi-on-seat |
-
-### Отклонено пользователем (не повторять без запроса)
-- Визуальный редизайн shell: topbar, sidebar 256px, BudgetFlow, перенос KPI в header
-- Смешивание UX-3 структуры с UX-4 «как в Figma» в одном PR
-
----
-
-## План–факт: формула и аналитика
-
-**Единая формула:** `planFactDelta(plan, fact) = plan − fact`
-
-| Знак Δ | Смысл |
-|--------|--------|
-| **> 0** | Экономия (план выше факта) |
-| **< 0** | Перерасход (факт выше плана) |
-
-**Драйверы «почему»** (`planFactVarianceDrivers.ts`): вакансия не закрыта, дешевле/дороже плана, найм на вакансии, нет выплат, двое на позиции. Только отчёт — не триггер корректировки.
+- F1, F3–F5, UX-3, workspace drawer, Control Tower
+- Пилот: персоны, lifecycle бюджета, UI для лидов, производительность аналитики (когда включим факт)
+- Индексация: история, удаление, баннер для лидов
+- `planScenario.ts` — отключение факта в годовом пилоте
 
 ---
 
 ## Следующий шаг
 
-1. **F2** — Kaiten UI (заявки из позиции/журнала, без API)
-2. По желанию: SliceToolbar на Deviation/Forecast; DATA-1 CSV-факт; прогноз на Обзоре
-3. **PG/API (#11+)** — только по явному запросу
-
-Стартовый промпт: [`NEW-CHAT-PROMPT.md`](NEW-CHAT-PROMPT.md).
+1. **Smoke-тест** пилота по всем персонам
+2. **F2** — Kaiten UI (без API)
+3. Включить **план–факт** (`PLAN_SCENARIO_INCLUDES_FACT = true`) + доработка аналитики
+4. **PG/API (#11+)** — только по явному запросу
 
 ---
 
@@ -147,25 +114,12 @@ npm run build
 
 | Область | Путь |
 |---------|------|
-| Shell | `components/AppLayout.tsx`, `components/DemoRoleSelect.tsx` |
-| Срезы UI | `components/SliceToolbar.tsx`, `components/OrgSliceMultiSelect.tsx` |
-| Срезы data | `data/orgSliceFilters.ts`, `data/persistedOrgSlice.ts` |
+| Вход / персоны | `pages/LoginPage.tsx`, `data/demoPersonas.ts`, `data/demoSessionStore.ts` |
+| Версии | `pages/VersionsPage.tsx`, `data/planVersions.ts`, `data/planVersionLifecycle.ts` |
+| Индексация | `components/planning/PlanIndexationSection.tsx`, `MassIndexationCompact.tsx`, `data/planningData.ts` |
+| Сценарий без факта | `data/planScenario.ts` |
+| Диапазоны | `pages/SalaryRangesPage.tsx`, `components/settings/SalaryCatalogAccessPanel.tsx` |
 | Планирование | `pages/PlanningPage.tsx`, `components/planning/PlanContextBar.tsx` |
-| Версии | `pages/VersionsPage.tsx` |
-| Консолидация | `pages/ConsolidationPage.tsx`, `data/teamConsolidation.ts`, `data/consolidationNav.ts` |
-| План–факт | `pages/PlanVsActualPage.tsx`, `pages/DeviationPage.tsx` |
-| Δ и драйверы | `data/planFactMetrics.ts`, `data/planFactVarianceDrivers.ts` |
-| Экспорт | `data/exportPlanCsv.ts`, `data/exportScopedCsv.ts`, `components/ExportCsvActions.tsx` |
-| RBAC | `data/userAccess.ts` |
-| Матрица | `components/planning/PlanMonthMatrixPanel.tsx`, `data/planCorrectionWindow.ts` |
-| Drawer | `components/PositionDrawer.tsx` (workspace + monthly table), `components/drawer/scenarioTypes.ts` |
 | Контекст | `context/MvpAppContext.tsx` |
-| Стили | `index.css` (`.slice-toolbar`, `.plan-context-bar`, …) |
 
-**Не трогать без запроса:** `docs/archive/PositionDrawer.baseline.tsx`
-
----
-
-## Архив
-
-`docs/SESSION-*.md`, `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` — не читать при старте.
+**Архив:** `docs/SESSION-*.md`, `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md`

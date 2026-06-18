@@ -6,11 +6,13 @@
 
 ## Проект
 
-Веб-планирование **ФОТ по позициям** (слотам): годовой план, квартальные корректировки, план–факт, версии, RBAC (демо на фронте).
+Веб-планирование **ФОТ по позициям**: годовой план, квартальные корректировки, план–факт (отложено в пилоте), версии, RBAC (демо на фронте).
 
 **Текущий scope:** только `mvp/frontend/`. PostgreSQL, API, Kaiten-интеграция — **отложены** (фаза 3+).
 
 **Стек:** React 19, TypeScript, Vite 8, React Router 7, Vitest. Без UI-библиотек — кастомный CSS в `index.css`.
+
+**Сценарий пилота (июнь 2026):** годовое планирование **без факта** — `data/planScenario.ts` (`PLAN_SCENARIO_INCLUDES_FACT = false`).
 
 ---
 
@@ -21,8 +23,8 @@
 ```powershell
 cd mvp/frontend
 npm run dev      # http://localhost:5174/
-npm test         # vitest run
-npm run build    # tsc -b && vite build
+npm test         # vitest run (132 теста)
+npm run build
 npm run lint
 ```
 
@@ -41,25 +43,20 @@ npm run lint
 | 3 | `docs/IMPLEMENTATION-STEPS.md` | Чеклист; следующие задачи (F1–F5) |
 | 4 | `docs/SECURITY-REQUIREMENTS.md` | ИБ при экспорте, RBAC на API, audit |
 
-Карта всех docs: `docs/CONTEXT-MAP.md`.
-
 **Не читать при старте:** `docs/SESSION-*.md`, `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md` — архив.
 
 ---
 
 ## Жёсткие продуктовые правила
 
-Нарушение этих правил = регресс; не «упрощать» без запроса.
-
 - **Факт не правит план.** Факт только показывает отклонения (Δ); не создаёт событий и не «чинит» план.
-- **«Экономия»** = Δ **план − факт** > 0 в отчёте; **перерасход** = Δ < 0. Не задача и не триггер корректировки.
-- **План–факт** сравнивается с **утверждённой** (актуальной) версией, не с устаревшим baseline.
-- **Сокращение:** с месяца M позиция `Closed`, ФОТ = 0 в матрице; нет плана на слоте — нет «экономии с планом».
-- **Декрет:** замещение только `FROM_LIST` (сотрудник из списка) или `VACANCY` — **без** «Нового сотрудника».
-- **Корректировка:** события в черновике только с M<sub>open</sub> (месяц после текущего квартала); правки черновика — только на `/correction`.
-- **Зерно времени:** месяц (конец месяца). Центр модели — **Position**, не Employee.
-- **RBAC на фронте** (`userAccess.ts`) — прототип UX; реальная безопасность будет на API + RLS.
-- **Массовая индексация** — только **C&B** (`cb_admin`); UI на вкладке «Позиции» (`MassIndexationCompact`). Не расширять на юнит-лида/тимлида без изменения `PRODUCT-MODEL.md`.
+- **«Экономия»** = Δ **план − факт** > 0; **перерасход** = Δ < 0.
+- **План–факт** vs **утверждённая** версия (когда сценарий с фактом включён).
+- **Сокращение:** с месяца M позиция `Closed`, ФОТ = 0.
+- **Декрет:** замещение только `FROM_LIST` или `VACANCY`.
+- **Корректировка:** события в черновике только с M<sub>open</sub>; правки — `/planning?mode=correction`.
+- **Массовая индексация** — только **C&B** (`cb_admin`); UI — `PlanIndexationSection` на вкладке «Позиции». Лидам — только баннер-инфо, без формы.
+- **Новая позиция:** спец. и уровень — только из справочника диапазонов.
 
 ---
 
@@ -67,17 +64,14 @@ npm run lint
 
 ```
 mvp/frontend/src/
-  pages/           # экраны (PlanningPage, CorrectionPage, …)
-  components/      # UI; planning/, drawer/ — доменные блоки
-  data/            # бизнес-логика, расчёты, store (без React)
-  context/         # MvpAppContext — глобальное состояние MVP
-  types.ts         # общие типы
+  pages/           # PlanningPage, VersionsPage, LoginPage, …
+  components/      # planning/, settings/, drawer/
+  data/            # бизнес-логика, store (без React)
+  context/         # MvpAppContext
 ```
 
-**Слои:** UI только отображает и собирает ввод; формулы и правила — в `data/*.ts`. Тесты рядом: `*.test.ts`.
-
-**Маршруты:** `/` · `/planning` · `/analytics` · `/versions` · `/settings` · `/salary-ranges`  
-Корректировка: `/planning?mode=correction`. Согласование/compare: `/versions?tab=approval|compare`.
+**Маршруты:** `/login` · `/` · `/planning` · `/versions` · `/settings` · `/salary-ranges`  
+Корректировка: `/planning?mode=correction`. Согласование: `/versions?tab=approval|compare`.
 
 ---
 
@@ -85,53 +79,23 @@ mvp/frontend/src/
 
 | Область | Файлы |
 |---------|-------|
-| Планирование / корректировка | `pages/PlanningPage.tsx`, `data/planWorkspaceMode.ts`, `components/planning/PlanContextBar.tsx` |
-| Срезы UI | `components/SliceToolbar.tsx`, `components/OrgSliceMultiSelect.tsx`, `data/persistedOrgSlice.ts` |
-| Версии / согласование | `pages/VersionsPage.tsx`, `components/planning/PlanApprovalPanel.tsx`, `CorrectionComparePanel.tsx` |
-| План–факт / отклонения | `data/planFactMetrics.ts`, `data/planFactVarianceDrivers.ts`, `pages/DeviationPage.tsx` |
-| Экспорт CSV (демо) | `data/exportScopedCsv.ts`, `data/exportAuditLog.ts`, `components/ExportCsvActions.tsx` |
-| Консолидация | `pages/ConsolidationPage.tsx`, `data/teamConsolidation.ts`, `data/consolidationNav.ts` |
-| Матрица | `components/planning/PlanMonthMatrixPanel.tsx`, `data/planCorrectionWindow.ts` |
+| Вход / RBAC | `pages/LoginPage.tsx`, `data/demoPersonas.ts`, `data/demoSessionStore.ts`, `data/personaAccessScope.ts` |
+| Версии C&B | `pages/VersionsPage.tsx`, `data/planVersions.ts`, `data/planVersionLifecycle.ts` |
+| Планирование | `pages/PlanningPage.tsx`, `components/planning/PlanContextBar.tsx` |
+| Индексация | `components/planning/PlanIndexationSection.tsx`, `MassIndexationCompact.tsx`, `data/planningData.ts` |
+| Диапазоны | `pages/SalaryRangesPage.tsx`, `data/salaryRangeData.ts`, `SalaryCatalogAccessPanel.tsx` |
+| Сценарий пилота | `data/planScenario.ts`, `data/pilotTestBundle.ts` |
+| Согласование | `components/planning/PlanApprovalPanel.tsx`, `data/teamSubmissionStore.ts` |
 | Drawer | `components/PositionDrawer.tsx` |
-| Подсказки UI | `components/HintTooltipLayer.tsx`, `components/MetricHelp.tsx` |
-| Массовая индексация (C&B) | `components/planning/MassIndexationCompact.tsx`, `roleCanApplyMassIndexation` в `userAccess.ts` |
-| RBAC (демо) | `data/userAccess.ts`, `components/DemoRoleSelect.tsx` |
-| Демо роль | `components/AppLayout.tsx` — select «Роль (демо)» в sidebar |
-
-**Не трогать без запроса:** `docs/archive/PositionDrawer.baseline.tsx` — архив.
-
----
-
-## UI-конвенции
-
-- Подписи событий: Пересмотр, Выбытие, Найм, Сокращение, Декрет, Перевод… (`formatEventHistory.eventTypeLabel`).
-- Drawer: вкладки «Слот и занятость» · «События и ФОТ»; форма «Событие или изменение».
-- Цвета строк/ячеек: занято `#f0fdf4`, вакансия `#fffbeb`, закрыто `#fdf2f8` (`table-row--*`, `plan-matrix__cell--status-*` в `index.css`).
-
----
-
-## Стиль кода
-
-- Минимальный diff; не рефакторить попутно.
-- Следовать существующим паттернам в соседних файлах (именование, типы, структура `data/`).
-- Комментарии — только для неочевидной бизнес-логики.
-- Тесты добавлять для нетривиальной логики в `data/`; не плодить тривиальные assert'ы.
-- Не создавать markdown/docs без запроса.
 
 ---
 
 ## Текущая фаза
 
-**Чекпоинт `UX-3-workspace-drawer`:** F1, F3–F5 + UX-3, **69 tests**, workspace drawer с таблицей месяцев.
+**Чекпоинт `pilot-annual-planning`:** персоны, lifecycle бюджета, индексация с историей, UI для лидов, **132 tests**.
 
 **F2 Kaiten UI** — следующий приоритет (`IMPLEMENTATION-STEPS.md`).
 
-**Не повторять без запроса:** UX-4 (Kaiten modal, compact drawer, MetricHelp); визуальный редизайн shell.
+**Не повторять без запроса:** UX-4; визуальный редизайн shell; автоприменение индексации к новым слотам.
 
-PG/API (#11+) — не начинать без явного запроса.
-
----
-
-## Дизайн
-
-Макеты (если нужны для UI): `docs/design/annual-budget-planning-app/source/`.
+PG/API — не начинать без явного запроса.

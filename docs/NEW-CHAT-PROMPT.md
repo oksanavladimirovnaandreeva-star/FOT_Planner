@@ -1,6 +1,6 @@
 # Новый чат — копипаст
 
-**Чекпоинт:** `drawer-W-B` + **Фаза 0 deploy** · **94 tests** · `git log -1` → `chore(mvp/frontend): GitHub Pages base path и CI/deploy`
+**Чекпоинт:** `pilot-annual-planning` · **132 tests** · `git log -1` → см. последний коммит на `main`
 
 Скопируй блок ниже целиком:
 
@@ -17,53 +17,56 @@
 4. docs/IMPLEMENTATION-STEPS.md
 
 Запуск:
-  cd C:\Users\andreeva.o\.cursor\projects\empty-window\fot-planner
+  cd mvp\frontend
   npm run dev          → http://localhost:5174
-  cd mvp\frontend && npm test    # 94 теста
+  npm test             → 132 теста
   npm run build
 
-Деплой (GitHub Pages, после push в main):
-  • Settings → Pages → Source: GitHub Actions
-  • base: /{имя-репозитория}/  (VITE_BASE_PATH в CI)
-  • workflow: .github/workflows/deploy-pages.yml
-  • Локальная проверка base:  cd mvp\frontend
-    $env:VITE_BASE_PATH='/fot-planner/'; npm run build; npm run preview
+Вход: /login — персоны (ФИО · роль). Сессия: fot_mvp_demo_persona_id.
+
+Сценарий пилота (июнь 2026):
+  • Годовое планирование БЕЗ факта: PLAN_SCENARIO_INCLUDES_FACT = false (data/planScenario.ts)
+  • /analytics скрыта, редирект на /planning
+  • Пилот: C&B → Настройки → Данные → «Пилот (тяжёлый)» или демо ~40 поз.
 
 Навигация:
-  / — обзор · /planning — план · /analytics — аналитика · /versions — версии
+  / — обзор (только план) · /planning — план · /versions — версии (C&B) / согласование (лиды)
   Корректировка: /planning?mode=correction
-  Согласование/сравнение: /versions?tab=approval|compare
-  Drawer: клик по позиции → единый экран (identity, статус, план, история, ФОТ)
+  Согласование: /versions?tab=approval · Сравнение: /versions?tab=compare · Консолидация: /versions?tab=consolidation
+  Диапазоны: /salary-ranges
 
 Жёстко (не ломать):
-  • факт НЕ правит план; экономия = Δ план − факт
+  • факт НЕ правит план; Δ = план − факт (когда включим факт)
   • план–факт vs утверждённая версия
-  • в UI «позиция», не «слот»
-  • PG/API/Kaiten API — не начинать без явного запроса
+  • массовая индексация — только C&B; лидам — баннер-инфо
+  • новая позиция: спец/уровень только из справочника диапазонов
+  • PG/API/Kaiten — не начинать без явного запроса
 
 Сделано (НЕ откатывать):
-  • F1 CSV + audit · F3 consolidation · F4 matrix locked · F5 variance drivers · UX-3
-  • Position Drawer W-B: stack-layout, форма 6 полей + комментарий, история без inner scroll,
-    ФОТ 2 полугодия, сводка «декабрь к декабрю» + полный итог, CR-подсветка
-  • Фаза 0: vite base (VITE_BASE_PATH), BrowserRouter basename (appBase.ts),
-    GitHub Actions CI + deploy-pages, public/.nojekyll
-  • F2 Kaiten — частично (модалка, найм на вакансии); пользователь просил отложить
+  • Пилот: LoginPage, demoPersonas, personaAccessScope, PlanWorkspaceContext
+  • Версии C&B: Бюджет 2026 / N Квартал 2026, reopen/delete v1, planVersionLifecycle
+  • Индексация: PlanIndexationSection, история пакетов, удаление с пересчётом (removeIndexationBatchFromPositions)
+  • UI для лидов: упрощённые экраны, без факта на обзоре
+  • Диапазоны: сортировка по столбцам, доступ по персонам (SalaryCatalogAccessPanel)
+  • F1, F3–F5, UX-3, workspace drawer, Control Tower (базовый)
+
+СЛЕДУЮЩАЯ ЗАДАЧА (приоритет пользователя):
+  Логика согласований — довести end-to-end:
+  • team submission: сдача команды, блокировка правок тимлида (teamSubmissionStore, submissionWorkflowPolicy)
+  • /versions?tab=approval — PlanApprovalPanel, правила C&B (planApprovalRules)
+  • /versions?tab=consolidation — ConsolidationPage, teamConsolidation
+  • Два независимых процесса: lifecycle версий (C&B) vs согласование команд (лиды)
+  • Проверить персоны: Вася (team_lead), Сидор (unit_lead), C&B, директор
+
+Ключевые файлы согласований:
+  data/teamSubmissionStore.ts, data/submissionWorkflowPolicy.ts, data/teamConsolidation.ts
+  components/planning/PlanApprovalPanel.tsx, pages/ConsolidationPage.tsx, pages/VersionsPage.tsx
+  data/planApprovalRules.ts, data/planVersions.ts
 
 Отложено:
-  • F2 Kaiten — довести до приёмки
-  • UX-4 — модалка массовых действий, MetricHelp, UnitLead strip
-
-Следующие задачи (на выбор):
-  1. Фаза 1 рефакторинг: storageKeys.ts → один файл ключей localStorage
-  2. Фаза 1: разбить MvpAppContext на usePlanVersions / useUserAccess / useImportExport
-  3. Пилот/демо: пройти сценарии, зафиксировать расхождения с Excel
-  4. DATA-1: боевой CSV-импорт факта
-
-Ключевые файлы:
-  components/PositionDrawer.tsx, index.css (drawer)
-  context/MvpAppContext.tsx (монолит — кандидат на слайсы)
-  vite.config.ts, src/appBase.ts, src/main.tsx
-  .github/workflows/frontend-ci.yml, deploy-pages.yml
+  • F2 Kaiten UI
+  • План–факт (включить planScenario + аналитика)
+  • UX-4, PG/API
 
 После правок в data/: npm test && npm run build. Коммиты — только по просьбе.
 ```
