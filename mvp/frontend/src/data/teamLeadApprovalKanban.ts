@@ -11,7 +11,7 @@ export const TEAM_LEAD_KANBAN_COLUMNS: {
   {
     id: "in_progress",
     title: "В работе",
-    hint: "Правки в квартальном планировании, затем «Сдать команду».",
+    hint: "Внесите правки в квартальном планировании и нажмите «Отправить бюджет на согласование» на карточке.",
   },
   {
     id: "in_approval",
@@ -29,6 +29,50 @@ export const TEAM_LEAD_KANBAN_COLUMNS: {
     hint: "Квартальная версия утверждена C&B.",
   },
 ];
+
+/** Подсказки для канбана юнит-лида (несколько команд в колонках). */
+export const UNIT_LEAD_KANBAN_COLUMNS: {
+  id: TeamLeadKanbanColumn;
+  title: string;
+  hint: string;
+}[] = [
+  {
+    id: "in_progress",
+    title: "В работе",
+    hint: "Команды правят план или ещё не сдали.",
+  },
+  {
+    id: "in_approval",
+    title: "На согласовании",
+    hint: "Сдано тимлидом — согласуйте юнит или верните на доработку.",
+  },
+  {
+    id: "returned",
+    title: "На доработке",
+    hint: "Вернули команде — ждём повторной сдачи.",
+  },
+  {
+    id: "published",
+    title: "Бюджет опубликован",
+    hint: "Квартальная версия утверждена C&B.",
+  },
+];
+
+export function groupTeamsByKanbanColumn<T>(
+  teams: T[],
+  columnFor: (team: T) => TeamLeadKanbanColumn,
+): Record<TeamLeadKanbanColumn, T[]> {
+  const groups: Record<TeamLeadKanbanColumn, T[]> = {
+    in_progress: [],
+    in_approval: [],
+    returned: [],
+    published: [],
+  };
+  for (const team of teams) {
+    groups[columnFor(team)].push(team);
+  }
+  return groups;
+}
 
 export type VersionRibbonStep = {
   id: string;
@@ -61,14 +105,6 @@ export function resolveTeamLeadKanbanColumn(input: {
   const { workingDraft, latestApproved, primaryBudget, submission } = input;
   const quarterlyPublished = Boolean(latestApproved && latestApproved.versionNumber > 1);
 
-  if (!workingDraft && quarterlyPublished && primaryBudget && isBudgetLocked(primaryBudget)) {
-    return "published";
-  }
-
-  if (!workingDraft) {
-    return "in_progress";
-  }
-
   const phase: TeamSubmissionPhase = submission?.phase ?? "editing";
   if (phase === "returned") return "returned";
   if (
@@ -78,6 +114,14 @@ export function resolveTeamLeadKanbanColumn(input: {
     phase === "cb_review"
   ) {
     return "in_approval";
+  }
+
+  if (!workingDraft && quarterlyPublished && primaryBudget && isBudgetLocked(primaryBudget)) {
+    return "published";
+  }
+
+  if (!workingDraft) {
+    return "in_progress";
   }
 
   return "in_progress";

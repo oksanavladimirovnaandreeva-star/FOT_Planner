@@ -325,14 +325,21 @@ export function mergeScopedPositionUpdates(
   nextScoped: PositionRecord[],
 ): PositionRecord[] {
   const patch = new Map(nextScoped.map((position) => [position.positionId, position]));
-  const previousIds = new Set(previousScoped.map((position) => position.positionId));
+  const previousScopedIds = new Set(previousScoped.map((position) => position.positionId));
+  const nextScopedIds = new Set(nextScoped.map((position) => position.positionId));
+  const removedIds = new Set(
+    [...previousScopedIds].filter((positionId) => !nextScopedIds.has(positionId)),
+  );
+
+  const merged = allPositions
+    .filter((position) => !removedIds.has(position.positionId))
+    .map((position) => patch.get(position.positionId) ?? position);
+
   const added = nextScoped.filter((position) => !allPositions.some((item) => item.positionId === position.positionId));
-  const merged = allPositions.map((position) => patch.get(position.positionId) ?? position);
   for (const position of added) {
     if (!merged.some((item) => item.positionId === position.positionId)) {
       merged.push(position);
     }
   }
-  void previousIds;
   return merged;
 }

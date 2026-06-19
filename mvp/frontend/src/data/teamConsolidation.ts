@@ -1,6 +1,6 @@
 import { collectDraftDeltaEvents } from "./planApprovalRules";
 import { annualTotal, hasCarryoverEvent } from "./planningData";
-import { getTeamSubmission, type TeamSubmissionRecord } from "./teamSubmissionStore";
+import { getTeamSubmissionForApprovalScope, type TeamSubmissionRecord } from "./teamSubmissionStore";
 import type { PlanVersionMeta } from "./planVersions";
 import type { PositionRecord } from "../types";
 
@@ -224,9 +224,11 @@ export function buildOrgConsolidationReport(
     now?: Date;
     /** Черновик для lookup submission store; по умолчанию workingDraft.id */
     submissionPlanVersionId?: string | null;
+    /** Годовой бюджет v1 — fallback, если сдача была до открытия квартального черновика */
+    primaryBudget?: PlanVersionMeta | null;
   },
 ): OrgConsolidationReport {
-  const { department, planYear, workingDraft, baselinePositions, draftPositions } = options;
+  const { department, planYear, workingDraft, baselinePositions, draftPositions, primaryBudget } = options;
   const unitScope = options.unit?.trim() || null;
   const teamScope = options.team?.trim() || null;
   const now = options.now ?? new Date();
@@ -296,10 +298,13 @@ export function buildOrgConsolidationReport(
       draftSubmitted,
       editDeadlinePast,
     });
-    const submission =
-      submissionPlanVersionId != null
-        ? getTeamSubmission(submissionPlanVersionId, department, unit, team)
-        : null;
+    const submission = getTeamSubmissionForApprovalScope(
+      submissionPlanVersionId,
+      primaryBudget ?? null,
+      department,
+      unit,
+      team,
+    );
     const displayStatus = resolveTeamDisplayStatus(status, submission, draftSubmitted);
     teamRows.push({
       department,

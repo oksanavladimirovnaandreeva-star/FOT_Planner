@@ -1,40 +1,49 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Check, CircleCheck } from "lucide-react";
 import { useMvpApp } from "../../context/MvpAppContext";
-import { formatMoney, formatIsoDateTime } from "../../data/formatDisplay";
+import { formatIsoDateTime } from "../../data/formatDisplay";
 import { mapPositionsWithAppliedEvents } from "../../data/planOperations";
 import { formatPlanVersionTitle } from "../../data/planVersionDisplay";
-import { isBudgetLocked } from "../../data/planVersions";
 import { buildOrgConsolidationReport } from "../../data/teamConsolidation";
 import {
   applySubmissionAction,
+  canSubmitTeamBudget,
   getTeamSubmission,
+  isTeamEditingLocked,
 } from "../../data/teamSubmissionStore";
 import {
   buildTeamLeadVersionRibbon,
   formatNextQuarterVersionHint,
   resolveTeamLeadKanbanColumn,
   submissionApprovalSubstep,
-  TEAM_LEAD_KANBAN_COLUMNS,
   type TeamLeadKanbanColumn,
 } from "../../data/teamLeadApprovalKanban";
 import { canRolePerformSubmissionAction } from "../../data/submissionWorkflowPolicy";
 import { demoRoleActorOrg, demoRolePrimaryOrg } from "../../data/userAccess";
 import { planWorkspacePath } from "../../data/planWorkspaceMode";
-import { buildTeamApprovalDiff } from "../../data/teamApprovalDiff";
+import { buildTeamApprovalDiff, type TeamApprovalSubmissionMode } from "../../data/teamApprovalDiff";
+import { ApprovalVersionRibbon } from "./ApprovalVersionRibbon";
 import { TeamLeadApprovalChangesList } from "./TeamLeadApprovalChangesList";
 import { TeamLeadApprovalKpi } from "./TeamLeadApprovalKpi";
 
-function formatSignedFotDelta(value: number): string {
-  if (value === 0) return "—";
-  const sign = value > 0 ? "+" : "−";
-  return `${sign}${formatMoney(Math.abs(value), true)}`;
-}
-
-function columnHasCard(column: TeamLeadKanbanColumn, active: TeamLeadKanbanColumn): boolean {
-  return column === active;
-}
+const STATUS_COPY: Record<TeamLeadKanbanColumn, { title: string; hint: string }> = {
+  in_progress: {
+    title: "В работе",
+    hint: "Можно править план и отправить бюджет на согласование.",
+  },
+  in_approval: {
+    title: "На согласовании",
+    hint: "Правки закрыты до решения юнит-лида, директора и C&B.",
+  },
+  returned: {
+    title: "На доработке",
+    hint: "Согласующий вернул — исправьте и сдайте снова.",
+  },
+  published: {
+    title: "Бюджет опубликован",
+    hint: "Активна утверждённая версия.",
+  },
+};
 
 export function TeamLeadApprovalPanel() {
   const {
@@ -71,6 +80,26 @@ export function TeamLeadApprovalPanel() {
     [applied],
   );
 
+  const submissionMode: TeamApprovalSubmissionMode | null = workingDraft
+    ? "quarterly"
+    : primaryBudget?.status === "DRAFT" && primaryBudget.versionNumber === 1
+      ? "annual"
+      : null;
+
+  const submissionPlanVersionId =
+    submissionMode === "quarterly" ? workingDraft?.id : primaryBudget?.id;
+
+  const submission = useMemo(() => {
+    if (!submissionPlanVersionId) return null;
+    void teamSubmissionRevision;
+    return getTeamSubmission(
+      submissionPlanVersionId,
+      scope.department,
+      scope.unit,
+      scope.team,
+    );
+  }, [submissionPlanVersionId, scope, teamSubmissionRevision]);
+
   const report = useMemo(
     () =>
       buildOrgConsolidationReport(applied, {
@@ -81,18 +110,12 @@ export function TeamLeadApprovalPanel() {
         workingDraft,
         baselinePositions: versionDiff.baselinePositions,
         draftPositions: versionDiff.draftPositions,
-        submissionPlanVersionId: workingDraft?.id ?? null,
+        submissionPlanVersionId: submissionPlanVersionId ?? null,
       }),
-    [applied, scope, planYear, workingDraft, versionDiff, teamSubmissionRevision],
+    [applied, scope, planYear, workingDraft, versionDiff, teamSubmissionRevision, submissionPlanVersionId],
   );
 
   const teamRow = report.units.flatMap((unit) => unit.teams).find((row) => row.team === scope.team) ?? report.units[0]?.teams[0];
-
-  const submission = useMemo(() => {
-    if (!workingDraft) return null;
-    void teamSubmissionRevision;
-    return getTeamSubmission(workingDraft.id, scope.department, scope.unit, scope.team);
-  }, [workingDraft, scope, teamSubmissionRevision]);
 
   const activeColumn = resolveTeamLeadKanbanColumn({
     workingDraft,
@@ -103,8 +126,14 @@ export function TeamLeadApprovalPanel() {
 
   const ribbonSteps = buildTeamLeadVersionRibbon({ primaryBudget, workingDraft, latestApproved });
 
+  const editLocked = Boolean(submission && isTeamEditingLocked(submission));
+  const canEditPlanning =
+    (activeColumn === "in_progress" || activeColumn === "returned") && !editLocked;
+
   const canSubmit =
-    Boolean(workingDraft) &&
+    Boolean(submissionPlanVersionId) &&
+    Boolean(submissionMode) &&
+    canSubmitTeamBudget(submission) &&
     (activeColumn === "in_progress" || activeColumn === "returned") &&
     canRolePerformSubmissionAction("team_submit", {
       actorRole: userRole,
@@ -117,16 +146,14 @@ export function TeamLeadApprovalPanel() {
       leadEditFrozen,
     });
 
-  const canEditPlanning = activeColumn === "in_progress" || activeColumn === "returned";
-
   const handleSubmit = () => {
-    if (!workingDraft || !teamRow) return;
+    if (!submissionPlanVersionId || !teamRow) return;
     const confirmed = window.confirm(
-      `Сдать команду «${teamRow.team}»?\n\nПосле сдачи правки будут закрыты до решения согласующих или возврата на доработку.`,
+      `Отправить бюджет на согласование («${teamRow.team}»)?\n\nПосле отправки правки будут закрыты до решения согласующих или возврата на доработку.`,
     );
     if (!confirmed) return;
     const result = applySubmissionAction({
-      planVersionId: workingDraft.id,
+      planVersionId: submissionPlanVersionId,
       department: teamRow.department,
       unit: teamRow.unit,
       team: teamRow.team,
@@ -149,174 +176,123 @@ export function TeamLeadApprovalPanel() {
       : null;
 
   const approvalSubstep = submissionApprovalSubstep(submission);
+  const statusCopy = STATUS_COPY[activeColumn];
+
+  const draftPositionsForApproval = useMemo(() => {
+    if (submissionMode === "quarterly" && versionDiff.draftPositions.length > 0) {
+      return versionDiff.draftPositions;
+    }
+    if (submissionMode === "annual") {
+      return positions;
+    }
+    return [];
+  }, [submissionMode, versionDiff.draftPositions, positions]);
+
+  const baselinePositionsForApproval =
+    submissionMode === "quarterly" ? versionDiff.baselinePositions : [];
 
   const approvalDiff = useMemo(() => {
-    if (!workingDraft || versionDiff.baselinePositions.length === 0) {
-      return null;
-    }
+    if (!submissionMode || draftPositionsForApproval.length === 0) return null;
     return buildTeamApprovalDiff({
-      baselinePositions: versionDiff.baselinePositions,
-      draftPositions: versionDiff.draftPositions,
+      baselinePositions: baselinePositionsForApproval,
+      draftPositions: draftPositionsForApproval,
       department: scope.department,
       unit: scope.unit,
       team: scope.team,
+      mode: submissionMode,
     });
-  }, [workingDraft, versionDiff, scope]);
+  }, [submissionMode, draftPositionsForApproval, baselinePositionsForApproval, scope]);
 
-  const baselineLabel = versionDiff.summary.baselineLabel || "Утверждённый бюджет";
-  const draftLabel = workingDraft ? formatPlanVersionTitle(workingDraft) : "Черновик";
+  const baselineLabel =
+    submissionMode === "quarterly"
+      ? versionDiff.summary.baselineLabel || "Утверждённый год"
+      : "Утверждённый год";
+  const draftLabel =
+    submissionMode === "quarterly" && workingDraft
+      ? formatPlanVersionTitle(workingDraft)
+      : primaryBudget
+        ? formatPlanVersionTitle(primaryBudget)
+        : "Черновик";
+  const planningLink =
+    submissionMode === "quarterly"
+      ? planWorkspacePath("correction", { tab: "positions" })
+      : "/planning?tab=positions";
+  const canShowApprovalPackage = Boolean(approvalDiff && submissionMode);
 
   return (
     <div className="team-lead-approval">
-      <section className="card team-lead-approval__ribbon" aria-label="Лента версий бюджета">
-        <h2 className="section-title">Ваш бюджет</h2>
-        <ol className="team-lead-approval__ribbon-track">
-          {ribbonSteps.map((step, index) => {
-            const isAnnualApproved = step.id === "annual" && step.state === "done";
-            return (
-            <li
-              key={step.id}
-              className={`team-lead-approval__ribbon-step team-lead-approval__ribbon-step--${step.state}${isAnnualApproved ? " team-lead-approval__ribbon-step--approved" : ""}`}
-            >
-              <span
-                className={`team-lead-approval__ribbon-dot${step.state === "done" ? " team-lead-approval__ribbon-dot--done" : ""}${step.state === "current" ? " team-lead-approval__ribbon-dot--current" : ""}${isAnnualApproved ? " team-lead-approval__ribbon-dot--approved" : ""}`}
-                aria-hidden
-              >
-                {isAnnualApproved ? (
-                  <CircleCheck size={18} strokeWidth={2.25} />
-                ) : step.state === "done" ? (
-                  <Check size={12} strokeWidth={3} />
-                ) : null}
-              </span>
-              <div>
-                <strong>
-                  {step.label}
-                  {isAnnualApproved ? (
-                    <span className="team-lead-approval__ribbon-approved-tag">утверждён</span>
-                  ) : null}
-                </strong>
-                <span className="team-lead-approval__ribbon-state">
-                  {isAnnualApproved
-                    ? "закрыт для правок"
-                    : step.state === "done"
-                      ? "готово"
-                      : step.state === "current"
-                        ? "сейчас"
-                        : "далее"}
-                </span>
-              </div>
-              {index < ribbonSteps.length - 1 ? (
-                <span className="team-lead-approval__ribbon-connector" aria-hidden />
-              ) : null}
-            </li>
-            );
-          })}
-        </ol>
-        {!workingDraft && primaryBudget && isBudgetLocked(primaryBudget) ? (
-          <p className="muted-line team-lead-approval__ribbon-wait">
-            C&B ещё не открыл квартальный черновик — дождитесь уведомления или уточните у C&B.
-          </p>
-        ) : null}
-      </section>
+      <ApprovalVersionRibbon
+        steps={ribbonSteps}
+        workingDraft={workingDraft}
+        primaryBudget={primaryBudget}
+      />
 
-      {approvalDiff && workingDraft ? (
-        <>
-          <TeamLeadApprovalKpi summary={approvalDiff.summary} baselineLabel={baselineLabel} draftLabel={draftLabel} />
-          <TeamLeadApprovalChangesList rows={approvalDiff.rows} canEdit={canEditPlanning} positionsById={positionsById} />
-        </>
+      {teamRow ? (
+        <section className="card team-lead-approval__status" aria-label="Статус сдачи">
+          <div className="team-lead-approval__status-head">
+            <div>
+              <span className={`team-lead-approval__status-badge team-lead-approval__status-badge--${activeColumn}`}>
+                {statusCopy.title}
+              </span>
+              <h2 className="team-lead-approval__status-team">{teamRow.team}</h2>
+              <p className="muted-line">
+                {teamRow.unit} · {teamRow.department}
+              </p>
+              <p className="team-lead-approval__status-hint">{statusCopy.hint}</p>
+            </div>
+            <div className="team-lead-approval__status-actions">
+              {canSubmit ? (
+                <button type="button" className="primary-btn" onClick={handleSubmit}>
+                  Отправить бюджет на согласование
+                </button>
+              ) : null}
+              {canEditPlanning ? (
+                <Link className="secondary-btn" to={planningLink}>
+                  {submissionMode === "annual" ? "Годовое планирование" : "Квартальное планирование"}
+                </Link>
+              ) : (
+                <Link className="secondary-btn" to={planningLink}>
+                  Просмотр плана
+                </Link>
+              )}
+            </div>
+          </div>
+          {approvalSubstep ? <p className="team-lead-approval__substep">{approvalSubstep}</p> : null}
+          {submission?.returnedNote ? (
+            <p className="team-lead-approval__return-note">
+              <strong>Комментарий:</strong> {submission.returnedNote}
+            </p>
+          ) : null}
+          {submission?.teamSubmittedAt && activeColumn === "in_approval" ? (
+            <p className="muted-line">Сдано {formatIsoDateTime(submission.teamSubmittedAt)}</p>
+          ) : null}
+          {activeColumn === "published" && latestApproved ? (
+            <p className="team-lead-approval__published-label">
+              Активна <strong>{formatPlanVersionTitle(latestApproved)}</strong>
+            </p>
+          ) : null}
+          {publishedHint ? <p className="team-lead-approval__next-hint">{publishedHint}</p> : null}
+        </section>
       ) : null}
 
-      <section className="team-lead-approval__kanban" aria-label="Статус сдачи">
-        {TEAM_LEAD_KANBAN_COLUMNS.map((column) => {
-          const isActive = columnHasCard(column.id, activeColumn);
-          return (
-            <div
-              key={column.id}
-              className={`team-lead-approval__column${isActive ? " team-lead-approval__column--active" : ""}`}
-            >
-              <header className="team-lead-approval__column-head">
-                <h3>{column.title}</h3>
-                <p className="muted-line">{column.hint}</p>
-              </header>
-              <div className="team-lead-approval__column-body">
-                {isActive && teamRow ? (
-                  <article className="team-lead-approval__card">
-                    <strong className="team-lead-approval__card-title">{teamRow.team}</strong>
-                    <p className="muted-line">
-                      {teamRow.unit} · {teamRow.department}
-                    </p>
-                    {approvalDiff ? (
-                      <p className="team-lead-approval__card-delta">
-                        Δ ФОТ{" "}
-                        <strong>{formatSignedFotDelta(approvalDiff.summary.deltaFot)}</strong>
-                        {approvalDiff.summary.changeCount > 0
-                          ? ` · ${approvalDiff.summary.changeCount} изм.`
-                          : ""}
-                      </p>
-                    ) : (
-                      <dl className="team-lead-approval__metrics">
-                        <div>
-                          <dt>Δ ФОТ (год)</dt>
-                          <dd>{formatSignedFotDelta(teamRow.fotDeltaAnnual)}</dd>
-                        </div>
-                        <div>
-                          <dt>События</dt>
-                          <dd>{teamRow.deltaEvents}</dd>
-                        </div>
-                        <div>
-                          <dt>Позиции</dt>
-                          <dd>{teamRow.headcount}</dd>
-                        </div>
-                      </dl>
-                    )}
-                    {approvalSubstep ? (
-                      <p className="team-lead-approval__substep">{approvalSubstep}</p>
-                    ) : null}
-                    {submission?.returnedNote ? (
-                      <p className="team-lead-approval__return-note">
-                        <strong>Комментарий:</strong> {submission.returnedNote}
-                      </p>
-                    ) : null}
-                    {submission?.teamSubmittedAt && activeColumn === "in_approval" ? (
-                      <p className="muted-line">Сдано {formatIsoDateTime(submission.teamSubmittedAt)}</p>
-                    ) : null}
-                    {activeColumn === "published" && latestApproved ? (
-                      <p className="team-lead-approval__published-label">
-                        Активна <strong>{formatPlanVersionTitle(latestApproved)}</strong>
-                      </p>
-                    ) : null}
-                    {publishedHint ? (
-                      <p className="team-lead-approval__next-hint">{publishedHint}</p>
-                    ) : null}
-                    <div className="team-lead-approval__card-actions">
-                      {canSubmit ? (
-                        <button type="button" className="primary-btn" onClick={handleSubmit}>
-                          Сдать команду
-                        </button>
-                      ) : null}
-                      {workingDraft && canEditPlanning ? (
-                        <Link className="secondary-btn" to={planWorkspacePath("correction", { tab: "positions" })}>
-                          Квартальное планирование
-                        </Link>
-                      ) : workingDraft ? (
-                        <Link className="secondary-btn" to={planWorkspacePath("correction", { tab: "positions" })}>
-                          Просмотр плана
-                        </Link>
-                      ) : latestApproved && activeColumn === "published" ? (
-                        <Link className="secondary-btn" to="/planning">
-                          Просмотр бюджета
-                        </Link>
-                      ) : null}
-                    </div>
-                  </article>
-                ) : (
-                  <p className="team-lead-approval__column-empty muted-line">—</p>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </section>
+      {canShowApprovalPackage ? (
+        <>
+          <TeamLeadApprovalKpi
+            summary={approvalDiff!.summary}
+            baselineLabel={baselineLabel}
+            draftLabel={draftLabel}
+            submissionMode={submissionMode!}
+          />
+          <TeamLeadApprovalChangesList
+            rows={approvalDiff!.rows}
+            canEdit={canEditPlanning}
+            positionsById={positionsById}
+            versionLabel={draftLabel}
+            submissionMode={submissionMode!}
+            planningLink={planningLink}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

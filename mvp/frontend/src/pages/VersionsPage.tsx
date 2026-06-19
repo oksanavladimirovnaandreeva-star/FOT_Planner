@@ -199,6 +199,10 @@ export function VersionsPage() {
       canSubmitApproval ||
       canPublish);
 
+  const versionTabCount =
+    (canManagePlanVersions ? 1 : 0) + (showApprovalTab ? 1 : 0) + (workingDraft ? 1 : 0);
+  const showVersionTabs = versionTabCount > 1;
+
   return (
     <div className="content-page versions-page">
       <header className="content-page__header versions-page__header-compact">
@@ -252,6 +256,8 @@ export function VersionsPage() {
       </header>
 
       <nav className="planning-workspace-tabs" aria-label="Разделы версий">
+        {showVersionTabs ? (
+        <>
         {canManagePlanVersions ? (
         <button
           type="button"
@@ -278,6 +284,8 @@ export function VersionsPage() {
           >
             Сравнение
           </button>
+        ) : null}
+        </>
         ) : null}
       </nav>
 

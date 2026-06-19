@@ -37,9 +37,9 @@ export function submissionPhaseBadgeClass(phase: string): string {
 export function submissionActionLabel(action: SubmissionWorkflowAction): string {
   switch (action) {
     case "team_submit":
-      return "Сдать команду";
+      return "Отправить бюджет на согласование";
     case "unit_approve":
-      return "Согласовать команду";
+      return "Согласовать и отправить дальше";
     case "director_approve":
       return "Согласовать директором";
     case "cb_review":
@@ -101,7 +101,17 @@ export function canRolePerformSubmissionAction(action: SubmissionWorkflowAction,
     return actorOrgMatchesTarget(scope);
   }
 
-  if (action === "unit_approve" || action === "return" || action === "reopen_editing") {
+  if (action === "unit_approve" || action === "return") {
+    if (actorRole === "unit_lead") {
+      return actorOrgMatchesTarget(scope);
+    }
+    if (actorRole === "director") {
+      return actorOrgMatchesTarget(scope);
+    }
+    return false;
+  }
+
+  if (action === "reopen_editing") {
     if (actorRole === "unit_lead") {
       if (leadEditFrozen) return false;
       return actorOrgMatchesTarget(scope);

@@ -417,6 +417,9 @@ export function PlanningPage() {
 
   const journalHighlightPositionId = searchParams.get("position");
 
+  const isLeadRole = userRole === "team_lead" || userRole === "unit_lead";
+  const leadQuarterlyOnly = isLeadRole && Boolean(workingDraft);
+
   const setWorkspaceMode = (mode: PlanWorkspaceMode) => {
     setSearchParams(
       (prev) => {
@@ -428,6 +431,12 @@ export function PlanningPage() {
       { replace: true },
     );
   };
+
+  useEffect(() => {
+    if (!leadQuarterlyOnly) return;
+    if (workspaceMode === "correction") return;
+    setWorkspaceMode("correction");
+  }, [leadQuarterlyOnly, workspaceMode]);
 
   const setWorkspaceTab = (tab: WorkspaceTab) => {
     const next = new URLSearchParams(searchParams);
@@ -495,9 +504,6 @@ export function PlanningPage() {
         if (isDraftRecord) return current;
         activeRawRef.current = null;
         return null;
-      }
-      if (activeRawRef.current === refreshed) {
-        return current;
       }
       activeRawRef.current = refreshed;
       return withAppliedEvents(refreshed);
@@ -678,11 +684,27 @@ export function PlanningPage() {
       return;
     }
     setPositions((prev) => removePlanEvent(prev, positionId, eventId));
+    setActive((current) => {
+      if (!current || current.positionId !== positionId) return current;
+      const raw =
+        activeRawRef.current?.positionId === positionId
+          ? activeRawRef.current
+          : positions.find((position) => position.positionId === positionId) ?? current;
+      const updated = removePlanEvent([raw], positionId, eventId)[0];
+      if (!updated) return current;
+      activeRawRef.current = updated;
+      return withAppliedEvents(updated);
+    });
   };
   const deletePosition = (positionId: string) => {
     if (!canEditWorkspace) {
       blockEdit();
       return;
+    }
+    setBulkFeedback(null);
+    if (bulkFeedbackTimer.current !== null) {
+      window.clearTimeout(bulkFeedbackTimer.current);
+      bulkFeedbackTimer.current = null;
     }
     const target = positions.find((position) => position.positionId === positionId) ?? active;
     const isPersisted = positions.some((position) => position.positionId === positionId);
@@ -842,8 +864,9 @@ export function PlanningPage() {
               <p className="muted-line">{roleScopeHint}</p>
             </>
           ) : (
-            <p>
-              {tableCounts.total} поз. · {viewMode === "total" ? "итого ФОТ" : "оклад"}
+            <p className="muted-line">
+              Сдать команду можно на{" "}
+              <Link to="/versions?tab=approval">Мой бюджет</Link>
             </p>
           )}
         </div>
@@ -910,6 +933,7 @@ export function PlanningPage() {
       ) : null}
 
       <nav className="planning-workspace-tabs planning-mode-tabs" aria-label="Режим планирования">
+        {!leadQuarterlyOnly ? (
         <button
           type="button"
           className={`planning-workspace-tabs__btn${workspaceMode === "planning" ? " planning-workspace-tabs__btn--active" : ""}`}
@@ -917,6 +941,7 @@ export function PlanningPage() {
         >
           Годовое планирование
         </button>
+        ) : null}
         {showQuarterlyWorkspace ? (
           <button
             type="button"

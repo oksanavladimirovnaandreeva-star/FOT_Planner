@@ -56,5 +56,5 @@ export function PlanIndexationSection({
   }
 
   if (batches.length === 0) return null;
-  return <PlanIndexationBanner batches={batches} />;
+  return <PlanIndexationBanner batches={batches} showPositionCount={false} />;
 }

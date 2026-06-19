@@ -135,6 +135,15 @@ describe("userAccess RBAC", () => {
     expect(merged.find((p) => p.positionId === "П001")?.monthlyBase[0]).toBe(200_000);
   });
 
+  it("mergeScopedPositionUpdates удаляет позиции из среза", () => {
+    const scoped = samplePosition({ positionId: "П001" });
+    const outside = samplePosition({ positionId: "П099", department: "Sales", team: "X" });
+    const all = [outside, scoped];
+    const merged = mergeScopedPositionUpdates(all, [scoped], []);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].positionId).toBe("П099");
+  });
+
   it("loadUserRole мигрирует legacy admin в cb_admin", () => {
     localStorage.setItem("fot_mvp_user_role", "admin");
     expect(loadUserRole()).toBe("cb_admin");

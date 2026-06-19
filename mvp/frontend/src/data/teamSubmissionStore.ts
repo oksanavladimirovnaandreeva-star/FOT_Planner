@@ -2,6 +2,7 @@ import type { UserRole } from "./userAccess";
 import { demoRoleScope } from "./userAccess";
 import { scopeEqValues } from "./personaAccessScope";
 import { canRolePerformSubmissionAction, type SubmissionWorkflowAction } from "./submissionWorkflowPolicy";
+import type { PlanVersionMeta } from "./planVersions";
 
 export type TeamSubmissionPhase =
   | "editing"
@@ -395,4 +396,58 @@ export function isTeamEditingLocked(record: TeamSubmissionRecord | null): boolea
     record?.phase === "director_approved" ||
     record?.phase === "cb_review"
   );
+}
+
+/** Можно ли тимлиду отправить бюджет (ещё не на согласовании). */
+export function canSubmitTeamBudget(submission: TeamSubmissionRecord | null): boolean {
+  const phase = submission?.phase ?? "editing";
+  return phase === "editing" || phase === "returned";
+}
+
+/** planVersionId, под которым лежит запись сдачи (для действий согласования). */
+export function resolveSubmissionPlanVersionId(
+  workingDraftId: string | null,
+  primaryBudget: PlanVersionMeta | null,
+  department: string,
+  unit: string,
+  team: string,
+): string | null {
+  if (workingDraftId) {
+    const quarterly = getTeamSubmission(workingDraftId, department, unit, team);
+    if (quarterly) return workingDraftId;
+  }
+  if (primaryBudget?.status === "DRAFT" && primaryBudget.versionNumber === 1) {
+    const annual = getTeamSubmission(primaryBudget.id, department, unit, team);
+    if (annual) return primaryBudget.id;
+  }
+  return workingDraftId ?? primaryBudget?.id ?? null;
+}
+
+/** Submission по квартальному черновику или годовому бюджету v1 (если черновика нет). */
+export function getTeamSubmissionForApprovalScope(
+  workingDraftId: string | null,
+  primaryBudget: PlanVersionMeta | null,
+  department: string,
+  unit: string,
+  team: string,
+): TeamSubmissionRecord | null {
+  if (workingDraftId) {
+    const quarterly = getTeamSubmission(workingDraftId, department, unit, team);
+    if (quarterly) return quarterly;
+  }
+  if (primaryBudget?.status === "DRAFT" && primaryBudget.versionNumber === 1) {
+    return getTeamSubmission(primaryBudget.id, department, unit, team);
+  }
+  return null;
+}
+
+/** Демо: Mobile сдана, остальные команды — в работе (для экрана юнит-лида). */
+export function seedDemoUnitLeadQueue(planVersionId: string): void {
+  const all = readAll();
+  const mobileKey = submissionKey(planVersionId, "Engineering", "ProductDev", "Mobile");
+  all[mobileKey] = {
+    phase: "team_submitted",
+    teamSubmittedAt: "2026-06-11T09:30:00.000Z",
+  };
+  writeAll(all);
 }

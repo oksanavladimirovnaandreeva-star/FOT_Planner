@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTeamApprovalDiff } from "./teamApprovalDiff";
+import { buildTeamApprovalDiff, buildUnitApprovalDiff } from "./teamApprovalDiff";
 import type { PositionRecord } from "../types";
 
 function basePosition(overrides: Partial<PositionRecord> = {}): PositionRecord {
@@ -30,74 +30,125 @@ function basePosition(overrides: Partial<PositionRecord> = {}): PositionRecord {
 }
 
 describe("buildTeamApprovalDiff", () => {
-  it("показывает только новые события черновика", () => {
-    const baseline = [
-      basePosition({
-        events: [
-          {
-            id: "ev-old",
-            type: "MANUAL_OVERRIDE",
-            payload: { month: 3, base: 100_000 },
-            createdAt: "2026-01-01",
-            createdOrder: 1,
-          },
-        ],
-      }),
-    ];
-    const draft = [
-      basePosition({
-        events: [
-          ...baseline[0].events,
-          {
-            id: "ev-new",
-            type: "TARGET_SALARY",
-            payload: { month: 5, base: 120_000 },
-            createdAt: "2026-06-01",
-            createdOrder: 2,
-          },
-        ],
-        monthlyBase: Array(12).fill(120_000),
-      }),
-    ];
+  const baseline = [
+    basePosition({
+      events: [
+        {
+          id: "ev-old",
+          type: "MANUAL_OVERRIDE",
+          payload: { month: 3, base: 100_000 },
+          createdAt: "2026-01-01",
+          createdOrder: 1,
+        },
+      ],
+    }),
+  ];
+  const draft = [
+    basePosition({
+      events: [
+        ...baseline[0].events,
+        {
+          id: "ev-new",
+          type: "TARGET_SALARY",
+          payload: { month: 5, base: 120_000 },
+          createdAt: "2026-06-01",
+          createdOrder: 2,
+        },
+      ],
+      monthlyBase: Array(12).fill(120_000),
+    }),
+  ];
+  const scope = {
+    department: "Engineering",
+    unit: "ProductDev",
+    team: "Frontend Web",
+  };
 
+  it("годовое: все события команды на год", () => {
+    const { rows, summary } = buildTeamApprovalDiff({
+      baselinePositions: [],
+      draftPositions: draft,
+      ...scope,
+      mode: "annual",
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(summary.changeCount).toBe(2);
+  });
+
+  it("квартальное: только новые события vs утверждённый год", () => {
     const { rows, summary } = buildTeamApprovalDiff({
       baselinePositions: baseline,
       draftPositions: draft,
-      department: "Engineering",
-      unit: "ProductDev",
-      team: "Frontend Web",
+      ...scope,
+      mode: "quarterly",
     });
 
     expect(rows).toHaveLength(1);
     expect(rows[0].event.id).toBe("ev-new");
     expect(summary.changeCount).toBe(1);
+    expect(summary.deltaFot).toBeGreaterThan(0);
   });
 
   it("не включает команды вне среза", () => {
-    const baseline = [basePosition({ team: "Other" })];
+    const { rows } = buildTeamApprovalDiff({
+      baselinePositions: [basePosition({ team: "Other" })],
+      draftPositions: [
+        basePosition({
+          team: "Other",
+          events: [
+            {
+              id: "ev-new",
+              type: "TARGET_SALARY",
+              payload: { month: 5, base: 120_000 },
+              createdAt: "2026-06-01",
+              createdOrder: 1,
+            },
+          ],
+        }),
+      ],
+      ...scope,
+      mode: "quarterly",
+    });
+
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe("buildUnitApprovalDiff", () => {
+  it("квартальное: дельта по юниту", () => {
+    const baseline = [
+      basePosition({ team: "Mobile", positionId: "P1" }),
+      basePosition({ team: "Frontend Web", positionId: "P2" }),
+    ];
     const draft = [
       basePosition({
-        team: "Other",
+        team: "Mobile",
+        positionId: "P1",
         events: [
           {
-            id: "ev-new",
+            id: "ev-mobile",
             type: "TARGET_SALARY",
-            payload: { month: 5, base: 120_000 },
+            payload: { month: 3, base: 120_000 },
             createdAt: "2026-06-01",
             createdOrder: 1,
           },
         ],
+        monthlyBase: Array(12).fill(120_000),
       }),
+      basePosition({ team: "Frontend Web", positionId: "P2" }),
     ];
 
-    const { rows } = buildTeamApprovalDiff({
+    const { rows, summary } = buildUnitApprovalDiff({
       baselinePositions: baseline,
       draftPositions: draft,
       department: "Engineering",
       unit: "ProductDev",
-      team: "Frontend Web",
+      mode: "quarterly",
     });
 
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].team).toBe("Mobile");
+    expect(summary.changeCount).toBe(1);
   });
 });

@@ -14,7 +14,7 @@ describe("demoPlanSeed", () => {
     const positions = buildDemoPositions();
     expect(positions.length).toBeGreaterThanOrEqual(DEFAULT_DEMO_POSITION_COUNT);
     expect(positions.length).toBeLessThan(PILOT_POSITION_TARGET);
-    expect(DEMO_SEED_VERSION).toBe(6);
+    expect(DEMO_SEED_VERSION).toBe(8);
 
     const carryover = positions.filter((position) => position.slotType === "carryover");
     expect(carryover.every((position) => position.events.some((event) => event.type === "POSITION_CARRYOVER"))).toBe(

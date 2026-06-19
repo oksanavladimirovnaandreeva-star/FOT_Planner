@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { DemoUserCard } from "./DemoUserCard";
 import { PlanWorkspaceContext } from "./PlanWorkspaceContext";
 import {
@@ -13,7 +13,20 @@ import { roleSettingsNavVisible, roleVersionsNavLabel } from "../data/userAccess
 import { PLAN_SCENARIO_INCLUDES_FACT } from "../data/planScenario";
 import { HintTooltipLayer } from "./HintTooltipLayer";
 
+function navItemIsActive(itemTo: string, pathname: string, search: string): boolean {
+  const [path, query = ""] = itemTo.split("?");
+  if (pathname !== path) return false;
+  if (!query) return true;
+  const expected = new URLSearchParams(query);
+  const actual = new URLSearchParams(search);
+  for (const [key, value] of expected.entries()) {
+    if (actual.get(key) !== value) return false;
+  }
+  return true;
+}
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const {
     viewMode,
     setViewMode,
@@ -72,10 +85,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <nav className="app-sidebar__nav" aria-label="Основное меню">
           {nav.map((item) => (
             <NavLink
-              key={item.to}
+              key={item.label}
               to={item.to}
               end={item.end}
-              className={({ isActive }) => `app-nav__link${isActive ? " app-nav__link--active" : ""}`}
+              className={() =>
+                `app-nav__link${
+                  navItemIsActive(item.to, location.pathname, location.search) ? " app-nav__link--active" : ""
+                }`
+              }
             >
               <item.icon className="app-nav__icon" size={20} strokeWidth={2} aria-hidden />
               {item.label}

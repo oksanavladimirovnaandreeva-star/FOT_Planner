@@ -119,7 +119,10 @@ function scenarioHintForPosition(_record: PositionRecord, scenario: ScenarioType
 
 function scenarioGroupsForPosition(record: PositionRecord): typeof SCENARIO_GROUPS {
   if (applyEvents(record).status === "Vacancy") {
-    return [{ label: "ФОТ и профиль компенсации", scenarios: ["REVIEW", "GRADE_CHANGE"] as ScenarioType[] }];
+    return [
+      { label: "ФОТ и профиль компенсации", scenarios: ["REVIEW", "GRADE_CHANGE"] as ScenarioType[] },
+      { label: "Занятость позиции", scenarios: ["REDUCTION"] as ScenarioType[] },
+    ];
   }
   return SCENARIO_GROUPS;
 }
@@ -415,7 +418,11 @@ export function PositionDrawer({
     const bonus = Number(scenarioForm.bonus);
     const specialization = scenarioForm.specialization;
     const level = scenarioForm.level;
-    if (view.status !== "Occupied" && scenarioForm.scenario !== "REVIEW") {
+    const vacancyScenario =
+      scenarioForm.scenario === "REVIEW" ||
+      scenarioForm.scenario === "GRADE_CHANGE" ||
+      scenarioForm.scenario === "REDUCTION";
+    if (view.status !== "Occupied" && !vacancyScenario) {
       window.alert("Операция доступна только для занятых сотрудников.");
       return;
     }

@@ -7,7 +7,7 @@ export function landingRouteForRole(role: UserRole): string {
   switch (role) {
     case "team_lead":
     case "unit_lead":
-      return "/planning?tab=positions";
+      return "/versions?tab=approval";
     case "cb_admin":
     case "gd":
     case "director":

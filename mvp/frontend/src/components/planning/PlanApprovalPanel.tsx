@@ -19,6 +19,7 @@ import {
 import { demoRoleActorOrg, type UserRole } from "../../data/userAccess";
 import { ConsolidationPage } from "../../pages/ConsolidationPage";
 import { TeamLeadApprovalPanel } from "./TeamLeadApprovalPanel";
+import { UnitLeadApprovalPanel } from "./UnitLeadApprovalPanel";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   cb_admin: "C&B",
@@ -131,6 +132,14 @@ export function PlanApprovalPanel() {
     return (
       <div className="plan-approval-panel">
         <TeamLeadApprovalPanel />
+      </div>
+    );
+  }
+
+  if (userRole === "unit_lead") {
+    return (
+      <div className="plan-approval-panel">
+        <UnitLeadApprovalPanel />
       </div>
     );
   }

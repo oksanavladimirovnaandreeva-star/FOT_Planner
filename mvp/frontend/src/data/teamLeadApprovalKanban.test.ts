@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTeamLeadVersionRibbon,
   formatNextQuarterVersionHint,
+  groupTeamsByKanbanColumn,
   resolveTeamLeadKanbanColumn,
 } from "./teamLeadApprovalKanban";
 import type { PlanVersionMeta } from "./planVersions";
@@ -42,6 +43,25 @@ describe("resolveTeamLeadKanbanColumn", () => {
         submission: null,
       }),
     ).toBe("in_progress");
+  });
+
+  it("годовая сдача без квартального черновика — на согласовании", () => {
+    const annualDraft = version({
+      id: "b1-draft",
+      label: "Бюджет 2026",
+      versionNumber: 1,
+      status: "DRAFT",
+      kind: "WORKING_DRAFT",
+      publishedAt: undefined,
+    });
+    expect(
+      resolveTeamLeadKanbanColumn({
+        workingDraft: null,
+        latestApproved: null,
+        primaryBudget: annualDraft,
+        submission: { phase: "team_submitted" },
+      }),
+    ).toBe("in_approval");
   });
 
   it("сдано — на согласовании", () => {
@@ -95,6 +115,21 @@ describe("buildTeamLeadVersionRibbon", () => {
     expect(steps[0].state).toBe("done");
     expect(steps[1].state).toBe("current");
     expect(steps[2].state).toBe("pending");
+  });
+});
+
+describe("groupTeamsByKanbanColumn", () => {
+  it("раскладывает команды по колонкам", () => {
+    const teams = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const grouped = groupTeamsByKanbanColumn(teams, (team) => {
+      if (team.id === "a") return "in_progress";
+      if (team.id === "b") return "in_approval";
+      return "returned";
+    });
+    expect(grouped.in_progress).toHaveLength(1);
+    expect(grouped.in_approval).toHaveLength(1);
+    expect(grouped.returned).toHaveLength(1);
+    expect(grouped.published).toHaveLength(0);
   });
 });
 

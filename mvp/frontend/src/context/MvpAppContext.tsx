@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { applyEvents, initialPositions } from "../data/planningData";
 import { DEMO_SEED_VERSION, DEMO_SEED_VERSION_KEY } from "../data/demoPlanSeed";
+import { buildDemoQuarterlyVersionState, applyDemoQuarterlyScenarioSideEffects } from "../data/demoVersionSeed";
 import { diffPlanVersions, type PlanVersionDiffSummary } from "../data/planVersionDiff";
 import {
   archiveApprovedVersion,
@@ -108,28 +109,28 @@ export { formatImportReport };
 /** @deprecated Используйте PlanVersionMeta */
 export type PlanVersionMock = PlanVersionMeta;
 
-function seedVersionData(): Record<string, PositionRecord[]> {
-  const baseline = initialPositions().map(applyEvents);
-  const versions = initialPlanVersions();
-  const approvedId = versions[0].id;
-  return { [approvedId]: baseline };
-}
+const TEAM_SUBMISSIONS_KEY = "mvp.teamSubmissions";
 
-function applyDemoSeedUpgrade(
-  versions: PlanVersionMeta[],
-  dataByVersion: Record<string, PositionRecord[]>,
-): Record<string, PositionRecord[]> | null {
+function applyDemoSeedUpgrade(): {
+  versions: PlanVersionMeta[];
+  dataByVersion: Record<string, PositionRecord[]>;
+} | null {
   try {
     const stored = localStorage.getItem(DEMO_SEED_VERSION_KEY);
     if (stored === String(DEMO_SEED_VERSION)) return null;
   } catch {
     /* ignore */
   }
-  const primary = primaryBudgetVersion(versions) ?? versions[0];
-  if (!primary) return null;
-  const fresh = initialPositions().map(applyEvents);
   localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
-  return { ...dataByVersion, [primary.id]: fresh };
+  try {
+    localStorage.removeItem(TEAM_SUBMISSIONS_KEY);
+  } catch {
+    /* ignore */
+  }
+  const state = buildDemoQuarterlyVersionState();
+  const draft = state.versions.find((version) => version.kind === "WORKING_DRAFT");
+  if (draft) applyDemoQuarterlyScenarioSideEffects(draft.id);
+  return state;
 }
 
 function hydrateState(): {
@@ -143,17 +144,19 @@ function hydrateState(): {
     return migrated;
   }
   if (persistedVersions && persistedData) {
+    const upgraded = applyDemoSeedUpgrade();
+    if (upgraded) return upgraded;
     const repaired = repairDataByVersion(persistedVersions, persistedData);
-    const upgraded = applyDemoSeedUpgrade(persistedVersions, repaired);
     return {
       versions: repairVersionLabels(persistedVersions),
-      dataByVersion: upgraded ?? repaired,
+      dataByVersion: repaired,
     };
   }
-  const versions = repairVersionLabels(initialPlanVersions());
-  const dataByVersion = repairDataByVersion(versions, seedVersionData());
   localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
-  return { versions, dataByVersion };
+  const fresh = buildDemoQuarterlyVersionState();
+  const draft = fresh.versions.find((version) => version.kind === "WORKING_DRAFT");
+  if (draft) applyDemoQuarterlyScenarioSideEffects(draft.id);
+  return fresh;
 }
 
 type VersionDiffBundle = {
@@ -444,15 +447,19 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
   }, [planVersions, latestApproved]);
 
   const isTeamSliceReadOnly = useMemo(() => {
-    if (userRole !== "team_lead" || !workingDraft) return false;
+    if (userRole !== "team_lead") return false;
     const scope = demoRoleScope("team_lead");
     const department = scopePrimaryEq(scope, "department");
     const unit = scopePrimaryEq(scope, "unit");
     const team = scopePrimaryEq(scope, "team");
     if (!department || !unit || !team) return false;
-    const submission = getTeamSubmission(workingDraft.id, department, unit, team);
+    const planVersionId =
+      workingDraft?.id ??
+      (primaryBudget?.status === "DRAFT" && primaryBudget.versionNumber === 1 ? primaryBudget.id : null);
+    if (!planVersionId) return false;
+    const submission = getTeamSubmission(planVersionId, department, unit, team);
     return isTeamEditingLocked(submission);
-  }, [userRole, workingDraft, teamSubmissionRevision, configRevision]);
+  }, [userRole, workingDraft, primaryBudget, teamSubmissionRevision, configRevision]);
   const approvalRoute = useMemo(
     () => buildApprovalRoute(planVersions, workingDraft),
     [planVersions, workingDraft],
@@ -887,7 +894,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     const v1Id = freshVersions[0].id;
     const primary = primaryBudgetVersion(planVersions);
     const sourceRows = primary ? dataByVersion[primary.id] : dataByVersion[v1Id];
-    const v1Data = sourceRows?.length ? clonePositionList(sourceRows) : seedVersionData()[v1Id];
+    const v1Data = sourceRows?.length ? clonePositionList(sourceRows) : initialPositions().map(applyEvents);
     setPlanVersions(freshVersions);
     setDataByVersion({ [v1Id]: v1Data });
     setPlanVersionId(v1Id);

@@ -1,10 +1,17 @@
 import { formatMoney } from "../../data/formatDisplay";
-import type { TeamApprovalDiffSummary } from "../../data/teamApprovalDiff";
+import { LIMIT_FLAG_LABELS } from "../../data/planningData";
+import {
+  TEAM_APPROVAL_LIMIT_FLAGS,
+  type TeamApprovalDiffSummary,
+  type TeamApprovalSubmissionMode,
+} from "../../data/teamApprovalDiff";
+import type { LimitFlagKey } from "../../types";
 
 type Props = {
   summary: TeamApprovalDiffSummary;
   baselineLabel: string;
   draftLabel: string;
+  submissionMode: TeamApprovalSubmissionMode;
 };
 
 function deltaTone(delta: number): "up" | "down" | "flat" {
@@ -13,57 +20,102 @@ function deltaTone(delta: number): "up" | "down" | "flat" {
   return "flat";
 }
 
-export function TeamLeadApprovalKpi({ summary, baselineLabel, draftLabel }: Props) {
-  const maxFot = Math.max(summary.baselineFot, summary.draftFot, 1);
-  const baselinePct = Math.round((summary.baselineFot / maxFot) * 100);
-  const draftPct = Math.round((summary.draftFot / maxFot) * 100);
-  const tone = deltaTone(summary.deltaFot);
+export function formatChangeCountLabel(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} изменение`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${count} изменения`;
+  return `${count} изменений`;
+}
+
+function formatSignedDelta(value: number, compact = false): string {
+  if (value === 0) return "—";
+  const sign = value > 0 ? "+" : "−";
+  return `${sign}${formatMoney(Math.abs(value), compact)}`;
+}
+
+function LimitFotRows({
+  totals,
+  flags = TEAM_APPROVAL_LIMIT_FLAGS,
+}: {
+  totals: Record<LimitFlagKey, number>;
+  flags?: LimitFlagKey[];
+}) {
+  return (
+    <ul className="team-lead-approval__limit-rows">
+      {flags.map((flag) => (
+        <li key={flag} className="team-lead-approval__limit-row">
+          <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
+          <strong>{formatMoney(totals[flag], true)}</strong>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function TeamLeadApprovalKpi({ summary, baselineLabel, draftLabel, submissionMode }: Props) {
+  const isAnnual = submissionMode === "annual";
+  const deltaToneValue = deltaTone(summary.deltaFot);
 
   return (
-    <section className="card team-lead-approval__kpi" aria-label="Сводка изменений команды">
-      <h2 className="section-title">Изменения vs утверждённая версия</h2>
-      <div className="team-lead-approval__kpi-grid">
-        <article className="team-lead-kpi-card">
-          <span className="team-lead-kpi-card__label">Было</span>
-          <strong className="team-lead-kpi-card__value">{formatMoney(summary.baselineFot, true)}</strong>
-          <span className="team-lead-kpi-card__hint">{baselineLabel}</span>
-        </article>
-        <article className={`team-lead-kpi-card team-lead-kpi-card--delta team-lead-kpi-card--${tone}`}>
-          <span className="team-lead-kpi-card__label">Δ ФОТ</span>
-          <strong className="team-lead-kpi-card__value">
-            {summary.deltaFot === 0
-              ? "—"
-              : `${summary.deltaFot > 0 ? "+" : "−"}${formatMoney(Math.abs(summary.deltaFot), true)}`}
-          </strong>
-          <span className="team-lead-kpi-card__hint">
-            {summary.changeCount} {summary.changeCount === 1 ? "изменение" : "изменений"}
-          </span>
-        </article>
-        <article className="team-lead-kpi-card team-lead-kpi-card--accent">
-          <span className="team-lead-kpi-card__label">Стало</span>
-          <strong className="team-lead-kpi-card__value">{formatMoney(summary.draftFot, true)}</strong>
-          <span className="team-lead-kpi-card__hint">{draftLabel}</span>
-        </article>
-      </div>
-      <div className="team-lead-approval__kpi-bars" aria-hidden>
-        <div className="team-lead-approval__kpi-bar-row">
-          <span>{baselineLabel}</span>
-          <div className="team-lead-approval__kpi-bar-track">
-            <span className="team-lead-approval__kpi-bar-fill team-lead-approval__kpi-bar-fill--base" style={{ width: `${baselinePct}%` }} />
-          </div>
+    <div className="team-lead-approval__kpi-stack">
+      <section className="card team-lead-approval__kpi" aria-label="Бюджет к сдаче">
+        <h2 className="section-title">Бюджет команды к сдаче</h2>
+        <p className="muted-line team-lead-approval__kpi-lead">
+          {isAnnual
+            ? `Общий годовой ФОТ команды · ${draftLabel}`
+            : `Общий ФОТ команды в ${draftLabel} — это уходит на согласование`}
+        </p>
+        <div className="team-lead-approval__kpi-hero">
+          <span className="team-lead-approval__kpi-hero-label">Итого ФОТ год</span>
+          <strong className="team-lead-approval__kpi-hero-value">{formatMoney(summary.draftFot, true)}</strong>
         </div>
-        <div className="team-lead-approval__kpi-bar-row">
-          <span>{draftLabel}</span>
-          <div className="team-lead-approval__kpi-bar-track">
-            <span className="team-lead-approval__kpi-bar-fill team-lead-approval__kpi-bar-fill--draft" style={{ width: `${draftPct}%` }} />
+        <LimitFotRows totals={summary.draftFotByLimit} />
+        {isAnnual && summary.changeCount > 0 ? (
+          <p className="muted-line team-lead-approval__kpi-foot">
+            {formatChangeCountLabel(summary.changeCount)} — в журнале ниже
+          </p>
+        ) : null}
+      </section>
+
+      {!isAnnual ? (
+        <section
+          className={`card team-lead-approval__kpi team-lead-approval__kpi--delta team-lead-approval__kpi--${deltaToneValue}`}
+          aria-label="Изменения относительно утверждённого года"
+        >
+          <h2 className="section-title">Изменения vs утверждённый год</h2>
+          <p className="muted-line team-lead-approval__kpi-lead">
+            Насколько и почему бюджет изменился относительно {baselineLabel}. Детали — в журнале квартальной
+            версии ниже.
+          </p>
+          <div className="team-lead-approval__kpi-delta-total">
+            <span>Δ ФОТ год</span>
+            <strong>{formatSignedDelta(summary.deltaFot, true)}</strong>
+            <span className="muted-line">
+              {formatMoney(summary.baselineFot, true)} → {formatMoney(summary.draftFot, true)}
+            </span>
           </div>
-        </div>
-      </div>
-      <div className="team-lead-approval__kpi-chips">
-        <span className="team-lead-approval__chip">
-          Позиции: {summary.baselineHeadcount} → {summary.draftHeadcount}
-        </span>
-      </div>
-    </section>
+          <ul className="team-lead-approval__limit-rows team-lead-approval__limit-rows--delta">
+            {TEAM_APPROVAL_LIMIT_FLAGS.map((flag) => (
+              <li key={flag} className="team-lead-approval__limit-row">
+                <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
+                <strong>{formatSignedDelta(summary.deltaFotByLimit[flag], true)}</strong>
+                <span className="muted-line">
+                  {formatMoney(summary.baselineFotByLimit[flag], true)} →{" "}
+                  {formatMoney(summary.draftFotByLimit[flag], true)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {summary.changeCount > 0 ? (
+            <p className="muted-line team-lead-approval__kpi-foot">
+              {formatChangeCountLabel(summary.changeCount)} в квартальной версии
+            </p>
+          ) : (
+            <p className="muted-line team-lead-approval__kpi-foot">Правок в квартальной версии нет</p>
+          )}
+        </section>
+      ) : null}
+    </div>
   );
 }
