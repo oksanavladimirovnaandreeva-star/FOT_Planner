@@ -1,4 +1,6 @@
 import { collectDraftDeltaEvents } from "./planApprovalRules";
+import { collectPlanEventJournalRows } from "./eventJournal";
+import { resolveTeamLeadDisplayForTeam } from "./demoPersonas";
 import { annualTotal, hasCarryoverEvent } from "./planningData";
 import { getTeamSubmissionForApprovalScope, type TeamSubmissionRecord } from "./teamSubmissionStore";
 import type { PlanVersionMeta } from "./planVersions";
@@ -270,6 +272,17 @@ export function buildOrgConsolidationReport(
       const delta = annualTotal(draft) - (baseline ? annualTotal(baseline) : 0);
       fotDeltaByTeam.set(key, (fotDeltaByTeam.get(key) ?? 0) + delta);
     }
+  } else if (!workingDraft && primaryBudget?.versionNumber === 1) {
+    for (const row of collectPlanEventJournalRows(draftPositions)) {
+      if (row.department !== department) continue;
+      if (unitScope && row.unit !== unitScope) continue;
+      if (teamScope && row.team !== teamScope) continue;
+      const key = teamKey(row.department, row.unit, row.team);
+      deltaByTeam.set(key, (deltaByTeam.get(key) ?? 0) + 1);
+      const ids = deltaPositionsByTeam.get(key) ?? new Set<string>();
+      ids.add(row.positionId);
+      deltaPositionsByTeam.set(key, ids);
+    }
   }
 
   const carryoverByTeam = new Map<string, number>();
@@ -317,7 +330,8 @@ export function buildOrgConsolidationReport(
       carryoverGaps,
       status,
       displayStatus,
-      responsibleLabel: `Тимлид ${team}`,
+      responsibleLabel:
+        resolveTeamLeadDisplayForTeam(department, unit, team) ?? `Тимлид · ${team}`,
       filledPercent: FILLED_DISPLAY_STATUSES.has(displayStatus) ? 100 : 0,
       approvedPercent: APPROVED_DISPLAY_STATUSES.has(displayStatus) ? 100 : 0,
     });

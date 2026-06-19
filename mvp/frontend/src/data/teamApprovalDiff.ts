@@ -7,7 +7,7 @@ import {
   type EventChangeSummary,
   type PlanEventJournalRow,
 } from "./eventJournal";
-import { annualTotal } from "./planningData";
+import { annualTotal, applyEventsUntil } from "./planningData";
 import { eventTypeLabel } from "./eventLabels";
 import type { EventType, LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 
@@ -107,6 +107,32 @@ function matchesUnit(
   return position.department === scope.department && position.unit === scope.unit;
 }
 
+function matchesDepartment(position: PositionRecord, department: string): boolean {
+  return position.department === department;
+}
+
+function annualFotByLimitForDepartment(
+  positions: PositionRecord[],
+  department: string,
+): FotByLimit {
+  return annualFotByLimit(positions, (position) => matchesDepartment(position, department));
+}
+
+function headcountForDepartment(positions: PositionRecord[], department: string): number {
+  return positions.filter(
+    (position) => matchesDepartment(position, department) && position.status !== "Closed",
+  ).length;
+}
+
+function annualFotForDepartment(positions: PositionRecord[], department: string): number {
+  let sum = 0;
+  for (const position of positions) {
+    if (!matchesDepartment(position, department) || position.status === "Closed") continue;
+    sum += annualTotal(position);
+  }
+  return sum;
+}
+
 function headcountForTeam(positions: PositionRecord[], scope: { department: string; unit: string; team: string }): number {
   return positions.filter(
     (position) => matchesTeam(position, scope) && position.status !== "Closed",
@@ -137,6 +163,15 @@ function annualFotForUnit(positions: PositionRecord[], scope: { department: stri
   return sum;
 }
 
+function annualFotDeltaForEvent(position: PositionRecord, event: PlannedEvent): number {
+  const before = applyEventsUntil(position, event.id, false);
+  const after = applyEventsUntil(position, event.id, true);
+  if (before.status === "Closed" && after.status === "Closed") return 0;
+  const beforeFot = before.status !== "Closed" ? annualTotal(before) : 0;
+  const afterFot = after.status !== "Closed" ? annualTotal(after) : 0;
+  return afterFot - beforeFot;
+}
+
 function journalRowsToApprovalRows(
   journalRows: PlanEventJournalRow[],
   input: {
@@ -150,14 +185,10 @@ function journalRowsToApprovalRows(
   return journalRows.map((row) => {
     const draftPosition =
       input.draftPositions.find((item) => item.positionId === row.positionId) ?? null;
-    const isNewSlot = draftPosition?.slotType === "new";
     const isNewPosition =
       mode === "quarterly"
         ? !baselinePositionIds.has(row.positionId)
-        : Boolean(isNewSlot);
-    const baseline = input.baselinePositions.find((position) => position.positionId === row.positionId);
-    const baselineFot = baseline && baseline.status !== "Closed" ? annualTotal(baseline) : 0;
-    const draftFot = draftPosition && draftPosition.status !== "Closed" ? annualTotal(draftPosition) : 0;
+        : row.event.type === "PLANNED_HIRE" && draftPosition?.slotType === "new";
 
     return {
       positionId: row.positionId,
@@ -170,7 +201,7 @@ function journalRowsToApprovalRows(
       change: row.change,
       comment: row.comment?.trim() || row.commentTooltip,
       isNewPosition,
-      fotDeltaAnnual: draftFot - baselineFot,
+      fotDeltaAnnual: draftPosition ? annualFotDeltaForEvent(draftPosition, row.event) : 0,
       event: row.event,
       createdAt: row.createdAt,
     };
@@ -193,9 +224,6 @@ function deltaEventsToApprovalRows(
     const isNewPosition = !baselinePositionIds.has(position.positionId);
     const baseline = baselineById.get(position.positionId) ?? position;
     const change = summarizeEventChange(baseline, event);
-    const draftPosition = input.draftPositions.find((item) => item.positionId === position.positionId) ?? position;
-    const baselineFot = baseline.status !== "Closed" ? annualTotal(baseline) : 0;
-    const draftFot = draftPosition.status !== "Closed" ? annualTotal(draftPosition) : 0;
 
     return {
       positionId: position.positionId,
@@ -208,7 +236,7 @@ function deltaEventsToApprovalRows(
       change,
       comment: event.payload.comment?.trim() || eventCommentTooltip(event),
       isNewPosition,
-      fotDeltaAnnual: draftFot - baselineFot,
+      fotDeltaAnnual: annualFotDeltaForEvent(baseline, event),
       event,
       createdAt: event.createdAt,
     };
@@ -314,6 +342,59 @@ export function buildUnitApprovalDiff(input: {
       annualFotForUnit(input.draftPositions, scope) - annualFotForUnit(input.baselinePositions, scope),
     baselineHeadcount: headcountForUnit(input.baselinePositions, scope),
     draftHeadcount: headcountForUnit(input.draftPositions, scope),
+    changeCount: rows.length,
+    baselineFotByLimit,
+    draftFotByLimit,
+    deltaFotByLimit: deltaFotByLimit(baselineFotByLimit, draftFotByLimit),
+  };
+
+  return { summary, rows };
+}
+
+/** Квартальное: дельта по департаменту. Годовое: все события департамента. */
+export function buildDepartmentApprovalDiff(input: {
+  baselinePositions: PositionRecord[];
+  draftPositions: PositionRecord[];
+  department: string;
+  mode?: TeamApprovalSubmissionMode;
+}): { summary: TeamApprovalDiffSummary; rows: TeamApprovalDiffRow[] } {
+  const mode = input.mode ?? "quarterly";
+  const { department } = input;
+  const deptDraft = input.draftPositions.filter((position) => matchesDepartment(position, department));
+
+  const rows =
+    mode === "annual"
+      ? journalRowsToApprovalRows(collectPlanEventJournalRows(deptDraft), input, mode)
+      : deltaEventsToApprovalRows(
+          collectDraftDeltaEvents(input.baselinePositions, input.draftPositions).filter(
+            ({ position, event }) => {
+              if (!matchesDepartment(position, department)) return false;
+              if (APPROVAL_HIDDEN_EVENT_TYPES.has(event.type)) return false;
+              return true;
+            },
+          ),
+          input,
+        );
+
+  rows.sort(
+    (a, b) =>
+      a.unit.localeCompare(b.unit, "ru") ||
+      a.team.localeCompare(b.team, "ru") ||
+      b.event.payload.month - a.event.payload.month ||
+      b.event.createdOrder - a.event.createdOrder,
+  );
+
+  const baselineFotByLimit = annualFotByLimitForDepartment(input.baselinePositions, department);
+  const draftFotByLimit = annualFotByLimitForDepartment(input.draftPositions, department);
+
+  const summary: TeamApprovalDiffSummary = {
+    baselineFot: annualFotForDepartment(input.baselinePositions, department),
+    draftFot: annualFotForDepartment(input.draftPositions, department),
+    deltaFot:
+      annualFotForDepartment(input.draftPositions, department) -
+      annualFotForDepartment(input.baselinePositions, department),
+    baselineHeadcount: headcountForDepartment(input.baselinePositions, department),
+    draftHeadcount: headcountForDepartment(input.draftPositions, department),
     changeCount: rows.length,
     baselineFotByLimit,
     draftFotByLimit,

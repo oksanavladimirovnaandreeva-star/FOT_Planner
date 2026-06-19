@@ -23,7 +23,7 @@
 ```powershell
 cd mvp/frontend
 npm run dev      # http://localhost:5174/
-npm test         # vitest run (132 теста)
+npm test         # vitest run (162 теста)
 npm run build
 npm run lint
 ```
@@ -81,7 +81,9 @@ mvp/frontend/src/
 |---------|-------|
 | Вход / RBAC | `pages/LoginPage.tsx`, `data/demoPersonas.ts`, `data/demoSessionStore.ts`, `data/personaAccessScope.ts` |
 | Версии C&B | `pages/VersionsPage.tsx`, `data/planVersions.ts`, `data/planVersionLifecycle.ts` |
-| Планирование | `pages/PlanningPage.tsx`, `components/planning/PlanContextBar.tsx` |
+| Планирование | `pages/PlanningPage.tsx`, `components/planning/PlanContextBar.tsx`, `BudgetWorkspacePanel.tsx` |
+| Контур / ростер | `buildBudgetContour.ts`, `BudgetContourPanel.tsx`, `demoRosterPins.ts`, `demoStorageMigration.ts` |
+| Демо-орг | `data/demoOrg.ts`, `data/demoPersonas.ts`, `data/orgStructureStore.ts` |
 | Индексация | `components/planning/PlanIndexationSection.tsx`, `MassIndexationCompact.tsx`, `data/planningData.ts` |
 | Диапазоны | `pages/SalaryRangesPage.tsx`, `data/salaryRangeData.ts`, `SalaryCatalogAccessPanel.tsx` |
 | Сценарий пилота | `data/planScenario.ts`, `data/pilotTestBundle.ts` |
@@ -92,7 +94,9 @@ mvp/frontend/src/
 
 ## Текущая фаза
 
-**Чекпоинт `pilot-annual-planning`:** персоны, lifecycle бюджета, индексация с историей, UI для лидов, **132 tests**.
+**Чекпоинт `pilot-annual-planning`:** персоны, lifecycle бюджета, индексация с историей, UI для лидов, **вариант A «Мой бюджет»**, демо-орг ИТ/HR/Продажи, **162 tests**.
+
+**Handoff для нового чата:** `docs/NEW-CHAT-START.md`
 
 **F2 Kaiten UI** — следующий приоритет (`IMPLEMENTATION-STEPS.md`).
 

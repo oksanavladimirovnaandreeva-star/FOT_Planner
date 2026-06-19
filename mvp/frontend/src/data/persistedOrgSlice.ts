@@ -46,3 +46,11 @@ export function savePersistedOrgSlice(slice: OrgSliceSelection): void {
     /* ignore quota / private mode */
   }
 }
+
+export function clearPersistedOrgSlice(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}

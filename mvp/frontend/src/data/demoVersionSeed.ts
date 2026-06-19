@@ -7,7 +7,14 @@ import {
   type PlanVersionMeta,
 } from "./planVersions";
 import type { PlannedEvent, PositionRecord } from "../types";
+import { pinDemoPersonasToRoster } from "./demoRosterPins";
 import { seedDemoUnitLeadQueue } from "./teamSubmissionStore";
+import {
+  DEMO_DEPT_IT,
+  DEMO_TEAM_MOBILE,
+  DEMO_TEAM_PLATFORM,
+  DEMO_UNIT_A,
+} from "./demoOrg";
 
 const DEMO_QUARTERLY_REVIEW_MONTH = 3;
 
@@ -55,9 +62,98 @@ function addTeamSalaryReview(
 
 function buildQuarterlyDraftPositions(baseline: PositionRecord[]): PositionRecord[] {
   let draft = clonePositionList(baseline);
-  draft = addTeamSalaryReview(draft, "Mobile", "demo-q1-mobile-review");
-  draft = addTeamSalaryReview(draft, "Frontend Web", "demo-q1-frontend-review");
+  draft = addTeamSalaryReview(draft, DEMO_TEAM_MOBILE, "demo-q1-mobile-review");
+  draft = addTeamSalaryReview(draft, DEMO_TEAM_PLATFORM, "demo-q1-frontend-review");
   return draft;
+}
+
+function addAnnualMobilePlanningEvents(positions: PositionRecord[]): PositionRecord[] {
+  const copy = clonePositionList(positions);
+  const teamFilter = (position: PositionRecord) =>
+    position.department === DEMO_DEPT_IT && position.unit === DEMO_UNIT_A && position.team === DEMO_TEAM_MOBILE;
+
+  const gradeTarget = copy.find((position) => teamFilter(position) && position.status === "Occupied");
+  if (gradeTarget) {
+    const idx = copy.indexOf(gradeTarget);
+    const order = gradeTarget.events.reduce((max, item) => Math.max(max, item.createdOrder), 0) + 1;
+    copy[idx] = appendDraftEvent(gradeTarget, {
+      id: "demo-annual-mobile-grade",
+      type: "CLASSIFICATION_CHANGE",
+      createdAt: "2026-06-19T11:02:00.000Z",
+      createdOrder: order,
+      payload: {
+        month: 5,
+        specialization: "Engineering",
+        level: "Lead",
+        comment: "Повышение по итогам ревью",
+      },
+    });
+  }
+
+  const vacantSlot = copy.find((position) => teamFilter(position) && position.status === "Vacancy");
+  if (vacantSlot) {
+    const idx = copy.indexOf(vacantSlot);
+    const order = vacantSlot.events.reduce((max, item) => Math.max(max, item.createdOrder), 0) + 1;
+    copy[idx] = appendDraftEvent(vacantSlot, {
+      id: "demo-annual-mobile-hire",
+      type: "PLANNED_HIRE",
+      createdAt: "2026-06-19T11:20:00.000Z",
+      createdOrder: order,
+      payload: {
+        month: 3,
+        base: 175_000,
+        bonus: 0,
+        specialization: "Engineering",
+        level: "Senior",
+        employeeName: "Виктория Соловьёва",
+        employeeId: "E0099",
+      },
+    });
+  }
+
+  const newSlotIndex = copy.findIndex(
+    (position) => teamFilter(position) && position.slotType === "new" && position.status !== "Closed",
+  );
+  if (newSlotIndex >= 0) {
+    const position = copy[newSlotIndex];
+    const order = position.events.reduce((max, item) => Math.max(max, item.createdOrder), 0) + 1;
+    copy[newSlotIndex] = appendDraftEvent(position, {
+      id: "demo-annual-mobile-new",
+      type: "PLANNED_HIRE",
+      createdAt: "2026-06-19T11:21:00.000Z",
+      createdOrder: order,
+      payload: {
+        month: 5,
+        base: 182_083,
+        bonus: 0,
+        specialization: "Engineering",
+        level: "Senior",
+        employeeName: "Engineer (вакансия)",
+      },
+    });
+  }
+
+  return copy;
+}
+
+/** Демо (июнь 2026): только годовой черновик v1, без квартала. */
+export function buildDemoAnnualVersionState(): {
+  versions: PlanVersionMeta[];
+  dataByVersion: Record<string, PositionRecord[]>;
+} {
+  const baseline = pinDemoPersonasToRoster(initialPositions().map(applyEvents));
+  const annualPositions = addAnnualMobilePlanningEvents(baseline);
+  const [annualDraft] = initialPlanVersions();
+  return {
+    versions: repairVersionLabels([annualDraft]),
+    dataByVersion: {
+      [annualDraft.id]: annualPositions,
+    },
+  };
+}
+
+export function applyDemoAnnualScenarioSideEffects(planVersionId: string): void {
+  seedDemoUnitLeadQueue(planVersionId);
 }
 
 /** Демо: утверждённый годовой бюджет + квартальный черновик с правками для тимлидов. */
@@ -65,7 +161,7 @@ export function buildDemoQuarterlyVersionState(): {
   versions: PlanVersionMeta[];
   dataByVersion: Record<string, PositionRecord[]>;
 } {
-  const baseline = initialPositions().map(applyEvents);
+  const baseline = pinDemoPersonasToRoster(initialPositions().map(applyEvents));
   const [annualDraft] = initialPlanVersions();
   const approvedV1: PlanVersionMeta = {
     ...annualDraft,
@@ -87,3 +183,6 @@ export function buildDemoQuarterlyVersionState(): {
 export function applyDemoQuarterlyScenarioSideEffects(draftId: string): void {
   seedDemoUnitLeadQueue(draftId);
 }
+
+/** @deprecated Используйте buildDemoAnnualVersionState */
+export const buildDemoVersionState = buildDemoAnnualVersionState;

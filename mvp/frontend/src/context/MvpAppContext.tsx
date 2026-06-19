@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { applyEvents, initialPositions } from "../data/planningData";
 import { DEMO_SEED_VERSION, DEMO_SEED_VERSION_KEY } from "../data/demoPlanSeed";
-import { buildDemoQuarterlyVersionState, applyDemoQuarterlyScenarioSideEffects } from "../data/demoVersionSeed";
+import { buildDemoAnnualVersionState, applyDemoAnnualScenarioSideEffects } from "../data/demoVersionSeed";
 import { diffPlanVersions, type PlanVersionDiffSummary } from "../data/planVersionDiff";
 import {
   archiveApprovedVersion,
@@ -90,10 +90,11 @@ import { yieldToMain } from "../data/asyncYield";
 import { formatPlanVersionTitle } from "../data/planVersionDisplay";
 import { canReopenPrimaryBudget, reopenPrimaryBudgetMeta } from "../data/planVersionLifecycle";
 import { clearPilotDemoStorage } from "../data/mvpStorageReset";
+import { positionsUseLegacyOrg, resetStaleDemoOrgCaches } from "../data/demoStorageMigration";
 import { clearSubmissionsForPlan, getTeamSubmission, isTeamEditingLocked } from "../data/teamSubmissionStore";
 import { scopePrimaryEq } from "../data/personaAccessScope";
 import {
-  loadResolvedCatalogAccess,
+  loadResolvedCatalogVisibility,
   loadResolvedDemoPersona,
   readPersonaCatalogAccessOverrides,
   writePersonaCatalogAccessOverrides,
@@ -111,25 +112,30 @@ export type PlanVersionMock = PlanVersionMeta;
 
 const TEAM_SUBMISSIONS_KEY = "mvp.teamSubmissions";
 
-function applyDemoSeedUpgrade(): {
+function applyDemoSeedUpgrade(
+  persistedData?: Record<string, PositionRecord[]>,
+): {
   versions: PlanVersionMeta[];
   dataByVersion: Record<string, PositionRecord[]>;
 } | null {
+  const allPositions = persistedData ? Object.values(persistedData).flat() : [];
+  const legacyOrg = allPositions.length > 0 && positionsUseLegacyOrg(allPositions);
   try {
     const stored = localStorage.getItem(DEMO_SEED_VERSION_KEY);
-    if (stored === String(DEMO_SEED_VERSION)) return null;
+    if (stored === String(DEMO_SEED_VERSION) && !legacyOrg) return null;
   } catch {
     /* ignore */
   }
   localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
+  resetStaleDemoOrgCaches();
   try {
     localStorage.removeItem(TEAM_SUBMISSIONS_KEY);
   } catch {
     /* ignore */
   }
-  const state = buildDemoQuarterlyVersionState();
-  const draft = state.versions.find((version) => version.kind === "WORKING_DRAFT");
-  if (draft) applyDemoQuarterlyScenarioSideEffects(draft.id);
+  const state = buildDemoAnnualVersionState();
+  const annual = state.versions.find((version) => version.versionNumber === 1);
+  if (annual) applyDemoAnnualScenarioSideEffects(annual.id);
   return state;
 }
 
@@ -144,7 +150,7 @@ function hydrateState(): {
     return migrated;
   }
   if (persistedVersions && persistedData) {
-    const upgraded = applyDemoSeedUpgrade();
+    const upgraded = applyDemoSeedUpgrade(persistedData);
     if (upgraded) return upgraded;
     const repaired = repairDataByVersion(persistedVersions, persistedData);
     return {
@@ -153,9 +159,9 @@ function hydrateState(): {
     };
   }
   localStorage.setItem(DEMO_SEED_VERSION_KEY, String(DEMO_SEED_VERSION));
-  const fresh = buildDemoQuarterlyVersionState();
-  const draft = fresh.versions.find((version) => version.kind === "WORKING_DRAFT");
-  if (draft) applyDemoQuarterlyScenarioSideEffects(draft.id);
+  const fresh = buildDemoAnnualVersionState();
+  const annual = fresh.versions.find((version) => version.versionNumber === 1);
+  if (annual) applyDemoAnnualScenarioSideEffects(annual.id);
   return fresh;
 }
 
@@ -337,7 +343,13 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     setConfigRevision((value) => value + 1);
   };
 
-  const catalogAccess = useMemo(() => loadResolvedCatalogAccess(), [userRole, configRevision]);
+  const catalogAccess = useMemo(() => {
+    const visibility = loadResolvedCatalogVisibility();
+    if (visibility.access === "none") return "read" as const;
+    return visibility.access;
+  }, [userRole, configRevision]);
+
+  const canEditSalaryCatalog = catalogAccess === "write";
 
   const setUserRole = (role: UserRole) => {
     saveUserRole(role);
@@ -945,7 +957,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       setSalaryBands,
       catalogAccess,
       setCatalogAccess,
-      canEditSalaryCatalog: catalogAccess === "write",
+      canEditSalaryCatalog,
       exportCurrentSnapshot,
       inspectSnapshot: inspectSnapshotForImport,
       backupBeforeImport,

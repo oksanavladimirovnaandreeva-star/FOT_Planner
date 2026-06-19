@@ -19,7 +19,7 @@ import {
 import { demoRoleActorOrg, type UserRole } from "../../data/userAccess";
 import { ConsolidationPage } from "../../pages/ConsolidationPage";
 import { TeamLeadApprovalPanel } from "./TeamLeadApprovalPanel";
-import { UnitLeadApprovalPanel } from "./UnitLeadApprovalPanel";
+import { BudgetWorkspacePanel } from "./BudgetWorkspacePanel";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   cb_admin: "C&B",
@@ -139,7 +139,15 @@ export function PlanApprovalPanel() {
   if (userRole === "unit_lead") {
     return (
       <div className="plan-approval-panel">
-        <UnitLeadApprovalPanel />
+        <BudgetWorkspacePanel level="unit" />
+      </div>
+    );
+  }
+
+  if (userRole === "director") {
+    return (
+      <div className="plan-approval-panel">
+        <BudgetWorkspacePanel level="department" />
       </div>
     );
   }

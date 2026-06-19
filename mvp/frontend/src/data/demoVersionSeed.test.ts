@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildTeamApprovalDiff } from "./teamApprovalDiff";
 import { buildDemoQuarterlyVersionState } from "./demoVersionSeed";
 import { isBudgetLocked } from "./planVersions";
+import { DEMO_DEPT_IT, DEMO_TEAM_MOBILE, DEMO_TEAM_PLATFORM, DEMO_UNIT_A } from "./demoOrg";
 
 describe("buildDemoQuarterlyVersionState", () => {
   it("создаёт утверждённый v1 и квартальный черновик с правками", () => {
@@ -22,9 +23,9 @@ describe("buildDemoQuarterlyVersionState", () => {
     const mobileDiff = buildTeamApprovalDiff({
       baselinePositions: baseline,
       draftPositions: draftRows,
-      department: "Engineering",
-      unit: "ProductDev",
-      team: "Mobile",
+      department: DEMO_DEPT_IT,
+      unit: DEMO_UNIT_A,
+      team: DEMO_TEAM_MOBILE,
       mode: "quarterly",
     });
     expect(mobileDiff.rows.length).toBeGreaterThan(0);
@@ -32,9 +33,9 @@ describe("buildDemoQuarterlyVersionState", () => {
     const frontendDiff = buildTeamApprovalDiff({
       baselinePositions: baseline,
       draftPositions: draftRows,
-      department: "Engineering",
-      unit: "ProductDev",
-      team: "Frontend Web",
+      department: DEMO_DEPT_IT,
+      unit: DEMO_UNIT_A,
+      team: DEMO_TEAM_PLATFORM,
       mode: "quarterly",
     });
     expect(frontendDiff.rows.length).toBeGreaterThan(0);

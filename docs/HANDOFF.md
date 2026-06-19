@@ -1,35 +1,58 @@
 # Handoff: ФОТ-планировщик MVP
 
-**Обновлено:** 2026-06-18  
-**Чекпоинт:** `pilot-annual-planning` · git `cf462b7`+ · **132 tests**  
+**Обновлено:** 2026-06-19  
+**Чекпоинт:** `pilot-annual-planning` + **вариант A «Мой бюджет»** + **демо-оргструктура ИТ/HR/Продажи** · **162 tests**  
 **Проект:** [`mvp/frontend/`](../mvp/frontend/) — единственный UI в работе. PG/API — после фронта.
 
-**Документы:** [`PRODUCT-MODEL.md`](PRODUCT-MODEL.md) · [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md) · [`SECURITY-REQUIREMENTS.md`](SECURITY-REQUIREMENTS.md) · [`CONTEXT-MAP.md`](CONTEXT-MAP.md)
+**Старт нового чата:** [`NEW-CHAT-START.md`](NEW-CHAT-START.md)
+
+**Документы:** [`PRODUCT-MODEL.md`](PRODUCT-MODEL.md) · [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md) · [`SECURITY-REQUIREMENTS.md`](SECURITY-REQUIREMENTS.md)
 
 ---
 
-## Запуск
+## Запуск (важно)
 
 ```powershell
 cd mvp\frontend
 npm install          # первый раз
-npm run dev          # http://localhost:5174/
-npm test             # 132 теста
+npm run dev          # http://localhost:5174/  ← порт 5174, не 5173
+npm test             # 162 теста
 npm run build
 ```
 
+**Если «не открывается»:** проверить порт **5174**; рабочая папка — `mvp/frontend`, не корень репо.
+
 **Данные:** localStorage + sessionStorage. API и PostgreSQL **не нужны**.
 
-**Вход:** `/login` — выбор персоны (ФИО · роль). Сессия в `fot_mvp_demo_persona_id`.
+**Вход:** `/login` — персоны сгруппированы по департамент → юнит → команда (`listLoginPersonaGroups`).
 
-**Пилот:** C&B → **Настройки → Данные** → «Пилот (тяжёлый)» (~520 поз.) или демо ~40 поз.  
-**Сброс:** `?reset=demo` в URL или «Сбросить пилот / план» в настройках.
+**Сброс демо (обязателен после смены оргструктуры):** `http://localhost:5174/?reset=demo` или C&B → Настройки → «Сбросить пилот / план».
+
+**Версия сида:** `DEMO_SEED_VERSION = 11` в `demoPlanSeed.ts`. При загрузке `MvpAppContext` пересобирает план, если версия устарела **или** в позициях остались старые имена (`Engineering`, `ProductDev`, `Frontend Web`) — см. `demoStorageMigration.ts`.
 
 ---
 
 ## Сценарий MVP (июнь 2026)
 
-**Годовое планирование без факта:** `PLAN_SCENARIO_INCLUDES_FACT = false` в `data/planScenario.ts` — факт не сидится, «Аналитика» скрыта, `/analytics` → `/planning`. План–факт вернём отдельной итерацией.
+**Годовое планирование без факта:** `PLAN_SCENARIO_INCLUDES_FACT = false` — факт не сидится, `/analytics` → `/planning`.
+
+**Демо-сид по умолчанию:** только **годовой черновик v1** (`buildDemoAnnualVersionState`), без квартального черновика. Сценарий: Пётр (Mobile) сдал → Морозов видит очередь на «Мой бюджет».
+
+---
+
+## Демо-оргструктура (русские имена)
+
+Константы: `data/demoOrg.ts` · дерево: `orgStructureStore.ts` → `DEFAULT_ORG_TREE`.
+
+| Департамент | Юниты | Команды (примеры) |
+|-------------|-------|-------------------|
+| Департамент ИТ | Юнит А/Б/С, Прямое подчинение | Платформа, Мобильная разработка, Инфраструктура, Качество, … |
+| Департамент HR | Операции, Прямое подчинение | Рекрутинг, Обучение и развитие, … |
+| Департамент Продаж | Коммерция | Корпоративные продажи, Розница |
+
+**15 персон** (`demoPersonas.ts`): 3 директора, 3 юнит-лида ИТ, 8 тимлидов, C&B.
+
+**Состав команд в плане:** `demoPlanSeed.ts` (пул ФИО) + `pinDemoPersonasToRoster` (тимлиды/лиды на первой занятой позиции команды).
 
 ---
 
@@ -37,76 +60,93 @@ npm run build
 
 | Маршрут | Назначение |
 |---------|------------|
-| `/login` | Вход по персоне (демо) |
-| `/` | **Обзор и итого** — KPI, план (без факта в текущем сценарии) |
-| `/planning` | **Планирование** — позиции, матрица, журнал |
-| `/planning?mode=correction` | **Квартальное планирование** (квартальный черновик) |
-| `/versions` | **Версии** (C&B) или **Согласование** (лиды) |
-| `/versions?tab=approval` | Control Tower согласования |
-| `/versions?tab=compare` | Сравнение черновика |
-| `/versions?tab=consolidation` | Консолидация тимлидов |
-| `/settings` | Настройки (C&B / директор / GD — полные) |
-| `/salary-ranges` | Справочник диапазонов окладов |
-
-**Редиректы:** `/correction` → planning+correction · `/consolidation` → versions · `/analytics` → planning (пока сценарий без факта)
-
-**Вкладки планирования:** `?tab=positions|matrix|journal`
+| `/login` | Вход по персоне |
+| `/` | Обзор и итого |
+| `/planning` | Планирование |
+| `/planning?tab=positions&team=Качество` | Планирование с фильтром команды |
+| `/versions` | Версии (C&B) |
+| `/versions?tab=approval` | **Мой бюджет** (лиды) / Согласование |
+| `/settings` | Настройки C&B (оргструктура, доступы, диапазоны) |
+| `/salary-ranges` | Справочник диапазонов (C&B из планирования; доступы — в Настройках) |
 
 ---
 
-## Версии (именование)
+## «Мой бюджет» (вариант A)
 
-| Версия | UI-название |
-|--------|-------------|
-| Первая утверждённая | **Бюджет {год}** |
-| Квартальный черновик / опубликованная корректировка | **{n} Квартал {год}** |
+| Роль | UI |
+|------|-----|
+| `team_lead` | `TeamLeadApprovalPanel` |
+| `unit_lead` | `BudgetWorkspacePanel` `level="unit"` |
+| `director` | `BudgetWorkspacePanel` `level="department"` |
+| `cb_admin` / `gd` | Control Tower + консолидация |
 
-C&B: утверждение / открытие бюджета / удаление единственной v1 / создание квартального черновика — `VersionsPage`, `planVersionLifecycle.ts`.
+**Юнит-лид / директор — секции:**
+1. Лента версий (`ApprovalVersionRibbon`)
+2. Статус pipeline + пакет
+3. `CorrectionComparePanel` (если есть квартальный черновик)
+4. KPI ФОТ (`TeamLeadApprovalKpi`)
+5. **«Ваш контур»** — плитки команд (`BudgetContourPanel`): название, тимлид, численность, ссылка «Планирование»
+6. Таблица команд (`BudgetTeamsTable`): ФОТ, статус, согласование, «Планирование» → `planTeamPlanningPath(team)`
+7. Изменения по типам + действия пакета
 
----
+**Данные:** `buildBudgetPackage.ts`, `resolveBudgetWorkspacePositions.ts`, `packageSubmissionStore.ts`.
 
-## Индексация (массовая, C&B)
-
-- UI: `PlanIndexationSection` на вкладке **Позиции** (под контекстным баром).
-- C&B: форма + **таблица истории** с урной на каждый пакет (`MassIndexationCompact`).
-- Лиды / остальные: баннер **«Индексация в плане»** со списком всех пакетов (`PlanIndexationBanner`).
-- Удаление пакета → `removeIndexationBatchFromPositions` + пересчёт окладов.
-- Автоприменение индексации к новым позициям при найме/переводе **отключено**.
-
----
-
-## Диапазоны окладов
-
-- `/salary-ranges` — таблица с **сортировкой по любому столбцу** (клик по заголовку).
-- **Доступ к редактированию** — по персонам (C&B → collapse «Доступ к диапазонам»), `demoSessionStore` + `SalaryCatalogAccessPanel`.
-- При **добавлении позиции** — специализация и уровень только из справочника; оклад по умолчанию = мид диапазона.
+**Срез активной персоны:** `resolveActivePersonaOrgScope()` в `demoSessionStore.ts` — приоритет над устаревшими пресетами `demoRoleScopeStore`.
 
 ---
 
-## RBAC (демо)
+## Вход и доступы
 
-- Персоны: `demoPersonas.ts`, срезы: `personaAccessScope.ts`, вход: `LoginPage` + `RequireDemoSession`.
-- Массовая индексация — только `cb_admin`.
-- Версии / импорт / пилот — только C&B.
-- Сайдбар: `PlanWorkspaceContext` — **Утверждённый бюджет** vs **Работаем в**.
-
----
-
-## Сделано (не откатывать)
-
-- F1, F3–F5, UX-3, workspace drawer, Control Tower
-- Пилот: персоны, lifecycle бюджета, UI для лидов, производительность аналитики (когда включим факт)
-- Индексация: история, удаление, баннер для лидов
-- `planScenario.ts` — отключение факта в годовом пилоте
+- **Login:** `optgroup` по оргструктуре (`listLoginPersonaGroups` в `demoPersonas.ts`).
+- **Доступы команд:** Настройки → «Доступы (демо)» — `DemoAccessSettingsPanel`.
+- **Доступы к диапазонам:** Настройки → «Доступ к диапазонам (демо)» — `SalaryCatalogAccessPanel` (убрано с `/salary-ranges` и с Планирования для не-C&B).
+- **Кнопка «Диапазоны»** на Планировании — только `cb_admin`.
 
 ---
 
-## Следующий шаг
+## Индексация, диапазоны, RBAC
 
-1. **Smoke-тест** пилота по всем персонам
-2. **F2** — Kaiten UI (без API)
-3. Включить **план–факт** (`PLAN_SCENARIO_INCLUDES_FACT = true`) + доработка аналитики
-4. **PG/API (#11+)** — только по явному запросу
+Без изменений по смыслу — см. предыдущий handoff. Массовая индексация — только C&B. Новая позиция — спец./уровень из справочника.
+
+---
+
+## Сделано в сессии (2026-06-18…19), не закоммичено
+
+Всё в рабочей копии git (ветка без единого коммита на этот блок — **нужен коммит по просьбе**).
+
+| Область | Файлы / суть |
+|---------|----------------|
+| Демо-орг ИТ/HR/Продажи | `demoOrg.ts`, `orgStructureStore.ts`, `demoPersonas.ts`, `demoRoleScopeStore.ts` |
+| Годовой сид + Mobile events | `demoVersionSeed.ts`, `DEMO_SEED_VERSION=11` |
+| Мой бюджет | `BudgetWorkspacePanel`, `BudgetTeamsTable`, `BudgetChangesByType`, `buildBudgetPackage.ts` |
+| Контур (плитки) | `BudgetContourPanel`, `buildBudgetContour.ts`, `teamRosterSummary.ts`, `demoRosterPins.ts` |
+| Миграция localStorage | `demoStorageMigration.ts`, `MvpAppContext.applyDemoSeedUpgrade` |
+| Login optgroup | `LoginPage.tsx`, `listLoginPersonaGroups` |
+| Planning team deep-link | `planTeamPlanningPath`, `PlanningPage` + `?team=` |
+| Журнал «Суть изменения» | `eventJournal.formatApprovalJournalSummary` |
+| Настройки диапазонов | `SettingsPage` + `SalaryCatalogAccessPanel` |
+
+**Тесты:** 162 passed · **build:** green (на момент handoff).
+
+---
+
+## Известные проблемы / что проверить в новом чате
+
+1. **Пользователь видел нули и пустые экраны** — типично из-за старого localStorage (`ProductDev` vs `Юнит А`). Лечение: `?reset=demo` или авто-миграция v11 после F5. **Smoke обязателен** под персонами: `tl_qa` (Белова), `sidr` (Морозов), `petya` (Mobile).
+2. **Локальный dev** — порт **5174**; при занятом порте Vite покажет другой — смотреть вывод терминала.
+3. **Не всё проверено вручную в браузере** после последних правок контура и миграции.
+4. **IMPLEMENTATION-STEPS.md** — дата и блок «вариант A» устарели частично (см. NEW-CHAT-START).
+
+---
+
+## Следующий шаг (приоритет)
+
+1. **Smoke + стабилизация демо** — один сценарий end-to-end без нулей; зафиксировать коммитом.
+2. **F2** — Kaiten UI (без API), [`IMPLEMENTATION-STEPS.md`](IMPLEMENTATION-STEPS.md).
+3. План–факт (`PLAN_SCENARIO_INCLUDES_FACT = true`) — отдельная итерация.
+4. PG/API — только по явному запросу.
+
+**Не делать без запроса:** UX-4, визуальный редизайн shell, автоприменение индексации к новым слотам.
 
 ---
 
@@ -114,12 +154,12 @@ C&B: утверждение / открытие бюджета / удаление
 
 | Область | Путь |
 |---------|------|
-| Вход / персоны | `pages/LoginPage.tsx`, `data/demoPersonas.ts`, `data/demoSessionStore.ts` |
-| Версии | `pages/VersionsPage.tsx`, `data/planVersions.ts`, `data/planVersionLifecycle.ts` |
-| Индексация | `components/planning/PlanIndexationSection.tsx`, `MassIndexationCompact.tsx`, `data/planningData.ts` |
-| Сценарий без факта | `data/planScenario.ts` |
-| Диапазоны | `pages/SalaryRangesPage.tsx`, `components/settings/SalaryCatalogAccessPanel.tsx` |
-| Планирование | `pages/PlanningPage.tsx`, `components/planning/PlanContextBar.tsx` |
+| Орг / персоны | `data/demoOrg.ts`, `demoPersonas.ts`, `demoSessionStore.ts`, `demoStorageMigration.ts` |
+| Сид плана | `data/demoPlanSeed.ts`, `demoVersionSeed.ts`, `demoRosterPins.ts` |
+| Мой бюджет | `components/planning/BudgetWorkspacePanel.tsx`, `BudgetContourPanel.tsx`, `BudgetTeamsTable.tsx` |
+| Агрегация | `data/buildBudgetPackage.ts`, `resolveBudgetWorkspacePositions.ts`, `packageSubmissionStore.ts` |
+| Планирование | `pages/PlanningPage.tsx`, `data/planWorkspaceMode.ts` |
 | Контекст | `context/MvpAppContext.tsx` |
+| Настройки | `pages/SettingsPage.tsx`, `DemoAccessSettingsPanel.tsx`, `SalaryCatalogAccessPanel.tsx` |
 
 **Архив:** `docs/SESSION-*.md`, `docs/ПЛАН-ПРОДОЛЖЕНИЯ.md`

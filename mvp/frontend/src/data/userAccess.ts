@@ -1,6 +1,10 @@
 import { roleScopeFor } from "./demoRoleScopeStore";
 import { activePersonaScopeForRole } from "./demoSessionStore";
 import {
+  DEMO_UNIT_A_TEAMS_LIST,
+  resolvePlanningTeamsForActivePersona,
+} from "./demoPersonas";
+import {
   formatAccessScopeBrief,
   positionMatchesAccessScope,
   scopeEqValues,
@@ -106,6 +110,11 @@ export type OrgFilterDefaults = {
   lockDepartment: boolean;
   lockUnit: boolean;
   lockTeam: boolean;
+  /** Команды по умолчанию (прямые тимлиды unit_lead). */
+  defaultTeams?: string[];
+  /** Все команды, доступные в мультиселекте. */
+  maxTeams?: string[];
+  showAllTeamsToggle?: boolean;
 };
 
 export function loadUserRole(): UserRole {
@@ -305,14 +314,18 @@ export function roleOrgFilterDefaults(role: UserRole): OrgFilterDefaults | null 
     const scope = demoRoleScope("unit_lead");
     const departments = scopeEqValues(scope, "department");
     const units = scopeEqValues(scope, "unit");
-    const teams = scopeEqValues(scope, "team");
+    const defaultTeams = resolvePlanningTeamsForActivePersona();
+    const maxTeams = [...DEMO_UNIT_A_TEAMS_LIST];
     return {
       departments,
       units,
-      teams,
+      teams: defaultTeams.length > 0 ? defaultTeams : maxTeams,
+      defaultTeams,
+      maxTeams,
+      showAllTeamsToggle: true,
       lockDepartment: departments.length > 0,
       lockUnit: units.length > 0,
-      lockTeam: teams.length > 0,
+      lockTeam: false,
     };
   }
   return null;

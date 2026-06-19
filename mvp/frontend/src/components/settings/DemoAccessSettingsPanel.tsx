@@ -320,8 +320,8 @@ export function DemoAccessSettingsPanel() {
         })}
       </div>
       <p className="muted-line">
-        <strong>C&B</strong> — без среза. Пример: команда <em>равно</em> Frontend Web <strong>И</strong> ФИО{" "}
-        <em>не равно</em> Василий Андреев.
+        <strong>C&B</strong> — без среза. Пример: команда <em>равно</em> Качество <strong>И</strong> ФИО{" "}
+        <em>не равно</em> Татьяна Белова.
       </p>
       <div className="app-data-panel__actions">
         <button type="button" className="app-btn app-btn--primary" onClick={save}>

@@ -4,6 +4,7 @@ import { buildOrgConsolidationReport, getQuarterDeadlines, resolveTeamDisplaySta
 import { markTeamSubmitted, markUnitApproved, clearSubmissionsForPlan, markDirectorApproved, markCbReview } from "./teamSubmissionStore";
 import type { PlanVersionMeta } from "./planVersions";
 import type { PositionRecord } from "../types";
+import { DEMO_DEPT_IT, DEMO_TEAM_PLATFORM, DEMO_UNIT_A } from "./demoOrg";
 
 function clonePositions(): PositionRecord[] {
   return JSON.parse(JSON.stringify(initialPositions().map(applyEvents))) as PositionRecord[];
@@ -35,10 +36,10 @@ describe("teamConsolidation", () => {
     });
   });
 
-  it("группирует команды департамента Engineering", () => {
+  it("группирует команды департамента ИТ", () => {
     const positions = clonePositions();
     const report = buildOrgConsolidationReport(positions, {
-      department: "Engineering",
+      department: DEMO_DEPT_IT,
       planYear: 2026,
       workingDraft: null,
       baselinePositions: positions,
@@ -69,7 +70,7 @@ describe("teamConsolidation", () => {
     };
 
     const report = buildOrgConsolidationReport(draft, {
-      department: "Engineering",
+      department: DEMO_DEPT_IT,
       planYear: 2026,
       workingDraft: draftMeta,
       baselinePositions: baseline,
@@ -88,7 +89,7 @@ describe("teamConsolidation", () => {
   it("unit_lead видит только команды своего юнита", () => {
     const positions = clonePositions();
     const full = buildOrgConsolidationReport(positions, {
-      department: "Engineering",
+      department: DEMO_DEPT_IT,
       planYear: 2026,
       workingDraft: null,
       baselinePositions: positions,
@@ -96,8 +97,8 @@ describe("teamConsolidation", () => {
       now: new Date(2026, 4, 1),
     });
     const scoped = buildOrgConsolidationReport(positions, {
-      department: "Engineering",
-      unit: "ProductDev",
+      department: DEMO_DEPT_IT,
+      unit: DEMO_UNIT_A,
       planYear: 2026,
       workingDraft: null,
       baselinePositions: positions,
@@ -105,7 +106,7 @@ describe("teamConsolidation", () => {
       now: new Date(2026, 4, 1),
     });
     expect(scoped.totals.teams).toBeLessThan(full.totals.teams);
-    expect(scoped.units.every((group) => group.unit === "ProductDev")).toBe(true);
+    expect(scoped.units.every((group) => group.unit === DEMO_UNIT_A)).toBe(true);
   });
 
   it("resolveTeamDisplayStatus — приоритет cb_submitted и submission", () => {
@@ -121,11 +122,11 @@ describe("teamConsolidation", () => {
   it("totals filled/approved для donut", () => {
     const positions = clonePositions();
     clearSubmissionsForPlan(draftMeta.id);
-    const source = positions.find((item) => item.team === "Frontend Web")!;
+    const source = positions.find((item) => item.team === DEMO_TEAM_PLATFORM)!;
     markTeamSubmitted(draftMeta.id, source.department, source.unit, source.team);
 
     const report = buildOrgConsolidationReport(positions, {
-      department: "Engineering",
+      department: DEMO_DEPT_IT,
       planYear: 2026,
       workingDraft: draftMeta,
       baselinePositions: positions,
@@ -138,7 +139,7 @@ describe("teamConsolidation", () => {
 
     markUnitApproved(draftMeta.id, source.department, source.unit, source.team);
     const approved = buildOrgConsolidationReport(positions, {
-      department: "Engineering",
+      department: DEMO_DEPT_IT,
       planYear: 2026,
       workingDraft: draftMeta,
       baselinePositions: positions,
@@ -151,7 +152,7 @@ describe("teamConsolidation", () => {
     markDirectorApproved(draftMeta.id, source.department, source.unit, source.team);
     markCbReview(draftMeta.id, source.department, source.unit, source.team);
     const cbReviewed = buildOrgConsolidationReport(positions, {
-      department: "Engineering",
+      department: DEMO_DEPT_IT,
       planYear: 2026,
       workingDraft: draftMeta,
       baselinePositions: positions,

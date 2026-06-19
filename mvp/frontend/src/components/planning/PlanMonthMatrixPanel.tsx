@@ -57,6 +57,20 @@ export function PlanMonthMatrixPanel({
     [positions, viewMode],
   );
 
+  const monthTotals = useMemo(() => {
+    return MONTHS.map((_, month) => {
+      let sum = 0;
+      let headcount = 0;
+      for (const { cells } of rows) {
+        const cell = cells[month]!;
+        if (cell.planStatus === "Closed") continue;
+        sum += cell.planAmount;
+        headcount += 1;
+      }
+      return { sum, headcount };
+    });
+  }, [rows]);
+
   return (
     <div className="plan-matrix-panel">
       <p className="plan-matrix-panel__legend muted-line">
@@ -130,6 +144,21 @@ export function PlanMonthMatrixPanel({
               </tr>
             ))}
           </tbody>
+          {rows.length > 0 ? (
+            <tfoot>
+              <tr className="plan-matrix__totals">
+                <td className="plan-matrix__sticky">
+                  <strong>Итого</strong>
+                </td>
+                {monthTotals.map((total, month) => (
+                  <td key={month}>
+                    <div className="plan-matrix__total-sum">{formatMoneyShort(total.sum)}</div>
+                    <div className="muted-line plan-matrix__total-hc">{total.headcount} чел.</div>
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
       {rows.length === 0 ? <p className="muted-line">Нет позиций по фильтрам.</p> : null}

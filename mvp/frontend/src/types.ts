@@ -76,6 +76,13 @@ export interface SalaryRangeBand {
 /** Позже — из роли пользователя; в MVP только локальная заглушка. */
 export type SalaryCatalogAccess = "read" | "write";
 
+/** Видимость строк справочника диапазонов по спец/уровню. */
+export type CatalogVisibilityRule = {
+  specs: string[] | "*";
+  levels: string[] | "*";
+  access: SalaryCatalogAccess | "none";
+};
+
 export interface PositionRecord {
   positionId: string;
   role: string;

@@ -2,15 +2,15 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { TrendingUp } from "lucide-react";
 import type { DemoPersonaId } from "../data/demoPersonas";
-import { listLoginPersonaOptions, loginAsDemoPersona } from "../data/demoSessionStore";
+import { listLoginPersonaGroups, loginAsDemoPersona } from "../data/demoSessionStore";
 import { landingRouteForRole } from "../data/roleLanding";
 import { useMvpApp } from "../context/MvpAppContext";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { refreshAppConfig } = useMvpApp();
-  const options = useMemo(() => listLoginPersonaOptions(), []);
-  const [personaId, setPersonaId] = useState<DemoPersonaId>(options[0]?.id ?? "cb");
+  const groups = useMemo(() => listLoginPersonaGroups(), []);
+  const [personaId, setPersonaId] = useState<DemoPersonaId>(groups[0]?.options[0]?.id ?? "cb");
 
   const handleEnter = (event: React.FormEvent) => {
     event.preventDefault();
@@ -37,10 +37,14 @@ export function LoginPage() {
             value={personaId}
             onChange={(event) => setPersonaId(event.target.value as DemoPersonaId)}
           >
-            {options.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.optionLabel}
-              </option>
+            {groups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.optionLabel}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>

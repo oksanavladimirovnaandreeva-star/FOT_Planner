@@ -1,13 +1,9 @@
 import { Link, useNavigate } from "react-router-dom";
 import { MessageSquare } from "lucide-react";
 import {
-  formatGradeChangeRange,
-  formatSalaryChangeRange,
-  gradeChanged,
-  salaryChanged,
+  formatApprovalJournalSummary,
   tableRowStatusClass,
 } from "../../data/eventJournal";
-import { formatIsoDateTime } from "../../data/formatDisplay";
 import type { TeamApprovalDiffRow, TeamApprovalSubmissionMode } from "../../data/teamApprovalDiff";
 import { useMvpApp } from "../../context/MvpAppContext";
 import { PositionIdentityCell } from "./PositionIdentityCell";
@@ -73,10 +69,9 @@ export function TeamLeadApprovalChangesList({
         <table className="simple-table plan-journal-table team-lead-approval__changes-table">
           <thead>
             <tr>
-              <th>Когда</th>
+              <th>С месяца</th>
               <th>Позиция</th>
-              <th>Было → стало</th>
-              <th>Событие</th>
+              <th>Суть изменения</th>
               <th>Комментарий</th>
             </tr>
           </thead>
@@ -84,6 +79,7 @@ export function TeamLeadApprovalChangesList({
             {rows.map((row) => {
               const position = positionsById.get(row.positionId);
               const statusAfter = position?.status ?? "Occupied";
+              const summary = formatApprovalJournalSummary(row);
               return (
                 <tr
                   key={`${row.positionId}-${row.event.id}`}
@@ -99,7 +95,7 @@ export function TeamLeadApprovalChangesList({
                   role="button"
                   aria-label={`Открыть позицию ${row.positionId}`}
                 >
-                  <td>{formatIsoDateTime(row.createdAt)}</td>
+                  <td>{row.change.monthLabel}</td>
                   <td>
                     {position ? (
                       <PositionIdentityCell record={position} userRole={userRole} compact />
@@ -112,33 +108,15 @@ export function TeamLeadApprovalChangesList({
                   </td>
                   <td>
                     <div className="plan-journal-change">
-                      <div className="muted-line">с {row.change.monthLabel}</div>
-                      {row.isNewPosition ? (
+                      <strong>{summary.title}</strong>
+                      <div className="muted-line">{summary.detail}</div>
+                      {row.fotDeltaAnnual !== 0 ? (
                         <div className="positions-table__dec-range">
-                          Новая позиция · ФОТ {Math.round(row.fotDeltaAnnual).toLocaleString("ru-RU")} ₽/год
+                          Δ ФОТ {row.fotDeltaAnnual > 0 ? "+" : "−"}
+                          {Math.abs(Math.round(row.fotDeltaAnnual)).toLocaleString("ru-RU")} ₽/год
                         </div>
-                      ) : null}
-                      {!row.isNewPosition && row.change.statusBefore !== row.change.statusAfter ? (
-                        <div className="positions-table__dec-range">
-                          {row.change.statusBefore} → {row.change.statusAfter}
-                        </div>
-                      ) : null}
-                      {!row.isNewPosition && salaryChanged(row.change) ? (
-                        <div className="positions-table__dec-range">{formatSalaryChangeRange(row.change)}</div>
-                      ) : null}
-                      {!row.isNewPosition && gradeChanged(row.change) ? (
-                        <div className="positions-table__dec-range">{formatGradeChangeRange(row.change)}</div>
-                      ) : null}
-                      {!row.isNewPosition &&
-                      !salaryChanged(row.change) &&
-                      !gradeChanged(row.change) &&
-                      row.change.statusBefore === row.change.statusAfter ? (
-                        <div className="muted-line">без изменения ФОТ и грейда</div>
                       ) : null}
                     </div>
-                  </td>
-                  <td>
-                    <span className="event-type-pill event-type-pill--lg">{row.typeLabel}</span>
                   </td>
                   <td>
                     {row.comment ? (

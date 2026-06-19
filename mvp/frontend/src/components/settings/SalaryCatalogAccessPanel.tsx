@@ -1,43 +1,55 @@
 import { useMemo, useState } from "react";
 import { DEMO_PERSONAS, type DemoPersonaId } from "../../data/demoPersonas";
+import { formatVisibilityField, parseCsvOrStar } from "../../data/catalogVisibility";
 import {
-  defaultPersonaCatalogAccessForSettings,
-  readPersonaCatalogAccessOverrides,
+  defaultPersonaCatalogVisibilityForSettings,
+  readPersonaCatalogVisibilityOverrides,
   writePersonaCatalogAccessOverrides,
+  writePersonaCatalogVisibilityOverrides,
 } from "../../data/demoSessionStore";
 import { USER_ROLE_LABELS } from "../../context/MvpAppContext";
-import type { SalaryCatalogAccess } from "../../types";
+import type { CatalogVisibilityRule, SalaryCatalogAccess } from "../../types";
 
 type Props = {
   onSaved?: () => void;
 };
 
 export function SalaryCatalogAccessPanel({ onSaved }: Props) {
-  const [draft, setDraft] = useState(() => defaultPersonaCatalogAccessForSettings());
+  const [draft, setDraft] = useState(() => defaultPersonaCatalogVisibilityForSettings());
   const [message, setMessage] = useState<string | null>(null);
 
   const rows = useMemo(
     () =>
       DEMO_PERSONAS.map((persona) => ({
         persona,
-        access: draft[persona.id] ?? "read",
+        rule: draft[persona.id],
       })),
     [draft],
   );
 
-  const setAccess = (personaId: DemoPersonaId, access: SalaryCatalogAccess) => {
-    setDraft((prev) => ({ ...prev, [personaId]: access }));
+  const updateRule = (personaId: DemoPersonaId, patch: Partial<CatalogVisibilityRule>) => {
+    setDraft((prev) => ({
+      ...prev,
+      [personaId]: { ...prev[personaId], ...patch },
+    }));
   };
 
   const save = () => {
-    writePersonaCatalogAccessOverrides(draft);
+    writePersonaCatalogVisibilityOverrides(draft);
+    const legacyAccess: Partial<Record<DemoPersonaId, SalaryCatalogAccess>> = {};
+    for (const persona of DEMO_PERSONAS) {
+      const access = draft[persona.id]?.access;
+      if (access && access !== "none") legacyAccess[persona.id] = access;
+    }
+    writePersonaCatalogAccessOverrides(legacyAccess);
     setMessage("Доступ к диапазонам сохранён.");
     onSaved?.();
   };
 
   const reset = () => {
+    writePersonaCatalogVisibilityOverrides({});
     writePersonaCatalogAccessOverrides({});
-    setDraft(defaultPersonaCatalogAccessForSettings());
+    setDraft(defaultPersonaCatalogVisibilityForSettings());
     setMessage("Сброшено к значениям по умолчанию.");
     onSaved?.();
   };
@@ -45,7 +57,8 @@ export function SalaryCatalogAccessPanel({ onSaved }: Props) {
   return (
     <div className="salary-catalog-access-panel">
       <p className="muted-line">
-        Кто может редактировать справочник диапазонов (демо, как доступы к плану на экране входа).
+        Видимость справочника: специализации и уровни (через запятую или *). Редактирование — только при
+        access «write».
       </p>
       <div className="table-scroll">
         <table className="simple-table salary-catalog-access-panel__table">
@@ -53,19 +66,44 @@ export function SalaryCatalogAccessPanel({ onSaved }: Props) {
             <tr>
               <th>Пользователь</th>
               <th>Роль</th>
-              <th>Доступ к диапазонам</th>
+              <th>Специализации</th>
+              <th>Уровни</th>
+              <th>Доступ</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ persona, access }) => (
+            {rows.map(({ persona, rule }) => (
               <tr key={persona.id}>
                 <td>{persona.displayName}</td>
                 <td>{USER_ROLE_LABELS[persona.role]}</td>
                 <td>
+                  <input
+                    className="salary-catalog-access-panel__field"
+                    value={formatVisibilityField(rule.specs)}
+                    onChange={(event) =>
+                      updateRule(persona.id, { specs: parseCsvOrStar(event.target.value) })
+                    }
+                  />
+                </td>
+                <td>
+                  <input
+                    className="salary-catalog-access-panel__field"
+                    value={formatVisibilityField(rule.levels)}
+                    onChange={(event) =>
+                      updateRule(persona.id, { levels: parseCsvOrStar(event.target.value) })
+                    }
+                  />
+                </td>
+                <td>
                   <select
-                    value={access}
-                    onChange={(event) => setAccess(persona.id, event.target.value as SalaryCatalogAccess)}
+                    value={rule.access}
+                    onChange={(event) =>
+                      updateRule(persona.id, {
+                        access: event.target.value as CatalogVisibilityRule["access"],
+                      })
+                    }
                   >
+                    <option value="none">Нет доступа</option>
                     <option value="read">Только просмотр</option>
                     <option value="write">Редактирование</option>
                   </select>
@@ -84,7 +122,7 @@ export function SalaryCatalogAccessPanel({ onSaved }: Props) {
         </button>
       </div>
       {message ? <p className="app-data-panel__message">{message}</p> : null}
-      {Object.keys(readPersonaCatalogAccessOverrides()).length > 0 ? (
+      {Object.keys(readPersonaCatalogVisibilityOverrides()).length > 0 ? (
         <p className="muted-line">Есть сохранённые переопределения в браузере.</p>
       ) : null}
     </div>

@@ -3,6 +3,11 @@ import { demoRoleScope } from "./userAccess";
 import { scopeEqValues } from "./personaAccessScope";
 import { canRolePerformSubmissionAction, type SubmissionWorkflowAction } from "./submissionWorkflowPolicy";
 import type { PlanVersionMeta } from "./planVersions";
+import {
+  DEMO_DEPT_IT,
+  DEMO_TEAM_MOBILE,
+  DEMO_UNIT_A,
+} from "./demoOrg";
 
 export type TeamSubmissionPhase =
   | "editing"
@@ -290,47 +295,45 @@ export function publishSubmissionHint(planVersionId: string): string | null {
   return `${notReady} из ${entries.length} команд ещё не прошли согласование C&B.`;
 }
 
+/** Тестовые/демо-хелперы: пишут фазу напрямую, без RBAC. */
+function forceSubmissionPhase(
+  planVersionId: string,
+  department: string,
+  unit: string,
+  team: string,
+  nextPhase: TeamSubmissionPhase,
+  patch: Partial<TeamSubmissionRecord> = {},
+): void {
+  const all = readAll();
+  const key = submissionKey(planVersionId, department, unit, team);
+  const existing = all[key];
+  const currentPhase = existing?.phase ?? "editing";
+  if (!canTransition(currentPhase, nextPhase) && existing) return;
+  all[key] = { ...existing, phase: nextPhase, ...patch };
+  writeAll(all);
+}
+
 export function markTeamSubmitted(planVersionId: string, department: string, unit: string, team: string): void {
-  applySubmissionAction({
-    planVersionId,
-    department,
-    unit,
-    team,
-    action: "team_submit",
-    actor: { role: "cb_admin" },
+  forceSubmissionPhase(planVersionId, department, unit, team, "team_submitted", {
+    teamSubmittedAt: new Date().toISOString(),
   });
 }
 
 export function markUnitApproved(planVersionId: string, department: string, unit: string, team: string): void {
-  applySubmissionAction({
-    planVersionId,
-    department,
-    unit,
-    team,
-    action: "unit_approve",
-    actor: { role: "cb_admin" },
+  forceSubmissionPhase(planVersionId, department, unit, team, "unit_approved", {
+    unitApprovedAt: new Date().toISOString(),
   });
 }
 
 export function markDirectorApproved(planVersionId: string, department: string, unit: string, team: string): void {
-  applySubmissionAction({
-    planVersionId,
-    department,
-    unit,
-    team,
-    action: "director_approve",
-    actor: { role: "cb_admin" },
+  forceSubmissionPhase(planVersionId, department, unit, team, "director_approved", {
+    directorApprovedAt: new Date().toISOString(),
   });
 }
 
 export function markCbReview(planVersionId: string, department: string, unit: string, team: string): void {
-  applySubmissionAction({
-    planVersionId,
-    department,
-    unit,
-    team,
-    action: "cb_review",
-    actor: { role: "cb_admin" },
+  forceSubmissionPhase(planVersionId, department, unit, team, "cb_review", {
+    cbReviewAt: new Date().toISOString(),
   });
 }
 
@@ -339,14 +342,7 @@ export function markUnitApprovedForAllTeams(
   teams: { department: string; unit: string; team: string }[],
 ): void {
   for (const item of teams) {
-    applySubmissionAction({
-      planVersionId,
-      department: item.department,
-      unit: item.unit,
-      team: item.team,
-      action: "unit_approve",
-      actor: { role: "cb_admin" },
-    });
+    markUnitApproved(planVersionId, item.department, item.unit, item.team);
   }
 }
 
@@ -357,25 +353,22 @@ export function returnTeamToEditing(
   team: string,
   note?: string,
 ): void {
-  applySubmissionAction({
-    planVersionId,
-    department,
-    unit,
-    team,
-    action: "return",
-    actor: { role: "cb_admin" },
-    note,
-  });
+  const all = readAll();
+  const key = submissionKey(planVersionId, department, unit, team);
+  const existing = all[key];
+  all[key] = {
+    ...existing,
+    phase: "returned",
+    returnedAt: new Date().toISOString(),
+    returnedNote: note?.trim() || undefined,
+  };
+  writeAll(all);
 }
 
 export function reopenTeamEditing(planVersionId: string, department: string, unit: string, team: string): void {
-  applySubmissionAction({
-    planVersionId,
-    department,
-    unit,
-    team,
-    action: "reopen_editing",
-    actor: { role: "cb_admin" },
+  forceSubmissionPhase(planVersionId, department, unit, team, "editing", {
+    returnedAt: undefined,
+    returnedNote: undefined,
   });
 }
 
@@ -441,13 +434,13 @@ export function getTeamSubmissionForApprovalScope(
   return null;
 }
 
-/** Демо: Mobile сдана, остальные команды — в работе (для экрана юнит-лида). */
+/** Демо: «Мобильная разработка» сдана, остальные команды юнита А — в работе. */
 export function seedDemoUnitLeadQueue(planVersionId: string): void {
   const all = readAll();
-  const mobileKey = submissionKey(planVersionId, "Engineering", "ProductDev", "Mobile");
+  const mobileKey = submissionKey(planVersionId, DEMO_DEPT_IT, DEMO_UNIT_A, DEMO_TEAM_MOBILE);
   all[mobileKey] = {
     phase: "team_submitted",
-    teamSubmittedAt: "2026-06-11T09:30:00.000Z",
+    teamSubmittedAt: "2026-06-19T14:22:00.000Z",
   };
   writeAll(all);
 }

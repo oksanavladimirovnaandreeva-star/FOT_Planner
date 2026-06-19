@@ -4,6 +4,7 @@ import { scopePrimaryEq } from "./personaAccessScope";
 import {
   activePersonaScopeForRole,
   hasDemoSession,
+  listLoginPersonaGroups,
   listLoginPersonaOptions,
   loadDemoPersonaId,
   loginAsDemoPersona,
@@ -11,6 +12,13 @@ import {
   writePersonaScopeOverrides,
 } from "./demoSessionStore";
 import { buildAccessScope } from "./personaAccessScope";
+import {
+  DEMO_DEPT_IT,
+  DEMO_TEAM_MOBILE,
+  DEMO_TEAM_PLATFORM,
+  DEMO_UNIT_A,
+  DEMO_UNIT_B,
+} from "./demoOrg";
 
 describe("demoSessionStore", () => {
   beforeEach(() => {
@@ -29,8 +37,8 @@ describe("demoSessionStore", () => {
   it("assigns different team scopes to Vasya and Petya by default", () => {
     const vasya = resolveDemoPersona("vasya");
     const petya = resolveDemoPersona("petya");
-    expect(scopePrimaryEq(vasya.scope!, "team")).toBe("Frontend Web");
-    expect(scopePrimaryEq(petya.scope!, "team")).toBe("Mobile");
+    expect(scopePrimaryEq(vasya.scope!, "team")).toBe(DEMO_TEAM_PLATFORM);
+    expect(scopePrimaryEq(petya.scope!, "team")).toBe(DEMO_TEAM_MOBILE);
     expect(scopePrimaryEq(vasya.scope!, "team")).not.toBe(scopePrimaryEq(petya.scope!, "team"));
   });
 
@@ -53,29 +61,38 @@ describe("demoSessionStore", () => {
   it("applies C&B scope overrides for named personas", () => {
     writePersonaScopeOverrides({
       vasya: buildAccessScope({
-        department: "Engineering",
-        unit: "ProductDev",
-        team: "Platform",
+        department: DEMO_DEPT_IT,
+        unit: DEMO_UNIT_B,
+        team: "Продукт 1",
         excludeEmployeeNames: ["Василий Андреев"],
       }),
     });
     const vasya = resolveDemoPersona("vasya");
-    expect(scopePrimaryEq(vasya.scope!, "team")).toBe("Platform");
+    expect(scopePrimaryEq(vasya.scope!, "team")).toBe("Продукт 1");
     loginAsDemoPersona("vasya");
-    expect(scopePrimaryEq(activePersonaScopeForRole("team_lead")!, "team")).toBe("Platform");
+    expect(scopePrimaryEq(activePersonaScopeForRole("team_lead")!, "team")).toBe("Продукт 1");
+  });
+
+  it("listLoginPersonaGroups группирует по оргструктуре", () => {
+    const groups = listLoginPersonaGroups();
+    expect(groups.length).toBeGreaterThan(5);
+    const unitA = groups.find((group) => group.label === "Департамент ИТ — Юнит А");
+    expect(unitA?.options.map((item) => item.id)).toEqual(["sidr", "vasya", "petya", "tl_infra", "tl_qa"]);
+    const vasya = unitA?.options.find((item) => item.id === "vasya");
+    expect(vasya?.optionLabel).toBe("Василий Андреев — Тимлид · Платформа");
   });
 
   it("listLoginPersonaOptions сортирует по ФИО", () => {
     const options = listLoginPersonaOptions();
-    expect(options.length).toBe(5);
+    expect(options.length).toBe(23);
     expect(options[0].displayName.localeCompare(options[1].displayName, "ru")).toBeLessThanOrEqual(0);
     const vasya = options.find((item) => item.id === "vasya");
-    expect(vasya?.optionLabel).toBe("Василий Андреев — Тимлид");
+    expect(vasya?.optionLabel).toBe("Василий Андреев — Тимлид · Платформа");
   });
 
   it("returns persona scope only for matching active role", () => {
     loginAsDemoPersona("sidr");
-    expect(scopePrimaryEq(activePersonaScopeForRole("unit_lead")!, "unit")).toBe("ProductDev");
+    expect(scopePrimaryEq(activePersonaScopeForRole("unit_lead")!, "unit")).toBe(DEMO_UNIT_A);
     expect(activePersonaScopeForRole("team_lead")).toBeNull();
   });
 });

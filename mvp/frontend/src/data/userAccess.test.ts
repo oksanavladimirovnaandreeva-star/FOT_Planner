@@ -14,13 +14,22 @@ import {
   loadUserRole,
 } from "./userAccess";
 
+import {
+  DEMO_DEPT_IT,
+  DEMO_DEPT_SALES,
+  DEMO_TEAM_PLATFORM,
+  DEMO_TEAM_SALES_B2B,
+  DEMO_UNIT_A,
+  DEMO_UNIT_B,
+} from "./demoOrg";
+
 function samplePosition(overrides: Partial<PositionRecord> = {}): PositionRecord {
   return {
     positionId: "P001",
     role: "Engineer",
-    department: "Engineering",
-    unit: "ProductDev",
-    team: "Frontend Web",
+    department: DEMO_DEPT_IT,
+    unit: DEMO_UNIT_A,
+    team: DEMO_TEAM_PLATFORM,
     status: "Occupied",
     employeeName: "Test",
     employeeId: "E001",
@@ -70,16 +79,21 @@ describe("userAccess RBAC", () => {
 
   it("director — срез департамента", () => {
     const eng = samplePosition();
-    const sales = samplePosition({ department: "Sales", positionId: "П002" });
+    const sales = samplePosition({ department: DEMO_DEPT_SALES, positionId: "П002" });
     expect(filterPositionsByRole([eng, sales], "director")).toHaveLength(1);
   });
 
   it("unit_lead — только свой юнит", () => {
     const inUnit = samplePosition();
-    const otherUnit = samplePosition({ unit: "Platform", team: "Backend Core", positionId: "П002" });
-    const sales = samplePosition({ department: "Sales", unit: "Enterprise", team: "Key Accounts", positionId: "П003" });
+    const otherUnit = samplePosition({ unit: DEMO_UNIT_B, team: "Backend", positionId: "П002" });
+    const sales = samplePosition({
+      department: DEMO_DEPT_SALES,
+      unit: "Коммерция",
+      team: DEMO_TEAM_SALES_B2B,
+      positionId: "П003",
+    });
     expect(filterPositionsByRole([inUnit, otherUnit, sales], "unit_lead")).toHaveLength(1);
-    expect(filterPositionsByRole([inUnit, otherUnit], "unit_lead")[0].unit).toBe("ProductDev");
+    expect(filterPositionsByRole([inUnit, otherUnit], "unit_lead")[0].unit).toBe(DEMO_UNIT_A);
   });
 
   it("freeze блокирует team_lead и unit_lead, не director", () => {
@@ -166,9 +180,9 @@ describe("userAccess RBAC", () => {
       JSON.stringify({
         vasya: {
           rules: [
-            { id: "d", field: "department", operator: "eq", values: ["Engineering"] },
-            { id: "u", field: "unit", operator: "eq", values: ["ProductDev"] },
-            { id: "t", field: "team", operator: "eq", values: ["Frontend Web"] },
+            { id: "d", field: "department", operator: "eq", values: [DEMO_DEPT_IT] },
+            { id: "u", field: "unit", operator: "eq", values: [DEMO_UNIT_A] },
+            { id: "t", field: "team", operator: "eq", values: [DEMO_TEAM_PLATFORM] },
             { id: "n", field: "employeeName", operator: "neq", values: ["Василий Андреев"] },
           ],
         },

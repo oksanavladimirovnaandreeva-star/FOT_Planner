@@ -20,8 +20,10 @@ import {
 } from "../../data/teamLeadApprovalKanban";
 import { canRolePerformSubmissionAction } from "../../data/submissionWorkflowPolicy";
 import { demoRoleActorOrg, demoRolePrimaryOrg } from "../../data/userAccess";
-import { planWorkspacePath } from "../../data/planWorkspaceMode";
+import { resolveActivePersonaOrgScope } from "../../data/demoSessionStore";
+import { planTeamPlanningPath, planWorkspacePath } from "../../data/planWorkspaceMode";
 import { buildTeamApprovalDiff, type TeamApprovalSubmissionMode } from "../../data/teamApprovalDiff";
+import { formatRosterBrief, rosterSummaryForTeam } from "../../data/teamRosterSummary";
 import { ApprovalVersionRibbon } from "./ApprovalVersionRibbon";
 import { TeamLeadApprovalChangesList } from "./TeamLeadApprovalChangesList";
 import { TeamLeadApprovalKpi } from "./TeamLeadApprovalKpi";
@@ -56,9 +58,23 @@ export function TeamLeadApprovalPanel() {
     leadEditFrozen,
     refreshTeamSubmissions,
     teamSubmissionRevision,
+    appConfigRevision,
   } = useMvpApp();
 
   const scope = useMemo(() => {
+    const personaOrg = resolveActivePersonaOrgScope();
+    if (personaOrg) {
+      const unit = personaOrg.unit ?? personaOrg.units[0] ?? "";
+      const team = personaOrg.team ?? personaOrg.teams[0] ?? "";
+      return {
+        department: personaOrg.department,
+        unit,
+        team,
+        departments: personaOrg.departments,
+        units: personaOrg.units,
+        teams: personaOrg.teams,
+      };
+    }
     const primary = demoRolePrimaryOrg("team_lead");
     const actor = demoRoleActorOrg("team_lead");
     const unit = primary.unit ?? actor.units[0] ?? "";
@@ -71,7 +87,7 @@ export function TeamLeadApprovalPanel() {
       units: actor.units,
       teams: actor.teams,
     };
-  }, []);
+  }, [appConfigRevision]);
 
   const planYear = primaryBudget?.planYear ?? workingDraft?.planYear ?? 2026;
   const applied = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
@@ -116,6 +132,11 @@ export function TeamLeadApprovalPanel() {
   );
 
   const teamRow = report.units.flatMap((unit) => unit.teams).find((row) => row.team === scope.team) ?? report.units[0]?.teams[0];
+
+  const rosterBrief = useMemo(() => {
+    const summary = rosterSummaryForTeam(applied, scope.department, scope.unit, scope.team);
+    return formatRosterBrief(summary);
+  }, [applied, scope]);
 
   const activeColumn = resolveTeamLeadKanbanColumn({
     workingDraft,
@@ -215,9 +236,14 @@ export function TeamLeadApprovalPanel() {
         : "Черновик";
   const planningLink =
     submissionMode === "quarterly"
-      ? planWorkspacePath("correction", { tab: "positions" })
-      : "/planning?tab=positions";
-  const canShowApprovalPackage = Boolean(approvalDiff && submissionMode);
+      ? planWorkspacePath("correction", { tab: "positions", team: scope.team })
+      : planTeamPlanningPath(scope.team);
+  const planningActionLabel =
+    canEditPlanning
+      ? submissionMode === "annual"
+        ? "Годовое планирование"
+        : "Квартальное планирование"
+      : "Просмотр плана";
 
   return (
     <div className="team-lead-approval">
@@ -228,7 +254,7 @@ export function TeamLeadApprovalPanel() {
       />
 
       {teamRow ? (
-        <section className="card team-lead-approval__status" aria-label="Статус сдачи">
+        <section className="card team-lead-approval__status" aria-label="Мой бюджет команды">
           <div className="team-lead-approval__status-head">
             <div>
               <span className={`team-lead-approval__status-badge team-lead-approval__status-badge--${activeColumn}`}>
@@ -237,6 +263,8 @@ export function TeamLeadApprovalPanel() {
               <h2 className="team-lead-approval__status-team">{teamRow.team}</h2>
               <p className="muted-line">
                 {teamRow.unit} · {teamRow.department}
+                {rosterBrief !== "—" ? ` · ${rosterBrief}` : ""}
+                {draftLabel ? ` · ${draftLabel}` : ""}
               </p>
               <p className="team-lead-approval__status-hint">{statusCopy.hint}</p>
             </div>
@@ -246,17 +274,22 @@ export function TeamLeadApprovalPanel() {
                   Отправить бюджет на согласование
                 </button>
               ) : null}
-              {canEditPlanning ? (
-                <Link className="secondary-btn" to={planningLink}>
-                  {submissionMode === "annual" ? "Годовое планирование" : "Квартальное планирование"}
-                </Link>
-              ) : (
-                <Link className="secondary-btn" to={planningLink}>
-                  Просмотр плана
-                </Link>
-              )}
+              <Link className={canSubmit ? "secondary-btn" : "primary-btn"} to={planningLink}>
+                {planningActionLabel}
+              </Link>
             </div>
           </div>
+
+          {approvalDiff ? (
+            <TeamLeadApprovalKpi
+              embedded
+              summary={approvalDiff.summary}
+              baselineLabel={baselineLabel}
+              draftLabel={draftLabel}
+              submissionMode={submissionMode!}
+            />
+          ) : null}
+
           {approvalSubstep ? <p className="team-lead-approval__substep">{approvalSubstep}</p> : null}
           {submission?.returnedNote ? (
             <p className="team-lead-approval__return-note">
@@ -273,25 +306,28 @@ export function TeamLeadApprovalPanel() {
           ) : null}
           {publishedHint ? <p className="team-lead-approval__next-hint">{publishedHint}</p> : null}
         </section>
-      ) : null}
+      ) : (
+        <section className="card team-lead-approval__status" role="alert">
+          <h2 className="section-title">Команда не найдена в плане</h2>
+          <p className="muted-line">
+            Срез: {scope.department || "—"} · {scope.unit || "—"} · {scope.team || "—"}
+          </p>
+          <p className="muted-line">
+            Данные демо устарели. C&B: Настройки → «Сбросить пилот / план» или откройте приложение с{" "}
+            <code>?reset=demo</code>.
+          </p>
+        </section>
+      )}
 
-      {canShowApprovalPackage ? (
-        <>
-          <TeamLeadApprovalKpi
-            summary={approvalDiff!.summary}
-            baselineLabel={baselineLabel}
-            draftLabel={draftLabel}
-            submissionMode={submissionMode!}
-          />
-          <TeamLeadApprovalChangesList
-            rows={approvalDiff!.rows}
-            canEdit={canEditPlanning}
-            positionsById={positionsById}
-            versionLabel={draftLabel}
-            submissionMode={submissionMode!}
-            planningLink={planningLink}
-          />
-        </>
+      {approvalDiff && submissionMode ? (
+        <TeamLeadApprovalChangesList
+          rows={approvalDiff.rows}
+          canEdit={canEditPlanning}
+          positionsById={positionsById}
+          versionLabel={draftLabel}
+          submissionMode={submissionMode}
+          planningLink={planningLink}
+        />
       ) : null}
     </div>
   );

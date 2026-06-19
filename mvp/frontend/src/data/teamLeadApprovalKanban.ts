@@ -164,6 +164,19 @@ export function buildTeamLeadVersionRibbon(input: {
     ? publishedQuarterly.label
     : quarterCorrectionLabel(planYear, Math.max(1, nextQuarterForDraft));
 
+  const annualPlanningOnly =
+    Boolean(primaryBudget?.status === "DRAFT" && primaryBudget.versionNumber === 1 && !workingDraft);
+
+  if (annualPlanningOnly && primaryBudget) {
+    return [
+      {
+        id: "annual",
+        label: primaryBudget.label ?? `Бюджет ${planYear}`,
+        state: "current",
+      },
+    ];
+  }
+
   return [
     {
       id: "annual",

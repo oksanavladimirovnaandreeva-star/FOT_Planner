@@ -28,9 +28,9 @@ export type ScopedRole = Exclude<UserRole, "cb_admin" | "gd" | "viewer">;
 const STORAGE_KEY = "fot_mvp_demo_role_scope";
 
 export const DEFAULT_ROLE_SCOPES: Record<ScopedRole, RoleScopeRecord> = {
-  director: { department: "Engineering" },
-  unit_lead: { department: "Engineering", unit: "ProductDev" },
-  team_lead: { department: "Engineering", unit: "ProductDev", team: "Frontend Web" },
+  director: { department: "Департамент ИТ" },
+  unit_lead: { department: "Департамент ИТ", unit: "Юнит А" },
+  team_lead: { department: "Департамент ИТ", unit: "Юнит А", team: "Платформа" },
 };
 
 export function normalizeScope(scope: RoleScopeRecord): RoleScopeRecord {

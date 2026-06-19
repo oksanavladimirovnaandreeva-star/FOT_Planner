@@ -33,6 +33,10 @@ import { ToolbarMultiSelect } from "../components/ToolbarMultiSelect";
 import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
 import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults } from "../data/userAccess";
 import {
+  resolveTeamLeadDisplayForTeam,
+  resolveUnitLeadDisplayForUnit,
+} from "../data/demoPersonas";
+import {
   annualTotal,
   applyEvents,
   collectIndexationBatchesFromPositions,
@@ -237,12 +241,50 @@ export function PlanningPage() {
 
   useEffect(() => {
     if (!orgFilterDefaults) return;
+    const teamParam = searchParams.get("team") ?? searchParams.get("sliceTeam");
+    const unitParam = searchParams.get("unit") ?? searchParams.get("sliceUnit");
     setOrgSlice({
       departments: orgFilterDefaults.departments,
-      units: orgFilterDefaults.units,
-      teams: orgFilterDefaults.teams,
+      units: unitParam ? [unitParam] : orgFilterDefaults.units,
+      teams: teamParam ? [teamParam] : orgFilterDefaults.teams,
     });
-  }, [orgFilterDefaults]);
+    if (teamParam || unitParam) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("team");
+          next.delete("sliceTeam");
+          next.delete("unit");
+          next.delete("sliceUnit");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [orgFilterDefaults, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (orgFilterDefaults) return;
+    const teamParam = searchParams.get("team") ?? searchParams.get("sliceTeam");
+    const unitParam = searchParams.get("unit") ?? searchParams.get("sliceUnit");
+    if (!teamParam && !unitParam) return;
+    setOrgSlice((prev) => ({
+      ...prev,
+      units: unitParam ? [unitParam] : prev.units,
+      teams: teamParam ? [teamParam] : prev.teams,
+    }));
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("team");
+        next.delete("sliceTeam");
+        next.delete("unit");
+        next.delete("sliceUnit");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [orgFilterDefaults, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (orgFilterDefaults) return;
@@ -276,10 +318,17 @@ export function PlanningPage() {
     () => availableUnitsForSlice({ departments: orgSlice.departments }),
     [orgSlice.departments],
   );
-  const teamOptionsList = useMemo(
-    () => availableTeamsForSlice({ departments: orgSlice.departments, units: orgSlice.units }),
-    [orgSlice.departments, orgSlice.units],
-  );
+  const teamOptionsList = useMemo(() => {
+    const all = availableTeamsForSlice({ departments: orgSlice.departments, units: orgSlice.units });
+    const maxTeams = orgFilterDefaults?.maxTeams;
+    if (!maxTeams?.length) return all;
+    return all.filter((team) => maxTeams.includes(team));
+  }, [orgSlice.departments, orgSlice.units, orgFilterDefaults?.maxTeams]);
+
+  const showAllUnitTeams = () => {
+    if (!orgFilterDefaults?.maxTeams?.length) return;
+    setOrgSlice((prev) => ({ ...prev, teams: [...orgFilterDefaults.maxTeams!] }));
+  };
 
   const [limitFilter, setLimitFilter] = useState<"All" | "IN_LIMIT" | "OVER_LIMIT">("All");
   const [occupancyFilter, setOccupancyFilter] = useState<"All" | "Occupied" | "Vacancy" | "Closed">("All");
@@ -510,11 +559,24 @@ export function PlanningPage() {
     });
   }, [positions, activeSourceId]);
 
+  const leadOnlyMode = searchParams.get("leadOnly");
+
   const filtered = useMemo(() => {
     return appliedPositions.filter((position) => {
       const limitMatch = limitFilter === "All" || position.limitFlag === limitFilter;
       const occupancyMatch = occupancyFilter === "All" || position.status === occupancyFilter;
       const queryText = `${position.positionId} ${position.role} ${position.employeeName ?? ""} ${position.unit} ${position.team}`.toLowerCase();
+      if (leadOnlyMode === "1" || leadOnlyMode === "team_lead") {
+        const leadName = resolveTeamLeadDisplayForTeam(
+          position.department,
+          position.unit,
+          position.team,
+        );
+        if (!leadName || position.employeeName !== leadName) return false;
+      } else if (leadOnlyMode === "unit_lead") {
+        const leadName = resolveUnitLeadDisplayForUnit(position.department, position.unit);
+        if (!leadName || position.employeeName !== leadName) return false;
+      }
       return (
         matchesOrgSlice(position, orgSlice) &&
         limitMatch &&
@@ -522,7 +584,7 @@ export function PlanningPage() {
         queryText.includes(query.toLowerCase())
       );
     });
-  }, [appliedPositions, query, orgSlice, limitFilter, occupancyFilter]);
+  }, [appliedPositions, query, orgSlice, limitFilter, occupancyFilter, leadOnlyMode]);
 
   const tableCounts = useMemo(() => {
     const open = filtered.filter((position) => position.status !== "Closed");
@@ -895,9 +957,11 @@ export function PlanningPage() {
             compact
           />
           <div className="planning-toolbar__actions">
-            <Link className="secondary-btn" to="/salary-ranges">
-              Диапазоны
-            </Link>
+            {userRole === "cb_admin" ? (
+              <Link className="secondary-btn" to="/salary-ranges">
+                Диапазоны
+              </Link>
+            ) : null}
             {workspaceTab === "positions" ? (
               <button
                 type="button"
@@ -1051,6 +1115,11 @@ export function PlanningPage() {
             disabled={orgFilterDefaults?.lockTeam}
             onChange={(teams) => setOrgSlice((prev) => updateOrgSliceTeams(prev, teams))}
           />
+          {orgFilterDefaults?.showAllTeamsToggle ? (
+            <button type="button" className="secondary-btn app-btn--sm" onClick={showAllUnitTeams}>
+              Все команды юнита
+            </button>
+          ) : null}
           {workspaceTab !== "journal" ? (
             <>
           <SliceToolbarSelect label="Лимит" value={limitFilter} onChange={(value) => setLimitFilter(value as typeof limitFilter)}>

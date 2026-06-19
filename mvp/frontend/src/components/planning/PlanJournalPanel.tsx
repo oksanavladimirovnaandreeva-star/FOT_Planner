@@ -2,16 +2,12 @@ import { useMemo, useState } from "react";
 import { ExternalLink, MessageSquare } from "lucide-react";
 import {
   collectPlanEventJournalRows,
-  formatGradeChangeRange,
-  formatSalaryChangeRange,
-  gradeChanged,
+  formatEventChangeLine,
   journalEventMatchesTypeFilter,
-  salaryChanged,
   tableRowStatusClass,
 } from "../../data/eventJournal";
 import { isMultiSelectNone, multiSelectMatches } from "../../data/multiSelectFilter";
 import { mapPositionsWithAppliedEvents } from "../../data/planOperations";
-import { formatIsoDateTime } from "../../data/formatDisplay";
 import { matchesOrgSlice, type OrgSliceSelection } from "../../data/orgSliceFilters";
 import { useMvpApp } from "../../context/MvpAppContext";
 import { journalEventKaitenEligible, kaitenTypeForEventType, type KaitenRequestType } from "../../data/kaitenExport";
@@ -122,7 +118,7 @@ export function PlanJournalPanel({
         <table className={`simple-table plan-journal-table${isSidebar ? " plan-journal-table--sidebar" : ""}`}>
           <thead>
             <tr>
-              <th>Когда</th>
+              <th>С месяца</th>
               <th>Позиция</th>
               {!isSidebar ? <th>Было → стало</th> : null}
               <th>Событие</th>
@@ -139,7 +135,7 @@ export function PlanJournalPanel({
                   className={`plan-journal-table__row ${tableRowStatusClass(row.statusAfter)}`}
                   onClick={() => onOpenPosition(row.positionId)}
                 >
-                  <td>{formatIsoDateTime(row.createdAt)}</td>
+                  <td>{row.change.monthLabel}</td>
                   <td>
                     {position ? (
                       <PositionIdentityCell record={position} userRole={userRole} compact />
@@ -153,23 +149,7 @@ export function PlanJournalPanel({
                   {!isSidebar ? (
                     <td>
                       <div className="plan-journal-change">
-                        <div className="muted-line">с {row.change.monthLabel}</div>
-                        {row.change.statusBefore !== row.change.statusAfter ? (
-                          <div className="positions-table__dec-range">
-                            {row.change.statusBefore} → {row.change.statusAfter}
-                          </div>
-                        ) : null}
-                        {salaryChanged(row.change) ? (
-                          <div className="positions-table__dec-range">{formatSalaryChangeRange(row.change)}</div>
-                        ) : null}
-                        {gradeChanged(row.change) ? (
-                          <div className="positions-table__dec-range">{formatGradeChangeRange(row.change)}</div>
-                        ) : null}
-                        {!salaryChanged(row.change) &&
-                        !gradeChanged(row.change) &&
-                        row.change.statusBefore === row.change.statusAfter ? (
-                          <div className="muted-line">без изменения ФОТ и грейда</div>
-                        ) : null}
+                        {formatEventChangeLine(row.change)}
                       </div>
                     </td>
                   ) : null}

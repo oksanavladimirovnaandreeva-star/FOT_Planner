@@ -2,12 +2,12 @@ import type { LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 import { ORG_STRUCTURE } from "./orgStructure";
 
 /** Версия демо-набора: при смене — авто-обновление seed в localStorage. */
-export const DEMO_SEED_VERSION = 8;
+export const DEMO_SEED_VERSION = 11;
 
 export const DEMO_SEED_VERSION_KEY = "fot_mvp_demo_seed_version";
 
 /** Обычный демо-план при старте и «Демо-план» в настройках. */
-export const DEFAULT_DEMO_POSITION_COUNT = 40;
+export const DEFAULT_DEMO_POSITION_COUNT = 90;
 
 /** Целевой объём для пилотного стресс-теста (кнопка «Пилот (тяжёлый)»). */
 export const PILOT_POSITION_TARGET = 520;
@@ -87,20 +87,21 @@ const EMPLOYEE_NAMES = [
   "Амина Григорьева",
 ];
 
+const SPEC_BY_DEPARTMENT: Record<string, string> = {
+  "Департамент ИТ": "Engineering",
+  "Департамент HR": "Product",
+  "Департамент Продаж": "Marketing",
+};
+
 const ROLE_TITLES: Record<string, string[]> = {
+  "Департамент ИТ": ["Engineer", "Senior Engineer", "Tech Lead", "Staff Engineer"],
+  "Департамент HR": ["HR Business Partner", "Recruiter", "L&D Specialist", "HR Operations"],
+  "Департамент Продаж": ["Account Manager", "Sales Lead", "BDR", "Key Account Manager"],
   Engineering: ["Engineer", "Senior Engineer", "Tech Lead", "Staff Engineer"],
   Product: ["Product Manager", "Senior PM", "Analyst", "Product Owner"],
   Marketing: ["Marketing Manager", "Content Lead", "Growth Manager", "Brand Manager"],
   Sales: ["Account Manager", "Sales Lead", "BDR", "Key Account Manager"],
   HR: ["HR Business Partner", "Recruiter", "L&D Specialist", "HR Operations"],
-};
-
-const SPEC_BY_DEPARTMENT: Record<string, string> = {
-  Engineering: "Engineering",
-  Product: "Product",
-  Marketing: "Marketing",
-  Sales: "Marketing",
-  HR: "Product",
 };
 
 const LEVELS = ["Middle", "Senior", "Lead"] as const;

@@ -12,6 +12,10 @@ type Props = {
   baselineLabel: string;
   draftLabel: string;
   submissionMode: TeamApprovalSubmissionMode;
+  scopeTitle?: string;
+  scopeLead?: string;
+  /** Внутри карточки статуса — без второго заголовка и обёртки. */
+  embedded?: boolean;
 };
 
 function deltaTone(delta: number): "up" | "down" | "flat" {
@@ -53,29 +57,89 @@ function LimitFotRows({
   );
 }
 
-export function TeamLeadApprovalKpi({ summary, baselineLabel, draftLabel, submissionMode }: Props) {
+export function TeamLeadApprovalKpi({
+  summary,
+  baselineLabel,
+  draftLabel,
+  submissionMode,
+  scopeTitle,
+  scopeLead,
+  embedded = false,
+}: Props) {
   const isAnnual = submissionMode === "annual";
   const deltaToneValue = deltaTone(summary.deltaFot);
+  const title = scopeTitle ?? "Бюджет команды к сдаче";
+  const lead =
+    scopeLead ??
+    (isAnnual
+      ? `Общий годовой ФОТ · ${draftLabel}`
+      : `Общий ФОТ в ${draftLabel} — уходит на согласование`);
+
+  const annualBlock = (
+    <>
+      <div className="team-lead-approval__kpi-hero">
+        <span className="team-lead-approval__kpi-hero-label">Итого ФОТ год</span>
+        <strong className="team-lead-approval__kpi-hero-value">{formatMoney(summary.draftFot, true)}</strong>
+      </div>
+      <LimitFotRows totals={summary.draftFotByLimit} />
+      {isAnnual && summary.changeCount > 0 ? (
+        <p className="muted-line team-lead-approval__kpi-foot">
+          {formatChangeCountLabel(summary.changeCount)} — в журнале ниже
+        </p>
+      ) : null}
+    </>
+  );
+
+  const quarterlyDeltaBlock = !isAnnual ? (
+    <section
+      className={`team-lead-approval__kpi team-lead-approval__kpi--delta team-lead-approval__kpi--${deltaToneValue}`}
+      aria-label="Изменения относительно утверждённого года"
+    >
+      <h3 className="team-lead-approval__kpi-subtitle">Изменения vs {baselineLabel}</h3>
+      <div className="team-lead-approval__kpi-delta-total">
+        <span>Δ ФОТ год</span>
+        <strong>{formatSignedDelta(summary.deltaFot, true)}</strong>
+        <span className="muted-line">
+          {formatMoney(summary.baselineFot, true)} → {formatMoney(summary.draftFot, true)}
+        </span>
+      </div>
+      <ul className="team-lead-approval__limit-rows team-lead-approval__limit-rows--delta">
+        {TEAM_APPROVAL_LIMIT_FLAGS.map((flag) => (
+          <li key={flag} className="team-lead-approval__limit-row">
+            <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
+            <strong>{formatSignedDelta(summary.deltaFotByLimit[flag], true)}</strong>
+            <span className="muted-line">
+              {formatMoney(summary.baselineFotByLimit[flag], true)} →{" "}
+              {formatMoney(summary.draftFotByLimit[flag], true)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {summary.changeCount > 0 ? (
+        <p className="muted-line team-lead-approval__kpi-foot">
+          {formatChangeCountLabel(summary.changeCount)} в квартальной версии
+        </p>
+      ) : (
+        <p className="muted-line team-lead-approval__kpi-foot">Правок в квартальной версии нет</p>
+      )}
+    </section>
+  ) : null;
+
+  if (embedded) {
+    return (
+      <div className="team-lead-approval__kpi-embedded">
+        {annualBlock}
+        {quarterlyDeltaBlock}
+      </div>
+    );
+  }
 
   return (
     <div className="team-lead-approval__kpi-stack">
       <section className="card team-lead-approval__kpi" aria-label="Бюджет к сдаче">
-        <h2 className="section-title">Бюджет команды к сдаче</h2>
-        <p className="muted-line team-lead-approval__kpi-lead">
-          {isAnnual
-            ? `Общий годовой ФОТ команды · ${draftLabel}`
-            : `Общий ФОТ команды в ${draftLabel} — это уходит на согласование`}
-        </p>
-        <div className="team-lead-approval__kpi-hero">
-          <span className="team-lead-approval__kpi-hero-label">Итого ФОТ год</span>
-          <strong className="team-lead-approval__kpi-hero-value">{formatMoney(summary.draftFot, true)}</strong>
-        </div>
-        <LimitFotRows totals={summary.draftFotByLimit} />
-        {isAnnual && summary.changeCount > 0 ? (
-          <p className="muted-line team-lead-approval__kpi-foot">
-            {formatChangeCountLabel(summary.changeCount)} — в журнале ниже
-          </p>
-        ) : null}
+        <h2 className="section-title">{title}</h2>
+        <p className="muted-line team-lead-approval__kpi-lead">{lead}</p>
+        {annualBlock}
       </section>
 
       {!isAnnual ? (

@@ -1,6 +1,6 @@
 # План реализации (по шагам)
 
-**Обновлено:** 2026-06-14 · Чекпоинт **UX-3-workspace-drawer** · Продукт: [`PRODUCT-MODEL.md`](PRODUCT-MODEL.md) · Handoff: [`HANDOFF.md`](HANDOFF.md)
+**Обновлено:** 2026-06-19 · Чекпоинт **pilot-annual-planning + вариант A** · Продукт: [`PRODUCT-MODEL.md`](PRODUCT-MODEL.md) · Handoff: [`HANDOFF.md`](HANDOFF.md) · Старт чата: [`NEW-CHAT-START.md`](NEW-CHAT-START.md)
 
 `[x]` сделано · `[ ]` дальше · Коммиты — по просьбе · После шага: `npm run build` (+ `npm test` при data/logic)
 
@@ -54,6 +54,18 @@
 | F3 | Консолидация unit_lead + ссылки корректировка/compare | `[x]` |
 | F4 | Матрица: визуально закрытые месяцы до M<sub>open</sub> | `[x]` |
 | F5 | План–факт: Δ план−факт, драйверы «почему», multi-on-seat | `[x]` |
+
+## Вариант A — «Мой бюджет» + демо-орг (июнь 2026)
+
+| # | Задача | |
+|---|--------|---|
+| A1 | `BudgetWorkspacePanel` unit_lead + director | `[x]` код, smoke в браузере — **проверить** |
+| A2 | Пакетная сдача `packageSubmissionStore` | `[x]` |
+| A3 | Демо-орг ИТ/HR/Продажи, 15 персон, русские команды | `[x]` |
+| A4 | Login optgroup, «Ваш контур» (плитки), `?team=` в планировании | `[x]` |
+| A5 | Миграция localStorage `DEMO_SEED_VERSION=11` | `[x]` |
+| A6 | Доступы к диапазонам в Настройках C&B | `[x]` |
+| A7 | **Smoke end-to-end** без нулей в браузере | `[ ]` **следующий P0** |
 
 ## UX-4 — отложено (не в checkpoint UX-3-workspace-drawer)
 

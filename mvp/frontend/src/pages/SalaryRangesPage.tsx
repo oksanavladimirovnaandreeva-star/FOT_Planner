@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
-import { CollapsibleSection } from "../components/CollapsibleSection";
-import { SalaryCatalogAccessPanel } from "../components/settings/SalaryCatalogAccessPanel";
 import { useMvpApp } from "../context/MvpAppContext";
+import { bandMatchesCatalogVisibility } from "../data/catalogVisibility";
+import { loadResolvedCatalogVisibility } from "../data/demoSessionStore";
 import {
   bandKey,
   initialSalaryBands,
@@ -50,9 +51,7 @@ const SORT_COLUMNS: { key: SortKey; label: string }[] = [
 ];
 
 export function SalaryRangesPage() {
-  const { activePlan, salaryBands, setSalaryBands, canEditSalaryCatalog, userRole, refreshAppConfig } =
-    useMvpApp();
-  const showCatalogAccessSettings = userRole === "cb_admin";
+  const { activePlan, salaryBands, setSalaryBands, canEditSalaryCatalog, userRole } = useMvpApp();
   const [specFilter, setSpecFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -65,8 +64,11 @@ export function SalaryRangesPage() {
   const specs = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const levels = useMemo(() => [...new Set(salaryBands.map((band) => band.level))].sort((a, b) => a.localeCompare(b, "ru")), [salaryBands]);
 
+  const catalogVisibility = useMemo(() => loadResolvedCatalogVisibility(), [userRole]);
+
   const filtered = useMemo(() => {
     const rows = salaryBands.filter((band) => {
+      if (!bandMatchesCatalogVisibility(band, catalogVisibility)) return false;
       if (specFilter && band.specialization !== specFilter) return false;
       if (levelFilter && band.level !== levelFilter) return false;
       if (search) {
@@ -76,7 +78,7 @@ export function SalaryRangesPage() {
       return true;
     });
     return [...rows].sort((a, b) => compareBands(a, b, sortKey, sortDir));
-  }, [salaryBands, specFilter, levelFilter, search, sortKey, sortDir]);
+  }, [salaryBands, specFilter, levelFilter, search, sortKey, sortDir, catalogVisibility]);
 
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -347,17 +349,9 @@ export function SalaryRangesPage() {
         </section>
       )}
 
-      {showCatalogAccessSettings ? (
-        <CollapsibleSection
-          title="Доступ к диапазонам (демо C&B)"
-          summary="По пользователям, как срезы на экране входа"
-          defaultOpen
-        >
-          <SalaryCatalogAccessPanel onSaved={refreshAppConfig} />
-        </CollapsibleSection>
-      ) : (
-        <p className="muted-line">Справочник диапазонов: {canEditSalaryCatalog ? "редактирование" : "только просмотр"}.</p>
-      )}
+      <p className="muted-line">
+        Настройка доступа к справочнику — в <Link to="/settings">Настройки → Доступ к диапазонам</Link> (C&B).
+      </p>
     </div>
   );
 }

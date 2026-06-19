@@ -202,8 +202,44 @@ export function positionGradeYearRange(record: PositionRecord): {
   return { before, after, changed: before !== after };
 }
 
+export function formatApprovalJournalSummary(row: {
+  isNewPosition: boolean;
+  fotDeltaAnnual: number;
+  change: EventChangeSummary;
+  typeLabel: string;
+}): { title: string; detail: string } {
+  if (row.isNewPosition) {
+    const fot = Math.round(row.fotDeltaAnnual).toLocaleString("ru-RU");
+    return {
+      title: "Новая позиция",
+      detail: fotDeltaAnnualNonZero(row.fotDeltaAnnual) ? `ФОТ ${fot} ₽/год` : "плановый найм",
+    };
+  }
+
+  const details: string[] = [];
+  if (row.change.statusBefore !== row.change.statusAfter) {
+    details.push(`${row.change.statusBefore} → ${row.change.statusAfter}`);
+  }
+  if (salaryChanged(row.change)) {
+    details.push(formatSalaryChangeRange(row.change));
+  }
+  if (gradeChanged(row.change)) {
+    details.push(formatGradeChangeRange(row.change));
+  }
+
+  return {
+    title: row.typeLabel,
+    detail: details.length > 0 ? details.join(" · ") : "без изменения ФОТ и грейда",
+  };
+}
+
+function fotDeltaAnnualNonZero(value: number): boolean {
+  return Math.abs(value) >= 1;
+}
+
+/** Было → стало без месяца (месяц — в отдельной колонке). */
 export function formatEventChangeLine(change: EventChangeSummary): string {
-  const parts: string[] = [`с ${change.monthLabel}`];
+  const parts: string[] = [];
   if (change.statusBefore !== change.statusAfter) {
     parts.push(`${change.statusBefore} → ${change.statusAfter}`);
   }
@@ -213,7 +249,7 @@ export function formatEventChangeLine(change: EventChangeSummary): string {
   if (gradeChanged(change)) {
     parts.push(formatGradeChangeRange(change));
   }
-  return parts.join(" · ");
+  return parts.length > 0 ? parts.join(" · ") : "без изменения ФОТ и грейда";
 }
 
 export function collectPlanEventJournalRows(positions: PositionRecord[]): PlanEventJournalRow[] {

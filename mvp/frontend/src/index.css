@@ -7986,6 +7986,22 @@ body.drawer-close-guard .drawer-overlay {
   gap: 16px;
 }
 
+.team-lead-approval__kpi-embedded {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle, #e2e8f0);
+}
+
+.team-lead-approval__kpi-embedded .team-lead-approval__kpi-hero {
+  margin-top: 0;
+}
+
+.team-lead-approval__kpi-subtitle {
+  margin: 20px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .team-lead-approval__kpi-lead {
   margin: 4px 0 0;
   font-size: 13px;
@@ -8370,4 +8386,168 @@ body.drawer-close-guard .drawer-overlay {
 .team-lead-approval__card-delta {
   margin: 0;
   font-size: 14px;
+}
+
+.budget-workspace__pipeline-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.budget-workspace__pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.budget-workspace__pipeline-step--current {
+  color: #1e3a8a;
+  font-weight: 600;
+}
+
+.budget-workspace__pipeline-step--done {
+  color: #047857;
+}
+
+.budget-workspace__pipeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.budget-workspace__pipeline-step--current .budget-workspace__pipeline-dot {
+  background: #2563eb;
+}
+
+.budget-workspace__pipeline-step--done .budget-workspace__pipeline-dot {
+  background: #10b981;
+}
+
+.budget-workspace__package-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.budget-teams-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.budget-teams-table__plan-link--primary {
+  font-weight: 600;
+}
+
+.budget-teams-table__row--primary td:first-child {
+  border-left: 3px solid #6366f1;
+}
+
+.budget-changes-by-type__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.budget-changes-by-type__chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.budget-changes-by-type__chip--active {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+
+.salary-catalog-access-panel__field {
+  min-width: 120px;
+  width: 100%;
+  max-width: 200px;
+}
+
+.budget-contour__lead {
+  margin: 0 0 12px;
+}
+
+.budget-contour__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.budget-contour__unit-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.budget-contour-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.budget-contour-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  position: relative;
+}
+
+.budget-contour-tile--direct {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.budget-contour-tile__team {
+  margin: 0;
+  font-size: 16px;
+}
+
+.budget-contour-tile__lead,
+.budget-contour-tile__meta {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.budget-contour-tile__badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #2563eb;
+  color: #fff;
+}
+
+.budget-contour-tile__link {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+.demo-login-select optgroup {
+  font-weight: 600;
+  color: #334155;
 }

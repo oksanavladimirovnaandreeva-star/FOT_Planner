@@ -2,21 +2,28 @@ import {
   DEMO_PERSONA_BY_ID,
   DEMO_PERSONAS,
   isDemoPersonaId,
+  listLoginPersonaGroups,
+  resolvePersonaLoginRoleLabel,
   type DemoPersonaDefinition,
   type DemoPersonaId,
+  type LoginPersonaGroup,
 } from "./demoPersonas";
 import {
   normalizeAccessScope,
   parseStoredAccessScope,
   formatPersonaLoginOption,
+  scopeEqValues,
+  scopePrimaryEq,
   type PersonaAccessScope,
 } from "./personaAccessScope";
-import { saveUserRole, LOGIN_ROLE_LABELS, type UserRole } from "./userAccess";
-import type { SalaryCatalogAccess } from "../types";
+import { saveUserRole, type UserRole } from "./userAccess";
+import type { SalaryCatalogAccess, CatalogVisibilityRule } from "../types";
+import { defaultCatalogVisibilityForRole } from "./catalogVisibility";
 
 const SESSION_PERSONA_KEY = "fot_mvp_demo_persona_id";
 const PERSONA_SCOPES_KEY = "fot_mvp_demo_persona_scopes";
 const PERSONA_CATALOG_ACCESS_KEY = "fot_mvp_demo_persona_catalog_access";
+const PERSONA_CATALOG_VISIBILITY_KEY = "fot_mvp_demo_persona_catalog_visibility";
 
 export type ResolvedDemoPersona = DemoPersonaDefinition & {
   scope: PersonaAccessScope | null;
@@ -65,6 +72,10 @@ export function resolveDemoPersona(personaId: DemoPersonaId): ResolvedDemoPerson
 export function loadDemoPersonaId(): DemoPersonaId | null {
   try {
     const stored = localStorage.getItem(SESSION_PERSONA_KEY);
+    if (stored === "director") {
+      localStorage.setItem(SESSION_PERSONA_KEY, "dir_it");
+      return "dir_it";
+    }
     return isDemoPersonaId(stored) ? stored : null;
   } catch {
     return null;
@@ -75,6 +86,27 @@ export function loadResolvedDemoPersona(): ResolvedDemoPersona | null {
   const id = loadDemoPersonaId();
   if (!id) return null;
   return resolveDemoPersona(id);
+}
+
+/** Орг-срез активной персоны (приоритет над пресетами ролей в Настройках). */
+export function resolveActivePersonaOrgScope(): {
+  department: string;
+  unit: string | null;
+  team: string | null;
+  departments: string[];
+  units: string[];
+  teams: string[];
+} | null {
+  const persona = loadResolvedDemoPersona();
+  if (!persona?.scope) return null;
+  return {
+    department: scopePrimaryEq(persona.scope, "department") ?? "",
+    unit: scopePrimaryEq(persona.scope, "unit") ?? null,
+    team: scopePrimaryEq(persona.scope, "team") ?? null,
+    departments: scopeEqValues(persona.scope, "department"),
+    units: scopeEqValues(persona.scope, "unit"),
+    teams: scopeEqValues(persona.scope, "team"),
+  };
 }
 
 export function hasDemoSession(): boolean {
@@ -164,7 +196,55 @@ export function defaultPersonaCatalogAccessForSettings(): Record<DemoPersonaId, 
   const overrides = readCatalogAccessOverrides();
   const result = {} as Record<DemoPersonaId, SalaryCatalogAccess>;
   for (const persona of DEMO_PERSONAS) {
-    result[persona.id] = overrides[persona.id] ?? defaultCatalogAccessForPersona(persona.role);
+    const visibility = resolvePersonaCatalogVisibility(persona.id);
+    result[persona.id] =
+      overrides[persona.id] ??
+      (visibility.access === "none" ? "read" : visibility.access);
+  }
+  return result;
+}
+
+function readCatalogVisibilityOverrides(): Partial<Record<DemoPersonaId, CatalogVisibilityRule>> {
+  try {
+    const raw = localStorage.getItem(PERSONA_CATALOG_VISIBILITY_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<Record<DemoPersonaId, CatalogVisibilityRule>>;
+    return parsed ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export function readPersonaCatalogVisibilityOverrides(): Partial<Record<DemoPersonaId, CatalogVisibilityRule>> {
+  return readCatalogVisibilityOverrides();
+}
+
+export function writePersonaCatalogVisibilityOverrides(
+  overrides: Partial<Record<DemoPersonaId, CatalogVisibilityRule>>,
+): void {
+  localStorage.setItem(PERSONA_CATALOG_VISIBILITY_KEY, JSON.stringify(overrides));
+}
+
+export function resolvePersonaCatalogVisibility(personaId: DemoPersonaId): CatalogVisibilityRule {
+  const overrides = readCatalogVisibilityOverrides();
+  if (overrides[personaId]) return overrides[personaId]!;
+  const legacy = readCatalogAccessOverrides()[personaId];
+  const base = defaultCatalogVisibilityForRole(DEMO_PERSONA_BY_ID[personaId].role);
+  if (legacy) return { ...base, access: legacy };
+  return base;
+}
+
+export function loadResolvedCatalogVisibility(): CatalogVisibilityRule {
+  const persona = loadResolvedDemoPersona();
+  if (!persona) return defaultCatalogVisibilityForRole("viewer");
+  return resolvePersonaCatalogVisibility(persona.id);
+}
+
+export function defaultPersonaCatalogVisibilityForSettings(): Record<DemoPersonaId, CatalogVisibilityRule> {
+  const overrides = readCatalogVisibilityOverrides();
+  const result = {} as Record<DemoPersonaId, CatalogVisibilityRule>;
+  for (const persona of DEMO_PERSONAS) {
+    result[persona.id] = overrides[persona.id] ?? resolvePersonaCatalogVisibility(persona.id);
   }
   return result;
 }
@@ -179,7 +259,7 @@ export function listLoginPersonaOptions(): {
 }[] {
   return [...DEMO_PERSONAS]
     .map((persona) => {
-      const roleLabel = LOGIN_ROLE_LABELS[persona.role];
+      const roleLabel = resolvePersonaLoginRoleLabel(persona);
       return {
         id: persona.id,
         displayName: persona.displayName,
@@ -190,3 +270,5 @@ export function listLoginPersonaOptions(): {
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName, "ru"));
 }
+
+export { listLoginPersonaGroups, type LoginPersonaGroup };

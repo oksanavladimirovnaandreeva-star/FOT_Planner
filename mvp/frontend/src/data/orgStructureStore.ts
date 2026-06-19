@@ -14,25 +14,18 @@ export type OrgHistoryEntry = {
 };
 
 export const DEFAULT_ORG_TREE: OrgTree = {
-  Engineering: {
-    Platform: ["Backend Core", "Infrastructure", "DevOps"],
-    ProductDev: ["Frontend Web", "Mobile", "QA"],
+  "Департамент ИТ": {
+    "Юнит А": ["Платформа", "Мобильная разработка", "Инфраструктура", "Качество"],
+    "Юнит Б": ["Продукт 1", "Продукт 2", "Аналитика", "Дизайн"],
+    "Юнит С": ["Backend", "Frontend", "DevOps", "Data"],
+    "Прямое подчинение": ["Дирекция ИТ"],
   },
-  Product: {
-    Core: ["PM Team A", "PM Team B"],
-    Analytics: ["Research", "Insights"],
+  "Департамент HR": {
+    Операции: ["Рекрутинг", "Обучение и развитие"],
+    "Прямое подчинение": ["Дирекция HR"],
   },
-  Marketing: {
-    Brand: ["Content", "SMM"],
-    Growth: ["Performance", "CRM"],
-  },
-  Sales: {
-    Enterprise: ["Key Accounts", "Partners"],
-    Retail: ["Online", "Offline"],
-  },
-  HR: {
-    People: ["Recruiting", "L&D"],
-    Ops: ["Payroll", "Admin"],
+  "Департамент Продаж": {
+    Коммерция: ["Корпоративные продажи", "Розница"],
   },
 };
 

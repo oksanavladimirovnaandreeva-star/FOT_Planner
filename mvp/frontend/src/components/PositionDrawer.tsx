@@ -27,7 +27,7 @@ import type { LimitFlagKey } from "../types";
 import { MONTHS } from "../types";
 import type { PlannedEvent, PositionRecord } from "../types";
 import { eventsForDrawerHistory } from "../data/eventJournal";
-import { eventTypeLabel, formatEventDrawerTimestamp, formatEventHumanForDrawer } from "./drawer/formatEventHistory";
+import { eventTypeLabel, formatEventHumanForDrawer } from "./drawer/formatEventHistory";
 import {
   scenarioHelpText,
   SCENARIO_CARDS,
@@ -1467,7 +1467,6 @@ export function PositionDrawer({
                         {event.payload.comment ? (
                           <p className="drawer-history-timeline__comment">{event.payload.comment}</p>
                         ) : null}
-                        <p className="drawer-history-timeline__meta">{formatEventDrawerTimestamp(event.createdAt)}</p>
                       </div>
                     </li>
                   ))}
