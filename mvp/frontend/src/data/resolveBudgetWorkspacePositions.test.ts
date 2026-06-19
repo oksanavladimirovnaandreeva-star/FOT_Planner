@@ -29,4 +29,27 @@ describe("resolveBudgetWorkspacePositions", () => {
     });
     expect(diff.summary.draftFot).toBeGreaterThan(0);
   });
+
+  it("пустой квартальный черновик не блокирует годовой пакет", () => {
+    const { versions, dataByVersion } = buildDemoAnnualVersionState();
+    const annual = versions[0]!;
+    const applied = (dataByVersion[annual.id] ?? []).map(applyEvents);
+    const workingDraft = {
+      ...annual,
+      id: "wd-q1",
+      kind: "WORKING_DRAFT" as const,
+      versionNumber: 2,
+      baselineVersionId: annual.id,
+      status: "DRAFT" as const,
+    };
+    const resolved = resolveBudgetWorkspacePositions({
+      workingDraft,
+      primaryBudget: annual,
+      versionDiffBaseline: applied,
+      versionDiffDraft: [],
+      appliedPlanPositions: applied,
+    });
+    expect(resolved.submissionMode).toBe("annual");
+    expect(resolved.draftPositions.length).toBe(applied.length);
+  });
 });

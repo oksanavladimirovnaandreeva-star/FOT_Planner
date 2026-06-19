@@ -452,15 +452,27 @@ export function resolvePersonaLoginRoleLabel(persona: DemoPersonaDefinition): st
 
 /** ФИО юнит-лида (для контура директора). */
 export function resolveUnitLeadDisplayForUnit(department: string, unit: string): string | null {
+  return resolveUnitLeadPersona(department, unit)?.displayName ?? null;
+}
+
+function resolveUnitLeadPersona(
+  department: string,
+  unit: string,
+): DemoPersonaDefinition | null {
   for (const persona of DEMO_PERSONAS) {
     if (persona.role !== "unit_lead" || !persona.defaultScope) continue;
     const depts = scopeEqValues(persona.defaultScope, "department");
     const units = scopeEqValues(persona.defaultScope, "unit");
     if (depts.includes(department) && units.includes(unit)) {
-      return persona.displayName;
+      return persona;
     }
   }
   return null;
+}
+
+/** Id персоны юнит-лида (для фильтра leadOnly в планировании). */
+export function resolveUnitLeadPersonaId(department: string, unit: string): DemoPersonaId | null {
+  return resolveUnitLeadPersona(department, unit)?.id ?? null;
 }
 
 /** ФИО тимлида команды (для таблицы юнит-лида). */

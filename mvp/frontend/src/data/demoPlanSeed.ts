@@ -2,7 +2,7 @@ import type { LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 import { ORG_STRUCTURE } from "./orgStructure";
 
 /** Версия демо-набора: при смене — авто-обновление seed в localStorage. */
-export const DEMO_SEED_VERSION = 11;
+export const DEMO_SEED_VERSION = 12;
 
 export const DEMO_SEED_VERSION_KEY = "fot_mvp_demo_seed_version";
 

@@ -25,7 +25,10 @@ export function resolveBudgetWorkspacePositions(input: {
     appliedPlanPositions,
   } = input;
 
-  if (workingDraft?.baselineVersionId && versionDiffDraft.length > 0) {
+  const hasQuarterlyDraft =
+    Boolean(workingDraft?.baselineVersionId) && versionDiffDraft.length > 0;
+
+  if (hasQuarterlyDraft) {
     return {
       submissionMode: "quarterly",
       baselinePositions: versionDiffBaseline.map(applyEvents),

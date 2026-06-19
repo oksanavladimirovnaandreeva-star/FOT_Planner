@@ -15,6 +15,8 @@ const STALE_DEMO_KEYS = [
   "fot_mvp_demo_role_scope",
   "fot_mvp_demo_persona_scopes",
   "fot_mvp_org_tree",
+  "mvp.packageSubmissions",
+  "mvp.teamSubmissions",
 ] as const;
 
 export function positionsUseLegacyOrg(positions: PositionRecord[]): boolean {

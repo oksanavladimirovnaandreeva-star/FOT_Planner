@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { applyEvents, initialPositions } from "../data/planningData";
 import { DEMO_SEED_VERSION, DEMO_SEED_VERSION_KEY } from "../data/demoPlanSeed";
 import { buildDemoAnnualVersionState, applyDemoAnnualScenarioSideEffects } from "../data/demoVersionSeed";
+import { pinDemoPersonasToRoster } from "../data/demoRosterPins";
+import { hasDemoSession } from "../data/demoSessionStore";
 import { diffPlanVersions, type PlanVersionDiffSummary } from "../data/planVersionDiff";
 import {
   archiveApprovedVersion,
@@ -139,6 +141,17 @@ function applyDemoSeedUpgrade(
   return state;
 }
 
+function applyDemoRosterPins(
+  data: Record<string, PositionRecord[]>,
+): Record<string, PositionRecord[]> {
+  if (!hasDemoSession()) return data;
+  const next: Record<string, PositionRecord[]> = {};
+  for (const [versionId, rows] of Object.entries(data)) {
+    next[versionId] = pinDemoPersonasToRoster(rows);
+  }
+  return next;
+}
+
 function hydrateState(): {
   versions: PlanVersionMeta[];
   dataByVersion: Record<string, PositionRecord[]>;
@@ -152,7 +165,7 @@ function hydrateState(): {
   if (persistedVersions && persistedData) {
     const upgraded = applyDemoSeedUpgrade(persistedData);
     if (upgraded) return upgraded;
-    const repaired = repairDataByVersion(persistedVersions, persistedData);
+    const repaired = applyDemoRosterPins(repairDataByVersion(persistedVersions, persistedData));
     return {
       versions: repairVersionLabels(persistedVersions),
       dataByVersion: repaired,

@@ -9,6 +9,7 @@ import {
   PACKAGE_PHASE_LABELS,
   type BudgetPipelineStep,
 } from "../../data/packageSubmissionStore";
+import { formatIsoDateTime } from "../../data/formatDisplay";
 import {
   applySubmissionAction,
   resolveSubmissionPlanVersionId,
@@ -225,8 +226,11 @@ export function BudgetWorkspacePanel({ level }: Props) {
   const packageApproveAction =
     level === "unit" ? "package_approve_unit" : "package_approve_department";
 
+  const packagePhase = pkg.packageSubmission?.phase ?? "collecting";
+
   const canSubmitPackage =
     planVersionId != null &&
+    (packagePhase === "collecting" || packagePhase === "returned") &&
     canRolePerformSubmissionAction(packageAction, {
       actorRole: userRole,
       targetDepartment: scope.department,
@@ -254,11 +258,11 @@ export function BudgetWorkspacePanel({ level }: Props) {
   const handlePackageSubmit = () => {
     if (!planVersionId) return;
     const label = submissionActionLabel(packageAction);
-    if (
-      !window.confirm(
-        `${label}?\n\nСдано команд: ${pkg.teamsSubmitted} из ${pkg.teamsTotal}. Можно отправить частично.`,
-      )
-    ) {
+    const confirmMessage =
+      pkg.submissionMode === "annual"
+        ? `${label}?\n\nГодовой бюджет будет отправлен в C&B для проверки.`
+        : `${label}?\n\nСдано команд: ${pkg.teamsSubmitted} из ${pkg.teamsTotal}. Можно отправить частично.`;
+    if (!window.confirm(confirmMessage)) {
       return;
     }
     const result = applyPackageSubmissionAction({
@@ -386,6 +390,21 @@ export function BudgetWorkspacePanel({ level }: Props) {
 
       <section className="card budget-workspace__package-actions" aria-label="Действия пакета">
         <h2 className="section-title">Согласование пакета</h2>
+        {pkg.packageSubmission ? (
+          <p className="muted-line budget-workspace__package-phase">
+            Статус пакета: <strong>{PACKAGE_PHASE_LABELS[packagePhase]}</strong>
+            {pkg.packageSubmission.submittedAt && packagePhase !== "collecting"
+              ? ` · ${formatIsoDateTime(pkg.packageSubmission.submittedAt)}`
+              : ""}
+            {pkg.packageSubmission.returnedNote ? ` · ${pkg.packageSubmission.returnedNote}` : ""}
+          </p>
+        ) : (
+          <p className="muted-line budget-workspace__package-phase">
+            {pkg.submissionMode === "annual"
+              ? "Годовой бюджет: отправьте пакет в C&B, когда сводка готова."
+              : "Квартальный цикл: команды сдают план, затем отправляется пакет."}
+          </p>
+        )}
         <div className="budget-workspace__package-buttons">
           {canSubmitPackage ? (
             <button type="button" className="primary-btn" onClick={handlePackageSubmit}>

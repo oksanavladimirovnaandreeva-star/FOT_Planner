@@ -9,7 +9,7 @@ import { loadResolvedDemoPersona } from "./demoSessionStore";
 import { formatMoney } from "./formatDisplay";
 import { annualTotal } from "./planningData";
 import { formatRosterBrief, rosterSummaryForTeam } from "./teamRosterSummary";
-import { planTeamPlanningPath, planUnitLeadContourPath } from "./planWorkspaceMode";
+import { planTeamPlanningPath, planUnitLeadContourPath, planUnitPlanningPath } from "./planWorkspaceMode";
 import type { BudgetTeamRow, BudgetWorkspaceLevel } from "./buildBudgetPackage";
 import type { PositionRecord } from "../types";
 
@@ -22,8 +22,15 @@ export type BudgetContourTeamTile = {
   /** Подпись роли в плитке (тимлид / юнит-лид). */
   leadRoleLabel?: "team_lead" | "unit_lead";
   rosterBrief: string;
+  fotBrief: string;
+  statusLabel: string;
   isDirectReport: boolean;
+  /** Планирование всей команды (из таблицы «Команды»). */
   planningHref: string;
+  /** Весь юнит (для плитки юнит-лида у директора). */
+  unitPlanningHref: string | null;
+  /** Позиция тимлида / юнит-лида (из «Ваш контур»). */
+  leadPlanningHref: string | null;
 };
 
 export type BudgetContourUnitGroup = {
@@ -63,7 +70,6 @@ function teamTile(
   team: BudgetTeamRow,
   positions: PositionRecord[],
   directReportTeams: Set<string>,
-  options?: { leadOnly?: boolean },
 ): BudgetContourTeamTile {
   const teamLeadName = resolveTeamLeadDisplayForTeam(team.department, team.unit, team.team);
   const roster = rosterSummaryForTeam(positions, team.department, team.unit, team.team);
@@ -75,8 +81,21 @@ function teamTile(
     teamLeadName,
     leadRoleLabel: "team_lead",
     rosterBrief: formatRosterBrief(roster),
+    fotBrief: formatMoney(team.draftFotAnnual, true),
+    statusLabel: team.statusLabel,
     isDirectReport: directReportTeams.has(team.team),
-    planningHref: planTeamPlanningPath(team.team, "planning", { leadOnly: options?.leadOnly }),
+    planningHref: planTeamPlanningPath(team.team, "planning", {
+      unit: team.unit,
+      department: team.department,
+    }),
+    unitPlanningHref: null,
+    leadPlanningHref: teamLeadName
+      ? planTeamPlanningPath(team.team, "planning", {
+          leadOnly: true,
+          unit: team.unit,
+          department: team.department,
+        })
+      : null,
   };
 }
 
@@ -86,6 +105,14 @@ function unitLeadTile(
   positions: PositionRecord[],
   department: string,
 ): BudgetContourTeamTile {
+  const unitTeams = teams.filter((team) => team.unit === unit);
+  const draftFot = unitTeams.reduce((sum, team) => sum + team.draftFotAnnual, 0);
+  const statusLabel =
+    unitTeams.find((team) => team.displayStatus === "team_submitted")?.statusLabel ??
+    unitTeams.find((team) => team.displayStatus === "ready")?.statusLabel ??
+    unitTeams[0]?.statusLabel ??
+    "В работе";
+
   return {
     id: `unit-${unit}`,
     team: unit,
@@ -93,9 +120,15 @@ function unitLeadTile(
     department,
     teamLeadName: resolveUnitLeadDisplayForUnit(department, unit),
     leadRoleLabel: "unit_lead",
-    rosterBrief: aggregateRosterBrief(teams, positions, department),
+    rosterBrief: aggregateRosterBrief(unitTeams, positions, department),
+    fotBrief: formatMoney(draftFot, true),
+    statusLabel,
     isDirectReport: false,
-    planningHref: planUnitLeadContourPath(unit),
+    planningHref: planUnitLeadContourPath(unit, "planning", department),
+    unitPlanningHref: planUnitPlanningPath(unit, "planning", department),
+    leadPlanningHref: resolveUnitLeadDisplayForUnit(department, unit)
+      ? planUnitLeadContourPath(unit, "planning", department)
+      : null,
   };
 }
 
@@ -129,9 +162,7 @@ export function buildBudgetContour(input: {
           id: `unit-${input.unit}`,
           unit: input.unit,
           teamCount: input.teams.length,
-          teams: input.teams.map((team) =>
-            teamTile(team, input.positions, directReportTeams, { leadOnly: true }),
-          ),
+          teams: input.teams.map((team) => teamTile(team, input.positions, directReportTeams)),
         },
       ],
     };
@@ -213,8 +244,21 @@ export function buildTeamLeadBudgetContour(input: {
             teamLeadName: persona?.displayName ?? null,
             leadRoleLabel: "team_lead",
             rosterBrief: `${rosterBrief} · ${fotBrief}`,
+            fotBrief,
+            statusLabel: "В работе",
             isDirectReport: false,
-            planningHref: planTeamPlanningPath(input.team),
+            planningHref: planTeamPlanningPath(input.team, "planning", {
+              unit: input.unit,
+              department: input.department,
+            }),
+            unitPlanningHref: null,
+            leadPlanningHref: persona
+              ? planTeamPlanningPath(input.team, "planning", {
+                  leadOnly: true,
+                  unit: input.unit,
+                  department: input.department,
+                })
+              : null,
           },
         ],
       },

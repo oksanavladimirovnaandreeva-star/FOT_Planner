@@ -35,7 +35,9 @@ import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults } from "
 import {
   resolveTeamLeadDisplayForTeam,
   resolveUnitLeadDisplayForUnit,
+  resolveUnitLeadPersonaId,
 } from "../data/demoPersonas";
+import { resolveActivePersonaOrgScope } from "../data/demoSessionStore";
 import {
   annualTotal,
   applyEvents,
@@ -148,6 +150,53 @@ function parseWorkspaceMode(value: string | null): PlanWorkspaceMode {
   return value === "correction" ? "correction" : "planning";
 }
 
+function positionEmployeeLabel(position: PositionRecord): string {
+  return position.employeeName?.trim() || position.seedEmployeeName?.trim() || "";
+}
+
+function matchesLeadOnlyFilter(position: PositionRecord, leadOnlyMode: string | null): boolean {
+  if (!leadOnlyMode) return true;
+  if (leadOnlyMode === "1" || leadOnlyMode === "team_lead") {
+    const leadName = resolveTeamLeadDisplayForTeam(position.department, position.unit, position.team);
+    return Boolean(leadName && positionEmployeeLabel(position) === leadName);
+  }
+  if (leadOnlyMode === "unit_lead") {
+    const leadName = resolveUnitLeadDisplayForUnit(position.department, position.unit);
+    const personaId = resolveUnitLeadPersonaId(position.department, position.unit);
+    if (personaId && position.employeeId === `PERSONA-${personaId}`) return true;
+    return Boolean(leadName && positionEmployeeLabel(position) === leadName);
+  }
+  return true;
+}
+
+function applyPlanningDeepLinkSlice(
+  prev: OrgSliceSelection,
+  params: {
+    teamParam: string | null;
+    unitParam: string | null;
+    departmentParam: string | null;
+  },
+  orgFilterDefaults: ReturnType<typeof roleOrgFilterDefaults>,
+): OrgSliceSelection {
+  const { teamParam, unitParam, departmentParam } = params;
+  if (!teamParam && !unitParam && !departmentParam) return prev;
+
+  if (orgFilterDefaults) {
+    return {
+      departments: departmentParam ? [departmentParam] : orgFilterDefaults.departments,
+      units: unitParam ? [unitParam] : orgFilterDefaults.units,
+      teams: teamParam ? [teamParam] : unitParam ? [] : orgFilterDefaults.teams,
+    };
+  }
+
+  const personaDept = resolveActivePersonaOrgScope()?.department;
+  return {
+    departments: departmentParam ? [departmentParam] : personaDept ? [personaDept] : prev.departments,
+    units: unitParam ? [unitParam] : prev.units,
+    teams: teamParam ? [teamParam] : unitParam ? [] : [],
+  };
+}
+
 export function PlanningPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -243,12 +292,17 @@ export function PlanningPage() {
     if (!orgFilterDefaults) return;
     const teamParam = searchParams.get("team") ?? searchParams.get("sliceTeam");
     const unitParam = searchParams.get("unit") ?? searchParams.get("sliceUnit");
-    setOrgSlice({
-      departments: orgFilterDefaults.departments,
-      units: unitParam ? [unitParam] : orgFilterDefaults.units,
-      teams: teamParam ? [teamParam] : orgFilterDefaults.teams,
-    });
-    if (teamParam || unitParam) {
+    const departmentParam = searchParams.get("department");
+    if (!teamParam && !unitParam && !departmentParam) return;
+
+    setOrgSlice((prev) =>
+      applyPlanningDeepLinkSlice(
+        prev,
+        { teamParam, unitParam, departmentParam },
+        orgFilterDefaults,
+      ),
+    );
+    if (teamParam || unitParam || departmentParam) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -256,6 +310,7 @@ export function PlanningPage() {
           next.delete("sliceTeam");
           next.delete("unit");
           next.delete("sliceUnit");
+          next.delete("department");
           return next;
         },
         { replace: true },
@@ -267,12 +322,11 @@ export function PlanningPage() {
     if (orgFilterDefaults) return;
     const teamParam = searchParams.get("team") ?? searchParams.get("sliceTeam");
     const unitParam = searchParams.get("unit") ?? searchParams.get("sliceUnit");
-    if (!teamParam && !unitParam) return;
-    setOrgSlice((prev) => ({
-      ...prev,
-      units: unitParam ? [unitParam] : prev.units,
-      teams: teamParam ? [teamParam] : prev.teams,
-    }));
+    const departmentParam = searchParams.get("department");
+    if (!teamParam && !unitParam && !departmentParam) return;
+    setOrgSlice((prev) =>
+      applyPlanningDeepLinkSlice(prev, { teamParam, unitParam, departmentParam }, null),
+    );
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -280,6 +334,7 @@ export function PlanningPage() {
         next.delete("sliceTeam");
         next.delete("unit");
         next.delete("sliceUnit");
+        next.delete("department");
         return next;
       },
       { replace: true },
@@ -566,17 +621,7 @@ export function PlanningPage() {
       const limitMatch = limitFilter === "All" || position.limitFlag === limitFilter;
       const occupancyMatch = occupancyFilter === "All" || position.status === occupancyFilter;
       const queryText = `${position.positionId} ${position.role} ${position.employeeName ?? ""} ${position.unit} ${position.team}`.toLowerCase();
-      if (leadOnlyMode === "1" || leadOnlyMode === "team_lead") {
-        const leadName = resolveTeamLeadDisplayForTeam(
-          position.department,
-          position.unit,
-          position.team,
-        );
-        if (!leadName || position.employeeName !== leadName) return false;
-      } else if (leadOnlyMode === "unit_lead") {
-        const leadName = resolveUnitLeadDisplayForUnit(position.department, position.unit);
-        if (!leadName || position.employeeName !== leadName) return false;
-      }
+      if (!matchesLeadOnlyFilter(position, leadOnlyMode)) return false;
       return (
         matchesOrgSlice(position, orgSlice) &&
         limitMatch &&

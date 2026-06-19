@@ -1,25 +1,74 @@
 import { Link } from "react-router-dom";
 import type { BudgetContour, BudgetContourTeamTile } from "../../data/buildBudgetContour";
 
-function TeamTile({ tile }: { tile: BudgetContourTeamTile }) {
+function contourBadgeClass(statusLabel: string): string {
+  const lower = statusLabel.toLowerCase();
+  if (lower.includes("соглас") || lower.includes("сдан") || lower.includes("готов")) {
+    return "team-lead-approval__status-badge--in_approval";
+  }
+  if (lower.includes("возврат") || lower.includes("доработ")) {
+    return "team-lead-approval__status-badge--returned";
+  }
+  return "team-lead-approval__status-badge--in_progress";
+}
+
+function ContourCard({ tile }: { tile: BudgetContourTeamTile }) {
+  const leadRole = tile.leadRoleLabel === "unit_lead" ? "Юнит-лид" : "Тимлид";
+  const leadMissing = tile.leadRoleLabel === "unit_lead" ? "Юнит-лид не назначен" : "Тимлид не назначен";
+
   return (
-    <article
-      className={`budget-contour-tile${tile.isDirectReport ? " budget-contour-tile--direct" : ""}`}
+    <section
+      className={`card team-lead-approval__status budget-contour-card${tile.isDirectReport ? " budget-contour-card--direct" : ""}`}
+      aria-label={tile.team}
     >
-      <h3 className="budget-contour-tile__team">{tile.team}</h3>
-      <p className="budget-contour-tile__lead">
-        {tile.teamLeadName
-          ? `${tile.leadRoleLabel === "unit_lead" ? "Юнит-лид" : "Тимлид"}: ${tile.teamLeadName}`
-          : tile.leadRoleLabel === "unit_lead"
-            ? "Юнит-лид не назначен"
-            : "Тимлид не назначен"}
-      </p>
-      <p className="budget-contour-tile__meta">{tile.rosterBrief}</p>
-      {tile.isDirectReport ? <span className="budget-contour-tile__badge">прямой</span> : null}
-      <Link className="primary-btn app-btn--sm budget-contour-tile__link" to={tile.planningHref}>
-        Планирование
-      </Link>
-    </article>
+      <div className="team-lead-approval__status-head">
+        <div>
+          <span className={`team-lead-approval__status-badge ${contourBadgeClass(tile.statusLabel)}`}>
+            {tile.statusLabel}
+          </span>
+          <h2 className="team-lead-approval__status-team">{tile.team}</h2>
+          <p className="muted-line">
+            {tile.unit}
+            {tile.leadRoleLabel === "team_lead" ? ` · ${tile.department}` : ""}
+            {tile.isDirectReport ? " · прямой подчинённый" : ""}
+          </p>
+          <p className="budget-contour-card__meta">
+            {tile.rosterBrief}
+            {tile.fotBrief ? ` · ${tile.fotBrief} ФОТ год` : ""}
+          </p>
+          <p className="budget-contour-card__lead">
+            <span className="budget-contour-card__lead-label">{leadRole}:</span>{" "}
+            {tile.teamLeadName && tile.leadPlanningHref ? (
+              <Link to={tile.leadPlanningHref} className="budget-contour-card__lead-link">
+                {tile.teamLeadName}
+              </Link>
+            ) : tile.teamLeadName ? (
+              <strong>{tile.teamLeadName}</strong>
+            ) : (
+              <span className="muted-line">{leadMissing}</span>
+            )}
+          </p>
+        </div>
+        <div className="team-lead-approval__status-actions">
+          <Link
+            className="primary-btn"
+            to={tile.leadPlanningHref ?? tile.planningHref}
+          >
+            Планирование
+          </Link>
+          {tile.leadRoleLabel === "team_lead" ? (
+            <Link className="secondary-btn" to={tile.planningHref}>
+              Вся команда
+            </Link>
+          ) : null}
+          {tile.unitPlanningHref ? (
+            <Link className="secondary-btn" to={tile.unitPlanningHref}>
+              Весь юнит
+            </Link>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -31,7 +80,7 @@ export function BudgetContourPanel({ contour }: Props) {
   const showUnitHeadings = contour.unitGroups.length > 1;
 
   return (
-    <section className="card budget-contour" aria-label={contour.title}>
+    <section className="budget-contour" aria-label={contour.title}>
       <h2 className="section-title">{contour.title}</h2>
       <p className="muted-line budget-contour__lead">{contour.leadLine}</p>
       <div className="budget-contour__groups">
@@ -43,9 +92,9 @@ export function BudgetContourPanel({ contour }: Props) {
                 <span className="muted-line"> · {group.teamCount} команд</span>
               </h3>
             ) : null}
-            <div className="budget-contour-tiles">
+            <div className="budget-contour-cards">
               {group.teams.map((tile) => (
-                <TeamTile key={tile.id} tile={tile} />
+                <ContourCard key={tile.id} tile={tile} />
               ))}
             </div>
           </div>

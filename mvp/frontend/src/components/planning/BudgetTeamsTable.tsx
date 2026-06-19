@@ -46,7 +46,6 @@ export function BudgetTeamsTable({
   return (
     <section className="card budget-teams-table" aria-label="Команды">
       <h2 className="section-title">Команды</h2>
-      <p className="muted-line">Прямые подчинённые — тимлиды команд юнита. Жирная ссылка «Планирование» — ваши команды по умолчанию.</p>
       <div className="table-scroll">
         <table className="simple-table budget-teams-table__grid">
           <thead>
