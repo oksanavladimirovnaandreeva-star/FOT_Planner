@@ -632,6 +632,7 @@ export function PositionDrawer({
   const updateVacancyProfile = (patch: Partial<{ spec: string; level: string; base: number; bonus: number }>) => {
     if (readOnly) return;
     const month = record.activeFromMonth;
+    const profileStartMonth = !isPersisted && view.status === "Vacancy" ? 0 : month;
     const spec = patch.spec ?? vacancyProfileSpec;
     const levels = levelOptionsForSpecialization(spec, salaryBands);
     const level =
@@ -639,7 +640,7 @@ export function PositionDrawer({
     const base = patch.base ?? vacancyProfileBase;
     const bonus = patch.bonus ?? vacancyProfileBonus;
     const next = applyDirectEdit(record, (draft) => {
-      for (let index = month; index < 12; index += 1) {
+      for (let index = profileStartMonth; index < 12; index += 1) {
         draft.seedMonthlySpec[index] = spec;
         draft.seedMonthlyLevel[index] = level;
         draft.seedMonthlyBase[index] = base;
@@ -703,7 +704,7 @@ export function PositionDrawer({
         </header>
 
         <div className="drawer-body drawer-body--wb">
-          <div className="drawer-unified--stack">
+          <div className={`drawer-unified--stack${isVacancyDraft ? " drawer-unified--vacancy-draft" : ""}`}>
             <section className="drawer-identity drawer-card">
               <div className="drawer-identity__split">
                 <div className="drawer-identity__pane drawer-identity__pane--position">
@@ -821,6 +822,8 @@ export function PositionDrawer({
                   <p className="drawer-identity__id">{view.positionId}</p>
                 </div>
 
+                {!isVacancyDraft ? (
+                  <>
                 <div className="drawer-identity__bridge" aria-hidden>
                   <ArrowRight size={18} />
                 </div>
@@ -855,6 +858,8 @@ export function PositionDrawer({
                     </div>
                   )}
                 </div>
+                  </>
+                ) : null}
               </div>
             </section>
 
@@ -927,6 +932,7 @@ export function PositionDrawer({
                     ))}
                   </select>
                 </label>
+                {!isVacancyDraft ? (
                 <label className="drawer-meta-field">
                   <span className="drawer-meta-field__label">Статус</span>
                   <select value={view.status} disabled>
@@ -935,24 +941,27 @@ export function PositionDrawer({
                     <option value="Closed">{POSITION_STATUS_LABELS.Closed}</option>
                   </select>
                 </label>
+                ) : null}
               </div>
             </section>
 
             {view.status === "Vacancy" ? (
-              <section className="drawer-card drawer-card--plan drawer-vacancy-profile">
+              <section
+                className={`drawer-card drawer-card--plan drawer-vacancy-profile${isVacancyDraft ? " drawer-vacancy-profile--draft" : ""}`}
+              >
                 <h3 className="drawer-section__title drawer-section__title--plan">
                   Профиль компенсации
                 </h3>
                 {isVacancyDraft ? (
                   <p className="drawer-field__hint drawer-vacancy-profile__hint">
-                    Заполните оклад, специализацию и уровень — затем нажмите «Сохранить позицию» в шапке.
+                    Уточните профиль и нажмите «Сохранить позицию» в шапке.
                   </p>
                 ) : (
                   <p className="drawer-field__hint drawer-vacancy-profile__hint">
                     С месяца «{MONTHS[vacancyProfileMonth]}» по конец года.
                   </p>
                 )}
-                <div className="drawer-scenario-form__row drawer-scenario-form__row--four">
+                <div className="drawer-vacancy-profile__grid">
                   <label className="drawer-field">
                     <span className="drawer-field__label">Специализация</span>
                     <select

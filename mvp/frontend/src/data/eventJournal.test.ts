@@ -47,6 +47,7 @@ describe("eventJournal change display", () => {
 
   it("определяет изменение грейда в позиции январь→декабрь", () => {
     const record = {
+      activeFromMonth: 0,
       monthlySpec: Array.from({ length: 12 }, (_, index) => (index < 6 ? "Product" : "Engineering")),
       monthlyLevel: Array.from({ length: 12 }, (_, index) => (index < 6 ? "Middle" : "Senior")),
     } as PositionRecord;
@@ -59,5 +60,19 @@ describe("eventJournal change display", () => {
     );
     expect(salaryChanged(baseChange({}))).toBe(false);
     expect(gradeChanged(baseChange({ levelAfter: "Senior" }))).toBe(true);
+  });
+
+  it("сравнивает профиль с месяца открытия, не с января", () => {
+    const record = {
+      activeFromMonth: 5,
+      monthlySpec: Array.from({ length: 12 }, (_, index) =>
+        index < 5 ? "Engineering" : "Marketing",
+      ),
+      monthlyLevel: Array.from({ length: 12 }, (_, index) => (index < 5 ? "Junior" : "Middle")),
+    } as PositionRecord;
+    const range = positionGradeYearRange(record);
+    expect(range.changed).toBe(false);
+    expect(range.before).toBe("Marketing/Middle");
+    expect(range.after).toBe("Marketing/Middle");
   });
 });

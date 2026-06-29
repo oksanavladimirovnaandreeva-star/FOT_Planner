@@ -40,6 +40,25 @@ export function isQuarterWorkingDraft(
   return activePlan.kind === "WORKING_DRAFT" && primaryBudget != null && primaryBudget.status !== "DRAFT";
 }
 
+/**
+ * Правки в текущем рабочем пространстве (годовой черновик v1 или квартальный черновик).
+ * Порядок веток зафиксирован — см. AGENTS.md «Заморожено»; тесты: planCorrectionWindow.test.ts.
+ */
+export function resolveCanEditWorkspace(input: {
+  canEditPlan: boolean;
+  isTeamSliceReadOnly: boolean;
+  workspaceMode: PlanWorkspaceMode;
+  activePlan: PlanVersionMeta;
+  primaryBudget: PlanVersionMeta | null;
+}): boolean {
+  const { canEditPlan, isTeamSliceReadOnly, workspaceMode, activePlan, primaryBudget } = input;
+  if (!canEditPlan) return false;
+  if (isTeamSliceReadOnly) return false;
+  if (isQuarterWorkingDraft(activePlan, primaryBudget)) return true;
+  if (workspaceMode === "correction") return false;
+  return isAnnualPlanningDraft(activePlan);
+}
+
 export function resolveCorrectionWindow(
   _activePlan: PlanVersionMeta,
   _primaryBudget: PlanVersionMeta | null,

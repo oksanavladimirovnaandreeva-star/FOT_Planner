@@ -11,7 +11,6 @@ type Props = {
 export function ApprovalVersionRibbon({ steps, workingDraft, primaryBudget }: Props) {
   return (
     <section className="card team-lead-approval__ribbon" aria-label="Лента версий бюджета">
-      <h2 className="section-title">Ваш бюджет</h2>
       <ol className="team-lead-approval__ribbon-track">
         {steps.map((step, index) => {
           const isAnnualApproved = step.id === "annual" && step.state === "done";

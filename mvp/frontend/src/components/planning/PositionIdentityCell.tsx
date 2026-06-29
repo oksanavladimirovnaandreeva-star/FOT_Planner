@@ -18,6 +18,11 @@ function vacancyTitle(record: PositionRecord): string {
   return role;
 }
 
+function vacancyStatusRedundant(role: string | null | undefined): boolean {
+  const trimmed = role?.trim() ?? "";
+  return !trimmed || trimmed === "Новая вакансия" || /\(вакансия\)/iu.test(trimmed);
+}
+
 export function PositionIdentityCell({ record, userRole, metaExtra, compact = false }: Props) {
   const status = POSITION_STATUS_LABELS[record.status];
   const orgLine = formatPositionOrgLine(record, userRole);
@@ -35,8 +40,12 @@ export function PositionIdentityCell({ record, userRole, metaExtra, compact = fa
         ) : record.status === "Vacancy" ? (
           <>
             <strong className="position-identity__name">{vacancyTitle(record)}</strong>
-            <span className="position-identity__sep">·</span>
-            <span className="position-identity__status">{status}</span>
+            {!vacancyStatusRedundant(record.role) ? (
+              <>
+                <span className="position-identity__sep">·</span>
+                <span className="position-identity__status">{status}</span>
+              </>
+            ) : null}
           </>
         ) : (
           <strong className="position-identity__name">{status}</strong>

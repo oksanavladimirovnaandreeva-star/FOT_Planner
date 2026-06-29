@@ -11,6 +11,14 @@ import {
 } from "../../data/packageSubmissionStore";
 import { formatIsoDateTime } from "../../data/formatDisplay";
 import {
+  canApproveBudgetPackage,
+  canReturnBudgetPackage,
+  canSubmitBudgetPackage,
+  packageStatusHint,
+  packageSubmitConfirmMessage,
+  packageTeamsProgressLine,
+} from "../../data/budgetPackageWorkflow";
+import {
   applySubmissionAction,
   resolveSubmissionPlanVersionId,
   type TeamSubmissionRecord,
@@ -230,7 +238,7 @@ export function BudgetWorkspacePanel({ level }: Props) {
 
   const canSubmitPackage =
     planVersionId != null &&
-    (packagePhase === "collecting" || packagePhase === "returned") &&
+    canSubmitBudgetPackage(packagePhase) &&
     canRolePerformSubmissionAction(packageAction, {
       actorRole: userRole,
       targetDepartment: scope.department,
@@ -239,7 +247,7 @@ export function BudgetWorkspacePanel({ level }: Props) {
 
   const canApprovePackage =
     planVersionId != null &&
-    pkg.packageSubmission?.phase === "submitted" &&
+    canApproveBudgetPackage(packagePhase) &&
     canRolePerformSubmissionAction(packageApproveAction, {
       actorRole: userRole,
       targetDepartment: scope.department,
@@ -248,7 +256,7 @@ export function BudgetWorkspacePanel({ level }: Props) {
 
   const canReturnPackage =
     planVersionId != null &&
-    (pkg.packageSubmission?.phase === "submitted" || pkg.packageSubmission?.phase === "approved") &&
+    canReturnBudgetPackage(packagePhase) &&
     canRolePerformSubmissionAction("package_return", {
       actorRole: userRole,
       targetDepartment: scope.department,
@@ -258,10 +266,12 @@ export function BudgetWorkspacePanel({ level }: Props) {
   const handlePackageSubmit = () => {
     if (!planVersionId) return;
     const label = submissionActionLabel(packageAction);
-    const confirmMessage =
-      pkg.submissionMode === "annual"
-        ? `${label}?\n\nГодовой бюджет будет отправлен в C&B для проверки.`
-        : `${label}?\n\nСдано команд: ${pkg.teamsSubmitted} из ${pkg.teamsTotal}. Можно отправить частично.`;
+    const confirmMessage = packageSubmitConfirmMessage({
+      label,
+      submissionMode: pkg.submissionMode,
+      teamsSubmitted: pkg.teamsSubmitted,
+      teamsTotal: pkg.teamsTotal,
+    });
     if (!window.confirm(confirmMessage)) {
       return;
     }
@@ -320,7 +330,7 @@ export function BudgetWorkspacePanel({ level }: Props) {
 
   const scopeTitle =
     level === "department" ? "Бюджет департамента к сдаче" : "Бюджет юнита к сдаче";
-  const scopeLead = `Сводка по ${scope.scopeLabel} · ${pkg.draftLabel}`;
+  const scopeLead = `Сводка по ${scope.scopeLabel}`;
 
   return (
     <div className="team-lead-approval budget-workspace">
@@ -350,17 +360,19 @@ export function BudgetWorkspacePanel({ level }: Props) {
         {pkg.packageSubmission ? (
           <p className="muted-line">
             Пакет: <strong>{PACKAGE_PHASE_LABELS[pkg.packageSubmission.phase]}</strong>
+            {pkg.packageSubmission.submittedAt && packagePhase !== "collecting"
+              ? ` · ${formatIsoDateTime(pkg.packageSubmission.submittedAt)}`
+              : ""}
             {pkg.packageSubmission.returnedNote ? ` · ${pkg.packageSubmission.returnedNote}` : ""}
           </p>
         ) : null}
         <p className="muted-line">
-          Команды сданы: <strong>{pkg.teamsSubmitted}</strong> из <strong>{pkg.teamsTotal}</strong>
-          {pkg.teamsAwaitingUnit > 0 ? (
-            <>
-              {" "}
-              · ждут согласования юнит-лида: <strong>{pkg.teamsAwaitingUnit}</strong>
-            </>
-          ) : null}
+          {packageTeamsProgressLine({
+            submissionMode: pkg.submissionMode,
+            teamsSubmitted: pkg.teamsSubmitted,
+            teamsTotal: pkg.teamsTotal,
+            teamsAwaitingUnit: pkg.teamsAwaitingUnit,
+          })}
         </p>
       </section>
 
@@ -375,7 +387,7 @@ export function BudgetWorkspacePanel({ level }: Props) {
         scopeLead={scopeLead}
       />
 
-      <BudgetContourPanel contour={contour} />
+      <BudgetContourPanel contour={contour} hideUnitInTiles={level === "unit"} />
 
       <BudgetTeamsTable
         teams={pkg.teams}
@@ -390,21 +402,11 @@ export function BudgetWorkspacePanel({ level }: Props) {
 
       <section className="card budget-workspace__package-actions" aria-label="Действия пакета">
         <h2 className="section-title">Согласование пакета</h2>
-        {pkg.packageSubmission ? (
+        {!pkg.packageSubmission ? (
           <p className="muted-line budget-workspace__package-phase">
-            Статус пакета: <strong>{PACKAGE_PHASE_LABELS[packagePhase]}</strong>
-            {pkg.packageSubmission.submittedAt && packagePhase !== "collecting"
-              ? ` · ${formatIsoDateTime(pkg.packageSubmission.submittedAt)}`
-              : ""}
-            {pkg.packageSubmission.returnedNote ? ` · ${pkg.packageSubmission.returnedNote}` : ""}
+            {packageStatusHint(pkg.submissionMode)}
           </p>
-        ) : (
-          <p className="muted-line budget-workspace__package-phase">
-            {pkg.submissionMode === "annual"
-              ? "Годовой бюджет: отправьте пакет в C&B, когда сводка готова."
-              : "Квартальный цикл: команды сдают план, затем отправляется пакет."}
-          </p>
-        )}
+        ) : null}
         <div className="budget-workspace__package-buttons">
           {canSubmitPackage ? (
             <button type="button" className="primary-btn" onClick={handlePackageSubmit}>

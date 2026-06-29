@@ -21,9 +21,17 @@ export function formatPositionHireLabel(record: PositionRecord, planYear: number
   return `${MONTHS[safeMonth]} ${planYear}`;
 }
 
+/** Скрывает демо-id персон (PERSONA-sidr) — в UI только реальные employee_id. */
+export function formatEmployeeIdForDisplay(employeeId: string | null | undefined): string | null {
+  if (!employeeId?.trim()) return null;
+  if (employeeId.startsWith("PERSONA-")) return null;
+  return employeeId;
+}
+
 export function employeeDisplayLine(record: PositionRecord): string {
   if (record.status === "Occupied" && record.employeeName) {
-    return record.employeeId ? `${record.employeeName} (${record.employeeId})` : record.employeeName;
+    const id = formatEmployeeIdForDisplay(record.employeeId);
+    return id ? `${record.employeeName} (${id})` : record.employeeName;
   }
   return POSITION_STATUS_LABELS[record.status];
 }
@@ -34,12 +42,18 @@ function maternityEmployeeLabel(record: PositionRecord): string | null {
     .sort((a, b) => b.createdOrder - a.createdOrder)[0];
   if (!maternityEvent) return null;
   const primaryName = maternityEvent.payload.maternityPrimaryEmployeeName || record.employeeName || "Сотрудник";
-  const primaryId = maternityEvent.payload.maternityPrimaryEmployeeId || record.employeeId || "—";
+  const primaryId =
+    formatEmployeeIdForDisplay(maternityEvent.payload.maternityPrimaryEmployeeId) ??
+    formatEmployeeIdForDisplay(record.employeeId) ??
+    "—";
+  const replacementId = formatEmployeeIdForDisplay(maternityEvent.payload.employeeId);
   const replacementLabel =
     maternityEvent.payload.maternityReplacementKind === "VACANCY"
       ? "Вакансия (замещение)"
-      : `${maternityEvent.payload.employeeName || "Замещение"} (${maternityEvent.payload.employeeId || "—"})`;
-  return `${primaryName} (${primaryId}) [декрет] + ${replacementLabel}`;
+      : replacementId
+        ? `${maternityEvent.payload.employeeName || "Замещение"} (${replacementId})`
+        : maternityEvent.payload.employeeName || "Замещение";
+  return `${primaryName}${primaryId !== "—" ? ` (${primaryId})` : ""} [декрет] + ${replacementLabel}`;
 }
 
 /** Первая строка ячейки: только ФИО (статус — отдельно в UI). */

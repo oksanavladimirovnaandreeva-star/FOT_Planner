@@ -2,7 +2,7 @@ import type { LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 import { ORG_STRUCTURE } from "./orgStructure";
 
 /** Версия демо-набора: при смене — авто-обновление seed в localStorage. */
-export const DEMO_SEED_VERSION = 12;
+export const DEMO_SEED_VERSION = 13;
 
 export const DEMO_SEED_VERSION_KEY = "fot_mvp_demo_seed_version";
 
@@ -236,19 +236,6 @@ function attachPilotPlanningEvents(position: PositionRecord, globalIndex: number
     });
   }
 
-  if (
-    position.limitFlag === "IN_LIMIT" &&
-    globalIndex % 31 === 0 &&
-    position.status !== "Closed"
-  ) {
-    push({
-      id: `seed-idx-${position.positionId}`,
-      type: "INDEXATION",
-      createdAt: "2026-02-01T09:00:00.000Z",
-      payload: { month: 1, percent: 5, indexationBatchId: "seed-batch-q1" },
-    });
-  }
-
   if (globalIndex > 0 && globalIndex % 97 === 0 && position.status !== "Closed") {
     push({
       id: `seed-close-${position.positionId}`,
@@ -275,6 +262,42 @@ export function buildDecemberRosterSnapshot(positions: PositionRecord[]): Decemb
     unit: position.unit,
     team: position.team,
   }));
+}
+
+/** Пакет C&B: +5% с февраля на все активные позиции плана. */
+export const DEMO_MASS_INDEXATION_BATCH_ID = "seed-batch-annual-2026";
+
+function attachDemoMassIndexation(positions: PositionRecord[]): PositionRecord[] {
+  const createdAt = "2026-02-01T09:00:00.000Z";
+  const month = 1;
+  const percent = 5;
+
+  return positions.map((position) => {
+    if (position.status === "Closed") return position;
+
+    const events = position.events.filter(
+      (event) =>
+        !(
+          event.type === "INDEXATION" &&
+          (event.payload.indexationBatchId === "seed-batch-q1" ||
+            event.payload.indexationBatchId === DEMO_MASS_INDEXATION_BATCH_ID)
+        ),
+    );
+
+    return {
+      ...position,
+      events: [
+        ...events,
+        {
+          id: `seed-idx-${position.positionId}`,
+          type: "INDEXATION" as const,
+          createdAt,
+          createdOrder: events.length + 1,
+          payload: { month, percent, indexationBatchId: DEMO_MASS_INDEXATION_BATCH_ID },
+        },
+      ],
+    };
+  });
 }
 
 /** Генератор демо-плана: декабрьский срез + события года. */
@@ -348,12 +371,12 @@ export function buildDemoPositions(targetCount = DEFAULT_DEMO_POSITION_COUNT): P
       positions.push(attachPilotPlanningEvents(built, globalIndex));
       globalIndex += 1;
       if (positions.length >= targetCount) {
-        return positions;
+        return attachDemoMassIndexation(positions);
       }
     }
   }
 
-  return positions;
+  return attachDemoMassIndexation(positions);
 }
 
 /** Полный пилотный объём (~520 поз.) — только по кнопке «Пилот (тяжёлый)». */

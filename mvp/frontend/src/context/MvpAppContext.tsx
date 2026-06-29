@@ -223,6 +223,8 @@ type MvpAppContextValue = {
   deletePlanVersion: (versionId: string) => { ok: true; deletedLabel: string } | { ok: false; error: string };
   positions: PositionRecord[];
   setPositions: Dispatch<SetStateAction<PositionRecord[]>>;
+  /** Массовые операции C&B по всему плану версии (индексация, …). */
+  updateVersionPositions: (mapper: (positions: PositionRecord[]) => PositionRecord[]) => void;
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
   pickAmount: (base: number, bonus?: number) => number;
@@ -433,6 +435,17 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       });
     },
     [planVersionId, userRole],
+  );
+
+  /** Массовая индексация C&B — весь план, не срез роли. AGENTS.md «Заморожено». */
+  const updateVersionPositions = useCallback(
+    (mapper: (positions: PositionRecord[]) => PositionRecord[]) => {
+      setDataByVersion((prev) => {
+        const current = prev[planVersionId] ?? [];
+        return { ...prev, [planVersionId]: mapper(current) };
+      });
+    },
+    [planVersionId],
   );
 
   const activePlan = useMemo(
@@ -963,6 +976,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       deletePlanVersion,
       positions,
       setPositions,
+      updateVersionPositions,
       viewMode,
       setViewMode,
       pickAmount,
@@ -1023,6 +1037,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
       deletePlanVersion,
       positions,
       setPositions,
+      updateVersionPositions,
       viewMode,
       pickAmount,
       salaryBands,

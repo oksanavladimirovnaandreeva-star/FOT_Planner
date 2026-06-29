@@ -191,13 +191,17 @@ export function formatGradeChangeRange(
   return `${gradeProfileLabel(change.specBefore, change.levelBefore)} → ${gradeProfileLabel(change.specAfter, change.levelAfter)}`;
 }
 
-/** Январь → декабрь в таблице позиций (как оклад «дек → дек»). */
+/** Профиль в таблице позиций: с месяца открытия (или январь) → декабрь. */
 export function positionGradeYearRange(record: PositionRecord): {
   before: string;
   after: string;
   changed: boolean;
 } {
-  const before = gradeProfileLabel(record.monthlySpec[0] ?? "", record.monthlyLevel[0] ?? "");
+  const startMonth = Math.max(0, Math.min(11, record.activeFromMonth ?? 0));
+  const before = gradeProfileLabel(
+    record.monthlySpec[startMonth] ?? "",
+    record.monthlyLevel[startMonth] ?? "",
+  );
   const after = gradeProfileLabel(record.monthlySpec[11] ?? "", record.monthlyLevel[11] ?? "");
   return { before, after, changed: before !== after };
 }

@@ -8,6 +8,7 @@ import {
   DEMO_UNIT_HR_DIRECT,
   DEMO_UNIT_IT_DIRECT,
 } from "./demoOrg";
+import { findPersonaPosition, resolveUnitLeadPersonaId } from "./personaRoster";
 import { scopeEqValues } from "./personaAccessScope";
 import type { UserRole } from "./userAccess";
 
@@ -121,23 +122,7 @@ export function findUnitLeadPosition(
   department: string,
   unit: string,
 ): PositionRecord | null {
-  const pinned = pinDemoPersonasToRoster(positions);
-  const leadName = DEMO_PERSONAS.find(
-    (persona) =>
-      persona.role === "unit_lead" &&
-      persona.defaultScope &&
-      scopeEqValues(persona.defaultScope, "department").includes(department) &&
-      scopeEqValues(persona.defaultScope, "unit").includes(unit),
-  )?.selfEmployeeName;
-
-  if (!leadName) return null;
-
-  return (
-    pinned.find(
-      (position) =>
-        position.department === department &&
-        position.unit === unit &&
-        (position.employeeName === leadName || position.seedEmployeeName === leadName),
-    ) ?? null
-  );
+  const personaId = resolveUnitLeadPersonaId(department, unit);
+  if (!personaId) return null;
+  return findPersonaPosition(pinDemoPersonasToRoster(positions), personaId);
 }

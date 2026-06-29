@@ -20,6 +20,8 @@ import { demoRoleActorOrg, type UserRole } from "../../data/userAccess";
 import { ConsolidationPage } from "../../pages/ConsolidationPage";
 import { TeamLeadApprovalPanel } from "./TeamLeadApprovalPanel";
 import { BudgetWorkspacePanel } from "./BudgetWorkspacePanel";
+import { AnnualCbPackagePanel } from "./AnnualCbPackagePanel";
+import { isAnnualPlanningDraft } from "../../data/planCorrectionWindow";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   cb_admin: "C&B",
@@ -72,6 +74,7 @@ export function PlanApprovalPanel() {
     userRole,
     refreshTeamSubmissions,
     teamSubmissionRevision,
+    primaryBudget,
   } = useMvpApp();
 
   const canManageSubmissionWorkflow = userRole !== "viewer";
@@ -148,6 +151,19 @@ export function PlanApprovalPanel() {
     return (
       <div className="plan-approval-panel">
         <BudgetWorkspacePanel level="department" />
+      </div>
+    );
+  }
+
+  if (
+    (userRole === "cb_admin" || userRole === "gd") &&
+    !workingDraft &&
+    primaryBudget &&
+    isAnnualPlanningDraft(primaryBudget)
+  ) {
+    return (
+      <div className="plan-approval-panel">
+        <AnnualCbPackagePanel primaryBudget={primaryBudget} userRole={userRole} />
       </div>
     );
   }

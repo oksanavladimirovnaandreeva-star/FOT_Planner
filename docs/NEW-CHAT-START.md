@@ -7,26 +7,23 @@
 ## Сообщение для агента (copy-paste)
 
 ```
-Продолжаем ФОТ-планировщик (mvp/frontend). Прочитай docs/HANDOFF.md и docs/NEW-CHAT-START.md.
+Продолжаем ФОТ-планировщик — только mvp/frontend.
 
-Контекст: вариант A «Мой бюджет», новая демо-оргструктура (Департамент ИТ/HR/Продажи, юниты, русские названия команд), 15 персон, годовой сид без квартала. DEMO_SEED_VERSION=11, авто-миграция localStorage (demoStorageMigration.ts).
+Прочитай: docs/HANDOFF.md, docs/NEW-CHAT-START.md, AGENTS.md.
 
-Состояние кода: много незакоммиченных изменений (см. git status). Тесты 162, build green. Коммит/push — только по моей просьбе.
+Последний push: 99cd5b1 (director budget, contour cards, roster pins, package UX).
+В рабочей копии НЕ закоммичено: системная выравнивание — personaRoster.ts, planningDeepLink.ts, budgetPackageWorkflow.ts + тесты (176 tests, build green). Коммит/push — только по моей просьбе.
 
-Проблема пользователя: в браузере «не работало» — нули в планировании, пустой «Мой бюджет», старые ProductDev/Engineering в данных. Лечение: ?reset=demo или F5 после миграции v11. Dev-сервер: cd mvp/frontend && npm run dev → http://localhost:5174/ (не 5173).
+Сценарий: годовое планирование без факта (PLAN_SCENARIO_INCLUDES_FACT=false). DEMO_SEED_VERSION=12. Сброс демо: ?reset=demo или C&B → Настройки.
 
-Сделано в UI:
-- Login: optgroup Департамент→Юнит→Команда
-- Мой бюджет (unit_lead/director): KPI + «Ваш контур» (плитки команд) + таблица команд
-- Планирование: deep-link ?team=Качество; «Диапазоны» только у C&B на планировании
-- Настройки C&B: доступы команд + доступы к диапазонам
+Dev: cd mvp/frontend && npm run dev → http://localhost:5174/
+Deploy: https://oksanavladimirovnaandreeva-star.github.io/FOT_Planner/
 
-Задача на сессию (по приоритету):
-1. Убедиться что localhost:5174 открывается и демо работает после ?reset=demo — smoke: Татьяна Белова (Качество) видит позиции; Сидор Морозов — бюджет юнита А с ФОТ и плитками; Пётр Сидоров → сдача Mobile → Морозов в очереди.
-2. Если что-то сломано — минимальный фикс, без лишнего рефакторинга.
-3. После стабилизации — предложить один коммит (не делать без просьбы).
+Smoke: dir_it (Орлов) → контур → Сидор → 1 позиция; sidr — «Мой бюджет» с ФОТ; package submit — один раз, без повторной кнопки.
 
-Ограничения: scope mvp/frontend; не трогать PG/API; не UX-4; AGENTS.md — ориентация.
+Ключевые модули (новое): personaRoster.ts, planningDeepLink.ts, budgetPackageWorkflow.ts, demoRosterPins.ts (пиннинг тимлид→юнит-лид→директор).
+
+Скилл бюджета: @fot-budget или «по скиллу fot-budget» — workflow согласования, smoke, freeze.
 ```
 
 ---
@@ -37,37 +34,38 @@
 |---|----------|----------|
 | 1 | `cd mvp/frontend` → `npm run dev` | `http://localhost:5174/` |
 | 2 | Открыть `/?reset=demo` | Сброс localStorage |
-| 3 | Login → **Татьяна Белова** | Планирование: команда «Качество», позиции > 0, ФОТ > 0 |
-| 4 | Login → **Сидор Морозов** | Мой бюджет: плитки 4 команд, таблица с суммами |
-| 5 | Login → **Пётр Сидоров** | Мой бюджет: KPI команды Mobile, можно сдать |
-| 6 | `npm test && npm run build` | 162 tests, без ошибок |
+| 3 | Login → **Алексей Орлов** (`dir_it`) | Контур → Сидор → планирование, 1 позиция (директор) |
+| 4 | Login → **Сидор Морозов** (`sidr`) | Мой бюджет: плитки 4 команд, ФОТ > 0 |
+| 5 | Login → **Пётр Сидоров** (`petya`) | Mobile: KPI, сдача команды |
+| 6 | Пакет юнита | Submit один раз, без повторной кнопки |
+| 7 | `npm test && npm run build` | 176 tests, без ошибок |
+
+Дополнительно: **Татьяна Белова** (`tl_qa`) — «Качество», позиции и ФОТ > 0.
 
 ---
 
-## Дальнейший план (после стабилизации)
+## Дальнейший план
 
 | Приоритет | Задача | Где |
 |-----------|--------|-----|
-| P0 | Закоммитить стабильный срез «демо-орг + мой бюджет + миграция» | git |
-| P1 | F2 Kaiten UI (найм/ОТиЗ из позиции, без API) | IMPLEMENTATION-STEPS F2 |
-| P2 | Полный smoke согласования: team → unit → director → C&B | PlanApprovalPanel |
+| P0 | **Согласование W1–W3** end-to-end (team → unit → director → C&B) | IMPLEMENTATION-STEPS |
+| P1 | Коммит стабильного среза (по просьбе) | git |
+| P2 | Repository layer B1 (LocalStorage → API) | HANDOFF «Готовность к PG/API» |
 | P3 | План–факт: `PLAN_SCENARIO_INCLUDES_FACT = true` | planScenario.ts |
+| — | F2 Kaiten | **отложено** |
 | — | PG/API | только по явному запросу |
 
 ---
 
-## Файлы, которые трогали последние сессии
+## Ключевые файлы (последние сессии)
 
-**Новые (untracked):**  
-`BudgetWorkspacePanel.tsx`, `BudgetContourPanel.tsx`, `BudgetTeamsTable.tsx`, `BudgetChangesByType.tsx`,  
-`buildBudgetPackage.ts`, `buildBudgetContour.ts`, `teamRosterSummary.ts`, `demoRosterPins.ts`,  
-`demoStorageMigration.ts`, `demoOrg.ts`, `packageSubmissionStore.ts`, `resolveBudgetWorkspacePositions.ts`,  
-`catalogVisibility.ts`, тесты `*.test.ts` к ним.
+**Новые (uncommitted / не в 99cd5b1):**  
+`personaRoster.ts`, `planningDeepLink.ts`, `budgetPackageWorkflow.ts`,  
+`personaRoster.test.ts`, `planningDeepLink.test.ts`, `budgetPackageWorkflow.test.ts`, `planningNavigation.test.ts`.
 
-**Изменённые (modified):**  
-`demoPersonas.ts`, `demoVersionSeed.ts`, `demoPlanSeed.ts`, `MvpAppContext.tsx`, `LoginPage.tsx`,  
-`PlanningPage.tsx`, `SettingsPage.tsx`, `TeamLeadApprovalPanel.tsx`, `PlanApprovalPanel.tsx`,  
-`userAccess.ts`, `orgStructureStore.ts`, `index.css`, … — полный список: `git status`.
+**В push 99cd5b1 и ранее:**  
+`BudgetWorkspacePanel.tsx`, `BudgetContourPanel.tsx`, `demoRosterPins.ts`,  
+`buildBudgetPackage.ts`, `packageSubmissionStore.ts`, `demoStorageMigration.ts`, …
 
 ---
 
@@ -76,4 +74,5 @@
 - Не менять `.cursor/plans/*` без запроса.
 - Не коммитить `.playwright-mcp/`, `tmp-*`, `annual-eval/`, посторонние скрипты.
 - Не добавлять UI-библиотеки.
-- Не «чинить» localhost сменой порта/конфига без проверки — сначала `mvp/frontend`, порт 5174.
+- Не начинать PG/API без явного запроса.
+- Dev-порт **5174**, рабочая папка `mvp/frontend`.

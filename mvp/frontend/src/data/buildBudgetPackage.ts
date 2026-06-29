@@ -27,6 +27,7 @@ import {
   type PackageLevel,
   type PackageSubmissionRecord,
 } from "./packageSubmissionStore";
+import { countQuarterlyTeamsSubmitted } from "./budgetPackageWorkflow";
 import type { PositionRecord } from "../types";
 
 export type BudgetWorkspaceLevel = PackageLevel | "department";
@@ -204,11 +205,7 @@ export function buildBudgetPackage(input: {
         })
       : null;
 
-  const teamsSubmitted = teamRows.filter((team) =>
-    ["team_submitted", "unit_approved", "director_approved", "cb_review", "cb_submitted"].includes(
-      team.displayStatus,
-    ),
-  ).length;
+  const teamsSubmitted = countQuarterlyTeamsSubmitted(teamRows);
   const teamsAwaitingUnit = teamRows.filter((team) => team.displayStatus === "team_submitted").length;
 
   const baselineLabel = versionDiffSummary.baselineLabel || "Утверждённый год";

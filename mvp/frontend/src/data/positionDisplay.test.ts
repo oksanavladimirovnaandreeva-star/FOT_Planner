@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PositionRecord } from "../types";
-import { formatCrCoefficient, formatPositionOrgLine, positionEmployeePrimaryName } from "./positionDisplay";
+import { formatCrCoefficient, formatEmployeeIdForDisplay, formatPositionOrgLine, employeeDisplayLine, positionEmployeePrimaryName } from "./positionDisplay";
 
 function sample(overrides: Partial<PositionRecord> = {}): PositionRecord {
   return {
@@ -50,5 +50,13 @@ describe("positionDisplay", () => {
   it("formatCrCoefficient", () => {
     expect(formatCrCoefficient(0.95)).toBe("0.95");
     expect(formatCrCoefficient(0)).toBe("—");
+  });
+
+  it("скрывает демо-id PERSONA-* в подписи сотрудника", () => {
+    const persona = sample({ employeeId: "PERSONA-sidr", employeeName: "Сидор Морозов" });
+    expect(formatEmployeeIdForDisplay("PERSONA-sidr")).toBeNull();
+    expect(formatEmployeeIdForDisplay("E0042")).toBe("E0042");
+    expect(employeeDisplayLine(persona)).toBe("Сидор Морозов");
+    expect(employeeDisplayLine(sample())).toBe("Иванов (E001)");
   });
 });

@@ -262,11 +262,11 @@ export function TeamLeadApprovalPanel() {
               </span>
               <h2 className="team-lead-approval__status-team">{teamRow.team}</h2>
               <p className="muted-line">
-                {teamRow.unit} · {teamRow.department}
-                {rosterBrief !== "—" ? ` · ${rosterBrief}` : ""}
-                {draftLabel ? ` · ${draftLabel}` : ""}
+                {[rosterBrief !== "—" ? rosterBrief : null, draftLabel || null].filter(Boolean).join(" · ")}
               </p>
-              <p className="team-lead-approval__status-hint">{statusCopy.hint}</p>
+              {activeColumn !== "returned" ? (
+                <p className="team-lead-approval__status-hint">{statusCopy.hint}</p>
+              ) : null}
             </div>
             <div className="team-lead-approval__status-actions">
               {canSubmit ? (

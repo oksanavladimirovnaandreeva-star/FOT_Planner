@@ -12,13 +12,24 @@ function contourBadgeClass(statusLabel: string): string {
   return "team-lead-approval__status-badge--in_progress";
 }
 
-function ContourCard({ tile }: { tile: BudgetContourTeamTile }) {
+function ContourCard({
+  tile,
+  hideUnitInTile,
+}: {
+  tile: BudgetContourTeamTile;
+  hideUnitInTile?: boolean;
+}) {
   const leadRole = tile.leadRoleLabel === "unit_lead" ? "Юнит-лид" : "Тимлид";
   const leadMissing = tile.leadRoleLabel === "unit_lead" ? "Юнит-лид не назначен" : "Тимлид не назначен";
 
+  const tileMetaParts: string[] = [];
+  if (!hideUnitInTile) tileMetaParts.push(tile.unit);
+  if (!hideUnitInTile && tile.leadRoleLabel === "team_lead") tileMetaParts.push(tile.department);
+  if (tile.isDirectReport) tileMetaParts.push("прямой подчинённый");
+
   return (
     <section
-      className={`card team-lead-approval__status budget-contour-card${tile.isDirectReport ? " budget-contour-card--direct" : ""}`}
+      className={`budget-contour-card${tile.isDirectReport ? " budget-contour-card--direct" : ""}`}
       aria-label={tile.team}
     >
       <div className="team-lead-approval__status-head">
@@ -27,11 +38,9 @@ function ContourCard({ tile }: { tile: BudgetContourTeamTile }) {
             {tile.statusLabel}
           </span>
           <h2 className="team-lead-approval__status-team">{tile.team}</h2>
-          <p className="muted-line">
-            {tile.unit}
-            {tile.leadRoleLabel === "team_lead" ? ` · ${tile.department}` : ""}
-            {tile.isDirectReport ? " · прямой подчинённый" : ""}
-          </p>
+          {tileMetaParts.length > 0 ? (
+            <p className="muted-line">{tileMetaParts.join(" · ")}</p>
+          ) : null}
           <p className="budget-contour-card__meta">
             {tile.rosterBrief}
             {tile.fotBrief ? ` · ${tile.fotBrief} ФОТ год` : ""}
@@ -74,9 +83,11 @@ function ContourCard({ tile }: { tile: BudgetContourTeamTile }) {
 
 type Props = {
   contour: BudgetContour;
+  /** Юнит-лид: юнит уже в шапке контура — не дублировать в плитках. */
+  hideUnitInTiles?: boolean;
 };
 
-export function BudgetContourPanel({ contour }: Props) {
+export function BudgetContourPanel({ contour, hideUnitInTiles = false }: Props) {
   const showUnitHeadings = contour.unitGroups.length > 1;
 
   return (
@@ -94,7 +105,7 @@ export function BudgetContourPanel({ contour }: Props) {
             ) : null}
             <div className="budget-contour-cards">
               {group.teams.map((tile) => (
-                <ContourCard key={tile.id} tile={tile} />
+                <ContourCard key={tile.id} tile={tile} hideUnitInTile={hideUnitInTiles} />
               ))}
             </div>
           </div>

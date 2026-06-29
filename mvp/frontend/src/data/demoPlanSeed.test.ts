@@ -3,6 +3,7 @@ import {
   buildDecemberRosterSnapshot,
   buildDemoPositions,
   DEFAULT_DEMO_POSITION_COUNT,
+  DEMO_MASS_INDEXATION_BATCH_ID,
   DEMO_SEED_VERSION,
   PILOT_POSITION_TARGET,
 } from "./demoPlanSeed";
@@ -14,13 +15,22 @@ describe("demoPlanSeed", () => {
     const positions = buildDemoPositions();
     expect(positions.length).toBeGreaterThanOrEqual(DEFAULT_DEMO_POSITION_COUNT);
     expect(positions.length).toBeLessThan(PILOT_POSITION_TARGET);
-    expect(DEMO_SEED_VERSION).toBe(12);
+    expect(DEMO_SEED_VERSION).toBe(13);
 
     const carryover = positions.filter((position) => position.slotType === "carryover");
     expect(carryover.every((position) => position.events.some((event) => event.type === "POSITION_CARRYOVER"))).toBe(
       true,
     );
-    expect(positions.some((position) => position.events.some((event) => event.type === "INDEXATION"))).toBe(true);
+    const active = positions.filter((position) => position.status !== "Closed");
+    expect(
+      active.every((position) =>
+        position.events.some(
+          (event) =>
+            event.type === "INDEXATION" &&
+            event.payload.indexationBatchId === DEMO_MASS_INDEXATION_BATCH_ID,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("генерирует пилотный объём по всей оргструктуре", () => {
@@ -43,6 +53,20 @@ describe("demoPlanSeed", () => {
       true,
     );
     expect(positions.some((position) => position.events.some((event) => event.type === "INDEXATION"))).toBe(true);
+  });
+
+  it("массовая индексация +5% с февраля на активные позиции", () => {
+    const applied = buildDemoPositions(40).map(applyEvents);
+    const stable = applied.find(
+      (position) =>
+        position.status === "Occupied" &&
+        position.activeFromMonth === 0 &&
+        !position.events.some((event) => ["CLOSE_POSITION", "MANUAL_OVERRIDE"].includes(event.type)),
+    );
+    expect(stable).toBeTruthy();
+    expect(stable!.monthlyBase[0]).toBe(stable!.seedMonthlyBase[0]);
+    expect(stable!.monthlyBase[1]).toBe(Math.round(stable!.seedMonthlyBase[1] * 1.05));
+    expect(stable!.monthlyBase[11]).toBe(Math.round(stable!.seedMonthlyBase[11] * 1.05));
   });
 
   it("декабрьский срез отражает seed-состояние до событий года", () => {

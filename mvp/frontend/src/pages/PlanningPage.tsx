@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { PlanContextBar } from "../components/planning/PlanContextBar";
-import { MassIndexationCompact } from "../components/planning/MassIndexationCompact";
 import { PlanIndexationSection } from "../components/planning/PlanIndexationSection";
 import { PlanJournalPanel } from "../components/planning/PlanJournalPanel";
 import { PlanMonthMatrixPanel } from "../components/planning/PlanMonthMatrixPanel";
@@ -10,7 +9,7 @@ import {
   isPlanEventMonthAllowed,
   planEventMonthBlockedMessage,
   isAnnualPlanningDraft,
-  isQuarterWorkingDraft,
+  resolveCanEditWorkspace,
   resolveCorrectionWindow,
 } from "../data/planCorrectionWindow";
 import { PLAN_WORKSPACE_LABELS, type PlanWorkspaceMode } from "../data/planWorkspaceMode";
@@ -31,13 +30,14 @@ import { OrgSliceMultiSelect } from "../components/OrgSliceMultiSelect";
 import { SliceToolbar, SliceToolbarSelect } from "../components/SliceToolbar";
 import { ToolbarMultiSelect } from "../components/ToolbarMultiSelect";
 import { loadPersistedOrgSlice, savePersistedOrgSlice } from "../data/persistedOrgSlice";
-import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults } from "../data/userAccess";
+import { roleCanApplyMassIndexation, roleCanEdit, roleOrgFilterDefaults, positionMatchesRole } from "../data/userAccess";
+import { matchesLeadOnlyFilter, parseLeadOnlyMode } from "../data/personaRoster";
 import {
-  resolveTeamLeadDisplayForTeam,
-  resolveUnitLeadDisplayForUnit,
-  resolveUnitLeadPersonaId,
-} from "../data/demoPersonas";
-import { resolveActivePersonaOrgScope } from "../data/demoSessionStore";
+  applyPlanningDeepLinkSlice,
+  hasPlanningDeepLinkParams,
+  readPlanningDeepLinkParams,
+  stripPlanningDeepLinkParams,
+} from "../data/planningDeepLink";
 import {
   annualTotal,
   applyEvents,
@@ -150,53 +150,6 @@ function parseWorkspaceMode(value: string | null): PlanWorkspaceMode {
   return value === "correction" ? "correction" : "planning";
 }
 
-function positionEmployeeLabel(position: PositionRecord): string {
-  return position.employeeName?.trim() || position.seedEmployeeName?.trim() || "";
-}
-
-function matchesLeadOnlyFilter(position: PositionRecord, leadOnlyMode: string | null): boolean {
-  if (!leadOnlyMode) return true;
-  if (leadOnlyMode === "1" || leadOnlyMode === "team_lead") {
-    const leadName = resolveTeamLeadDisplayForTeam(position.department, position.unit, position.team);
-    return Boolean(leadName && positionEmployeeLabel(position) === leadName);
-  }
-  if (leadOnlyMode === "unit_lead") {
-    const leadName = resolveUnitLeadDisplayForUnit(position.department, position.unit);
-    const personaId = resolveUnitLeadPersonaId(position.department, position.unit);
-    if (personaId && position.employeeId === `PERSONA-${personaId}`) return true;
-    return Boolean(leadName && positionEmployeeLabel(position) === leadName);
-  }
-  return true;
-}
-
-function applyPlanningDeepLinkSlice(
-  prev: OrgSliceSelection,
-  params: {
-    teamParam: string | null;
-    unitParam: string | null;
-    departmentParam: string | null;
-  },
-  orgFilterDefaults: ReturnType<typeof roleOrgFilterDefaults>,
-): OrgSliceSelection {
-  const { teamParam, unitParam, departmentParam } = params;
-  if (!teamParam && !unitParam && !departmentParam) return prev;
-
-  if (orgFilterDefaults) {
-    return {
-      departments: departmentParam ? [departmentParam] : orgFilterDefaults.departments,
-      units: unitParam ? [unitParam] : orgFilterDefaults.units,
-      teams: teamParam ? [teamParam] : unitParam ? [] : orgFilterDefaults.teams,
-    };
-  }
-
-  const personaDept = resolveActivePersonaOrgScope()?.department;
-  return {
-    departments: departmentParam ? [departmentParam] : personaDept ? [personaDept] : prev.departments,
-    units: unitParam ? [unitParam] : prev.units,
-    teams: teamParam ? [teamParam] : unitParam ? [] : [],
-  };
-}
-
 export function PlanningPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -216,6 +169,7 @@ export function PlanningPage() {
     positions,
     allPositions,
     setPositions,
+    updateVersionPositions,
     activePlan,
     viewMode,
     salaryBands,
@@ -242,14 +196,17 @@ export function PlanningPage() {
   );
   const isOnWorkingDraft = activePlan.kind === "WORKING_DRAFT";
   const isAnnualDraft = isAnnualPlanningDraft(activePlan);
-  const canEditWorkspace = useMemo(() => {
-    if (!canEditPlan) return false;
-    if (isTeamSliceReadOnly) return false;
-    if (workspaceMode === "correction") {
-      return isQuarterWorkingDraft(activePlan, primaryBudget);
-    }
-    return isAnnualDraft;
-  }, [canEditPlan, isTeamSliceReadOnly, workspaceMode, activePlan, primaryBudget, isAnnualDraft]);
+  const canEditWorkspace = useMemo(
+    () =>
+      resolveCanEditWorkspace({
+        canEditPlan,
+        isTeamSliceReadOnly,
+        workspaceMode,
+        activePlan,
+        primaryBudget,
+      }),
+    [canEditPlan, isTeamSliceReadOnly, workspaceMode, activePlan, primaryBudget],
+  );
 
   useEffect(() => {
     if (workspaceMode !== "correction" || !workingDraft) return;
@@ -289,56 +246,11 @@ export function PlanningPage() {
   });
 
   useEffect(() => {
-    if (!orgFilterDefaults) return;
-    const teamParam = searchParams.get("team") ?? searchParams.get("sliceTeam");
-    const unitParam = searchParams.get("unit") ?? searchParams.get("sliceUnit");
-    const departmentParam = searchParams.get("department");
-    if (!teamParam && !unitParam && !departmentParam) return;
+    const deepLink = readPlanningDeepLinkParams(searchParams);
+    if (!hasPlanningDeepLinkParams(deepLink)) return;
 
-    setOrgSlice((prev) =>
-      applyPlanningDeepLinkSlice(
-        prev,
-        { teamParam, unitParam, departmentParam },
-        orgFilterDefaults,
-      ),
-    );
-    if (teamParam || unitParam || departmentParam) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete("team");
-          next.delete("sliceTeam");
-          next.delete("unit");
-          next.delete("sliceUnit");
-          next.delete("department");
-          return next;
-        },
-        { replace: true },
-      );
-    }
-  }, [orgFilterDefaults, searchParams, setSearchParams]);
-
-  useEffect(() => {
-    if (orgFilterDefaults) return;
-    const teamParam = searchParams.get("team") ?? searchParams.get("sliceTeam");
-    const unitParam = searchParams.get("unit") ?? searchParams.get("sliceUnit");
-    const departmentParam = searchParams.get("department");
-    if (!teamParam && !unitParam && !departmentParam) return;
-    setOrgSlice((prev) =>
-      applyPlanningDeepLinkSlice(prev, { teamParam, unitParam, departmentParam }, null),
-    );
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("team");
-        next.delete("sliceTeam");
-        next.delete("unit");
-        next.delete("sliceUnit");
-        next.delete("department");
-        return next;
-      },
-      { replace: true },
-    );
+    setOrgSlice((prev) => applyPlanningDeepLinkSlice(prev, deepLink, orgFilterDefaults));
+    setSearchParams((prev) => stripPlanningDeepLinkParams(prev), { replace: true });
   }, [orgFilterDefaults, searchParams, setSearchParams]);
 
   useEffect(() => {
@@ -494,6 +406,13 @@ export function PlanningPage() {
     () => collectIndexationBatchesFromPositions(allPositions),
     [allPositions],
   );
+  const indexationBatchesForUser = useMemo(() => {
+    if (canMassIndexation) return indexationBatches;
+    const visibleIds = new Set(
+      allPositions.filter((position) => positionMatchesRole(position, userRole)).map((p) => p.positionId),
+    );
+    return indexationBatches.filter((batch) => batch.positionIds.some((id) => visibleIds.has(id)));
+  }, [allPositions, canMassIndexation, indexationBatches, userRole]);
   const indexationTargetPositions = useMemo(
     () => allPositions.filter((position) => applyEvents(position).status !== "Closed"),
     [allPositions],
@@ -614,7 +533,7 @@ export function PlanningPage() {
     });
   }, [positions, activeSourceId]);
 
-  const leadOnlyMode = searchParams.get("leadOnly");
+  const leadOnlyMode = parseLeadOnlyMode(searchParams.get("leadOnly"));
 
   const filtered = useMemo(() => {
     return appliedPositions.filter((position) => {
@@ -642,6 +561,7 @@ export function PlanningPage() {
   }, [filtered]);
 
 
+  /** C&B: полный план через updateVersionPositions. Не менять без запроса — AGENTS.md «Заморожено». */
   const applyIndexationToPlan = () => {
     if (!canEditWorkspace) {
       blockEdit();
@@ -667,8 +587,8 @@ export function PlanningPage() {
     const batchId = crypto.randomUUID();
     const targetIds = new Set(targets.map((item) => item.positionId));
 
-    setPositions((prev) =>
-      prev.map((position) => {
+    updateVersionPositions((all) =>
+      all.map((position) => {
         if (!targetIds.has(position.positionId)) return position;
         const event: PlannedEvent = {
           id: crypto.randomUUID(),
@@ -717,7 +637,7 @@ export function PlanningPage() {
         : "Удалить пакет индексации и откатить оклады по всем затронутым позициям?",
     );
     if (!confirmed) return;
-    setPositions((prev) => removeIndexationBatchFromPositions(prev, batchId));
+    updateVersionPositions((all) => removeIndexationBatchFromPositions(all, batchId));
     showBulkFeedback("success", "Пакет индексации удалён, оклады пересчитаны.");
   };
 
@@ -924,7 +844,7 @@ export function PlanningPage() {
       addSlotBase !== "" && Number(addSlotBase) > 0 ? Number(addSlotBase) : (band?.midpoint ?? 150_000);
     const record: PositionRecord = {
       positionId: newId,
-      role: isOccupied ? employeeName : "Новая вакансия",
+      role: isOccupied ? employeeName : `${spec} (вакансия)`,
       department: org.department,
       unit: org.unit,
       team: org.team,
@@ -979,13 +899,14 @@ export function PlanningPage() {
         </div>
         <div className="page-header__actions planning-toolbar">
           {canMassIndexation && workspaceTab === "positions" ? (
-            <MassIndexationCompact
+            <PlanIndexationSection
+              batches={indexationBatches}
+              isIndexationAdmin
+              canEditWorkspace={canEditWorkspace}
               activeCount={indexationTargetPositions.length}
               idxPercent={idxPercent}
               idxMonth={idxMonth}
               correctionWindow={correctionWindow}
-              canEditWorkspace={canEditWorkspace}
-              indexationBatches={indexationBatches}
               onPercentChange={setIdxPercent}
               onMonthChange={setIdxMonth}
               onApply={applyIndexationToPlan}
@@ -1105,9 +1026,9 @@ export function PlanningPage() {
         canToggleLeadFreeze={canToggleLeadFreeze}
       />
 
-      {workspaceTab === "positions" && !canMassIndexation && indexationBatches.length > 0 ? (
+      {workspaceTab === "positions" && !canMassIndexation && indexationBatchesForUser.length > 0 ? (
         <PlanIndexationSection
-          batches={indexationBatches}
+          batches={indexationBatchesForUser}
           isIndexationAdmin={false}
           canEditWorkspace={canEditWorkspace}
           activeCount={indexationTargetPositions.length}
@@ -1372,72 +1293,85 @@ export function PlanningPage() {
       {addSlotOpen ? (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="add-slot-title">
           <div className="modal-card modal-card--add-slot">
-            <h2 id="add-slot-title" className="section-title">
-              Новая позиция в плане
-            </h2>
-            <p className="muted-line">Штатная единица в плане. Сразу выберите: вакансия или сотрудник на позиции.</p>
-            <div className="add-slot-kind">
-              <label>
-                <input
-                  type="radio"
-                  name="addSlotKind"
-                  checked={addSlotKind === "vacancy"}
-                  onChange={() => setAddSlotKind("vacancy")}
-                />
+            <header className="add-slot-modal__head">
+              <h2 id="add-slot-title" className="add-slot-modal__title">
+                Новая позиция
+              </h2>
+              <p className="add-slot-modal__lead muted-line">
+                {addSlotKind === "vacancy"
+                  ? "Вакансия в выбранном срезе — профиль из справочника диапазонов."
+                  : "Занятая позиция с сотрудником в выбранном срезе."}
+              </p>
+              <p className="add-slot-modal__scope muted-line">
+                {[primaryDepartmentForOrg(orgSlice), primaryUnitForOrg(orgSlice), primaryTeamForOrg(orgSlice)]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            </header>
+
+            <div className="add-slot-kind" role="group" aria-label="Тип позиции">
+              <button
+                type="button"
+                className={`add-slot-kind__btn${addSlotKind === "vacancy" ? " add-slot-kind__btn--active" : ""}`}
+                onClick={() => setAddSlotKind("vacancy")}
+                aria-pressed={addSlotKind === "vacancy"}
+              >
                 Вакансия
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="addSlotKind"
-                  checked={addSlotKind === "occupied"}
-                  onChange={() => setAddSlotKind("occupied")}
-                />
+              </button>
+              <button
+                type="button"
+                className={`add-slot-kind__btn${addSlotKind === "occupied" ? " add-slot-kind__btn--active" : ""}`}
+                onClick={() => setAddSlotKind("occupied")}
+                aria-pressed={addSlotKind === "occupied"}
+              >
                 С сотрудником
-              </label>
+              </button>
             </div>
-            <div className="add-slot-employee-fields">
-              <label>
-                Специализация
-                <select
-                  value={addSlotSpec}
-                  onChange={(event) => {
-                    const spec = event.target.value;
-                    setAddSlotSpec(spec);
-                    const levels = levelOptionsForSpecialization(spec, salaryBands);
-                    const level = levels[0] ?? "";
-                    setAddSlotLevel(level);
-                    const band = findSalaryBand(spec, level, salaryBands);
-                    setAddSlotBase(band?.midpoint ?? "");
-                  }}
-                >
-                  {catalogSpecOptions.map((spec) => (
-                    <option key={spec} value={spec}>
-                      {spec}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Уровень
-                <select
-                  value={addSlotLevel}
-                  onChange={(event) => {
-                    const level = event.target.value;
-                    setAddSlotLevel(level);
-                    const band = findSalaryBand(addSlotSpec, level, salaryBands);
-                    if (addSlotBase === "" && band) setAddSlotBase(band.midpoint);
-                  }}
-                >
-                  {catalogLevelOptions.map((level) => (
-                    <option key={level} value={level}>
-                      {level}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Оклад, ₽
+
+            <div className="add-slot-form">
+              <div className="add-slot-form__row">
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Специализация</span>
+                  <select
+                    value={addSlotSpec}
+                    onChange={(event) => {
+                      const spec = event.target.value;
+                      setAddSlotSpec(spec);
+                      const levels = levelOptionsForSpecialization(spec, salaryBands);
+                      const level = levels[0] ?? "";
+                      setAddSlotLevel(level);
+                      const band = findSalaryBand(spec, level, salaryBands);
+                      setAddSlotBase(band?.midpoint ?? "");
+                    }}
+                  >
+                    {catalogSpecOptions.map((spec) => (
+                      <option key={spec} value={spec}>
+                        {spec}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="drawer-field">
+                  <span className="drawer-field__label">Уровень</span>
+                  <select
+                    value={addSlotLevel}
+                    onChange={(event) => {
+                      const level = event.target.value;
+                      setAddSlotLevel(level);
+                      const band = findSalaryBand(addSlotSpec, level, salaryBands);
+                      if (addSlotBase === "" && band) setAddSlotBase(band.midpoint);
+                    }}
+                  >
+                      {catalogLevelOptions.map((level) => (
+                        <option key={level} value={level}>
+                          {level}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
+              <label className="drawer-field add-slot-form__salary">
+                <span className="drawer-field__label">Оклад, ₽</span>
                 <input
                   type="number"
                   min={0}
@@ -1448,27 +1382,30 @@ export function PlanningPage() {
                   placeholder="из справочника"
                 />
               </label>
-              <label>
-                ФИО
-                <input
-                  type="text"
-                  value={addSlotKind === "vacancy" ? "" : addSlotEmployeeName}
-                  onChange={(event) => setAddSlotEmployeeName(event.target.value)}
-                  placeholder="—"
-                  disabled={addSlotKind === "vacancy"}
-                />
-              </label>
-              <label>
-                ID сотрудника
-                <input
-                  type="text"
-                  value={addSlotKind === "vacancy" ? "" : addSlotEmployeeId}
-                  onChange={(event) => setAddSlotEmployeeId(event.target.value)}
-                  placeholder="—"
-                  disabled={addSlotKind === "vacancy"}
-                />
-              </label>
+              {addSlotKind === "occupied" ? (
+                <div className="add-slot-form__row">
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">ФИО</span>
+                    <input
+                      type="text"
+                      value={addSlotEmployeeName}
+                      onChange={(event) => setAddSlotEmployeeName(event.target.value)}
+                      placeholder="Иванов Иван"
+                    />
+                  </label>
+                  <label className="drawer-field">
+                    <span className="drawer-field__label">ID сотрудника</span>
+                    <input
+                      type="text"
+                      value={addSlotEmployeeId}
+                      onChange={(event) => setAddSlotEmployeeId(event.target.value)}
+                      placeholder="авто"
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
+
             <div className="modal-card__actions">
               <button type="button" className="secondary-btn" onClick={() => setAddSlotOpen(false)}>
                 Отмена

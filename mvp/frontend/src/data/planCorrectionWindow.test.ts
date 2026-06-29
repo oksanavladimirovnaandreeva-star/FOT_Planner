@@ -1,86 +1,95 @@
 import { describe, expect, it } from "vitest";
-import {
-  correctionWindowStartMonth,
-  isCorrectionMonthLocked,
-  isPlanEventMonthAllowed,
-  resolveCorrectionWindow,
-} from "./planCorrectionWindow";
 import type { PlanVersionMeta } from "./planVersions";
+import { resolveCanEditWorkspace } from "./planCorrectionWindow";
 
-function meta(partial: Partial<PlanVersionMeta>): PlanVersionMeta {
-  return {
-    id: "v1",
-    label: "v1",
-    kind: "APPROVED",
-    status: "DRAFT",
-    versionNumber: 1,
-    createdAt: "",
-    ...partial,
-  };
-}
+const annualDraftV1: PlanVersionMeta = {
+  id: "budget-2026-v1",
+  label: "Бюджет 2026",
+  planYear: 2026,
+  versionNumber: 1,
+  kind: "APPROVED",
+  status: "DRAFT",
+  parentVersionId: null,
+  baselineVersionId: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
 
-describe("correctionWindowStartMonth", () => {
-  it("Q1 (февраль) → с января (0)", () => {
-    expect(correctionWindowStartMonth(new Date(2026, 1, 1))).toBe(0);
+const annualApprovedV1: PlanVersionMeta = {
+  ...annualDraftV1,
+  status: "APPROVED",
+  publishedAt: "2026-03-01T00:00:00.000Z",
+};
+
+const workingDraft: PlanVersionMeta = {
+  id: "draft-2026-budget-2026-v1",
+  label: "2 Квартал 2026",
+  planYear: 2026,
+  versionNumber: 2,
+  kind: "WORKING_DRAFT",
+  status: "DRAFT",
+  parentVersionId: null,
+  baselineVersionId: annualApprovedV1.id,
+  createdAt: "2026-04-01T00:00:00.000Z",
+};
+
+describe("resolveCanEditWorkspace", () => {
+  it("годовой черновик v1 в режиме планирования — правки доступны", () => {
+    expect(
+      resolveCanEditWorkspace({
+        canEditPlan: true,
+        isTeamSliceReadOnly: false,
+        workspaceMode: "planning",
+        activePlan: annualDraftV1,
+        primaryBudget: annualDraftV1,
+      }),
+    ).toBe(true);
   });
 
-  it("Q2 (июнь) → с апреля (3)", () => {
-    expect(correctionWindowStartMonth(new Date(2026, 5, 15))).toBe(3);
+  it("квартальный черновик в режиме планирования — правки доступны (C&B индексация)", () => {
+    expect(
+      resolveCanEditWorkspace({
+        canEditPlan: true,
+        isTeamSliceReadOnly: false,
+        workspaceMode: "planning",
+        activePlan: workingDraft,
+        primaryBudget: annualApprovedV1,
+      }),
+    ).toBe(true);
   });
 
-  it("Q3 (август) → с июля (6)", () => {
-    expect(correctionWindowStartMonth(new Date(2026, 7, 1))).toBe(6);
+  it("утверждённый v1 без черновика — только просмотр", () => {
+    expect(
+      resolveCanEditWorkspace({
+        canEditPlan: false,
+        isTeamSliceReadOnly: false,
+        workspaceMode: "planning",
+        activePlan: annualApprovedV1,
+        primaryBudget: annualApprovedV1,
+      }),
+    ).toBe(false);
   });
 
-  it("Q4 (ноябрь) → с октября (9)", () => {
-    expect(correctionWindowStartMonth(new Date(2026, 10, 1))).toBe(9);
-  });
-});
-
-describe("resolveCorrectionWindow", () => {
-  it("v1 DRAFT на маршруте planning — без ограничения", () => {
-    const w = resolveCorrectionWindow(meta({ status: "DRAFT" }), meta({ status: "DRAFT" }), {
-      workspaceMode: "planning",
-      refDate: new Date(2026, 5, 1),
-    });
-    expect(w.enforced).toBe(false);
-    expect(isPlanEventMonthAllowed(0, w)).toBe(true);
+  it("квартальный черновик в режиме корректировки — правки доступны", () => {
+    expect(
+      resolveCanEditWorkspace({
+        canEditPlan: true,
+        isTeamSliceReadOnly: false,
+        workspaceMode: "correction",
+        activePlan: workingDraft,
+        primaryBudget: annualApprovedV1,
+      }),
+    ).toBe(true);
   });
 
-  it("квартальный черновик на planning — без ограничения (окно только в correction)", () => {
-    const w = resolveCorrectionWindow(
-      meta({ id: "draft", kind: "WORKING_DRAFT", status: "DRAFT", versionNumber: 2 }),
-      meta({ status: "APPROVED" }),
-      { workspaceMode: "planning", refDate: new Date(2026, 5, 1) },
-    );
-    expect(w.enforced).toBe(false);
-    expect(isPlanEventMonthAllowed(5, w)).toBe(true);
-  });
-
-  it("квартальный черновик на correction в Q2 — с апреля, июнь открыт", () => {
-    const w = resolveCorrectionWindow(
-      meta({ id: "draft", kind: "WORKING_DRAFT", status: "DRAFT", versionNumber: 2 }),
-      meta({ status: "APPROVED" }),
-      { workspaceMode: "correction", refDate: new Date(2026, 5, 1) },
-    );
-    expect(w.enforced).toBe(true);
-    expect(w.startMonth).toBe(3);
-    expect(isPlanEventMonthAllowed(2, w)).toBe(false);
-    expect(isPlanEventMonthAllowed(3, w)).toBe(true);
-    expect(isPlanEventMonthAllowed(5, w)).toBe(true);
-    expect(isCorrectionMonthLocked(2, w)).toBe(true);
-    expect(isCorrectionMonthLocked(5, w)).toBe(false);
-  });
-
-  it("correction без черновика в Q2 — с апреля", () => {
-    const w = resolveCorrectionWindow(
-      meta({ id: "v1", kind: "APPROVED", status: "APPROVED", versionNumber: 1 }),
-      meta({ status: "APPROVED" }),
-      { workspaceMode: "correction", refDate: new Date(2026, 5, 1) },
-    );
-    expect(w.enforced).toBe(true);
-    expect(w.startMonth).toBe(3);
-    expect(isPlanEventMonthAllowed(2, w)).toBe(false);
-    expect(isPlanEventMonthAllowed(5, w)).toBe(true);
+  it("годовой v1 в режиме корректировки без черновика — правки недоступны", () => {
+    expect(
+      resolveCanEditWorkspace({
+        canEditPlan: true,
+        isTeamSliceReadOnly: false,
+        workspaceMode: "correction",
+        activePlan: annualDraftV1,
+        primaryBudget: annualDraftV1,
+      }),
+    ).toBe(false);
   });
 });
