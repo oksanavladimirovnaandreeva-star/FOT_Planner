@@ -6827,6 +6827,122 @@ body.drawer-close-guard .drawer-overlay {
   }
 }
 
+.salary-band-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--tone-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--tone-muted, #f9fafb);
+}
+
+.salary-band-hint--compact {
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.salary-band-hint--message {
+  margin: 4px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.salary-band-hint__amounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  color: var(--tone-text-secondary, #6b7280);
+}
+
+.salary-band-hint__amounts strong {
+  color: var(--tone-text, #111827);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.salary-band-hint__amounts-mid strong {
+  color: var(--tone-accent, #4f46e5);
+}
+
+.salary-band-hint__track-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.salary-band-hint__track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--tone-border-light, #e5e7eb);
+  overflow: visible;
+}
+
+.salary-band-hint__mid-tick {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--tone-text-muted, #9ca3af);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.salary-band-hint__marker {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--tone-accent, #4f46e5);
+  border: 2px solid var(--tone-surface, #fff);
+  box-shadow: 0 0 0 1px var(--tone-accent, #4f46e5);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.salary-band-hint__marker--below {
+  background: #f59e0b;
+  box-shadow: 0 0 0 1px #f59e0b;
+}
+
+.salary-band-hint__marker--above {
+  background: #dc2626;
+  box-shadow: 0 0 0 1px #dc2626;
+}
+
+.salary-band-hint__track-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--tone-text-muted, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.salary-band-hint__cr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.salary-band-hint__cr-label {
+  font-size: 12px;
+  color: var(--tone-text-secondary, #6b7280);
+}
+
+.salary-band-hint__cr-note {
+  font-size: 11px;
+  color: var(--tone-text-muted, #9ca3af);
+}
+
 /* Таблица ФОТ по месяцам в drawer (по макету design) */
 .comp-schedule__head {
   display: flex;
