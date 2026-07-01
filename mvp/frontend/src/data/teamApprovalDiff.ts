@@ -3,11 +3,10 @@ import {
   collectPlanEventJournalRows,
   eventCommentTooltip,
   eventEmployeeLine,
-  summarizeEventChange,
   type EventChangeSummary,
   type PlanEventJournalRow,
 } from "./eventJournal";
-import { annualTotal, applyEventsUntil } from "./planningData";
+import { annualTotal, applyEvents, applyEventsUntil, decToDec, monthLabel, POSITION_STATUS_LABELS } from "./planningData";
 import { eventTypeLabel } from "./eventLabels";
 import type { EventType, LimitFlagKey, PlannedEvent, PositionRecord } from "../types";
 
@@ -59,6 +58,24 @@ function annualFotByLimitForUnit(
 
 const APPROVAL_HIDDEN_EVENT_TYPES = new Set<EventType>(["INDEXATION", "POSITION_CARRYOVER"]);
 
+/** Пересчёт помесячных полей по событиям — как на «Планировании». */
+function approvalPositionsWithEvents(positions: PositionRecord[]): PositionRecord[] {
+  return positions.map(applyEvents);
+}
+
+type ApprovalDiffInput = {
+  baselinePositions: PositionRecord[];
+  draftPositions: PositionRecord[];
+};
+
+function normalizeApprovalDiffInput<T extends ApprovalDiffInput>(input: T): T {
+  return {
+    ...input,
+    baselinePositions: approvalPositionsWithEvents(input.baselinePositions),
+    draftPositions: approvalPositionsWithEvents(input.draftPositions),
+  };
+}
+
 export type TeamApprovalDiffRow = {
   positionId: string;
   role: string;
@@ -85,9 +102,73 @@ export type TeamApprovalDiffSummary = {
   baselineFotByLimit: FotByLimit;
   draftFotByLimit: FotByLimit;
   deltaFotByLimit: FotByLimit;
+  /** Прирост оклада дек→дек (план декабрь − прошлый декабрь) по лимиту. */
+  draftDecGrowthByLimit: FotByLimit;
+  /** Сумма previousDecemberBase по лимиту (база для % дек→дек). */
+  draftPrevDecByLimit: FotByLimit;
 };
 
 export { DISPLAY_LIMIT_FLAGS as TEAM_APPROVAL_LIMIT_FLAGS };
+
+/** Доля суммы в общем годовом ФОТ среза (команда / юнит / департамент). */
+export function shareOfAnnualBudget(part: number, annualBudget: number): number | null {
+  if (annualBudget === 0) return null;
+  return (part / annualBudget) * 100;
+}
+
+/** Доля части в общем приросте (Δ ФОТ или дек→дек по срезу). */
+export function shareOfTotalGrowth(part: number, totalGrowth: number): number | null {
+  if (totalGrowth === 0) return part === 0 ? 0 : null;
+  return (part / totalGrowth) * 100;
+}
+
+export function sumLimitBucketValues(
+  values: FotByLimit,
+  flags: LimitFlagKey[] = DISPLAY_LIMIT_FLAGS,
+): number {
+  return flags.reduce((sum, flag) => sum + values[flag], 0);
+}
+
+export type LimitGrowthMetrics = {
+  growth: number;
+  baseline: number;
+  /** % к базе блока (прошлый дек / утверждённый год). null — н/п (новые без базы). */
+  relativePct: number | null;
+  /**
+   * Вклад блока в общий % дек→дек среза, п.п.:
+   * (прирост блока ₽ / общий прирост ₽) × общий % дек→дек.
+   */
+  contributionToTotalRelativePct: number | null;
+};
+
+export function computeLimitGrowthMetrics(
+  growth: number,
+  baseline: number,
+  totalGrowth: number,
+  totalBaseline: number,
+): LimitGrowthMetrics {
+  let relativePct: number | null = null;
+  if (baseline > 0) {
+    relativePct = decToDec(baseline, baseline + growth);
+  } else if (growth === 0) {
+    relativePct = 0;
+  }
+
+  let contributionToTotalRelativePct: number | null = null;
+  if (growth === 0 && totalGrowth === 0) {
+    contributionToTotalRelativePct = 0;
+  } else if (totalGrowth !== 0 && totalBaseline > 0) {
+    const totalRelativePct = decToDec(totalBaseline, totalBaseline + totalGrowth);
+    contributionToTotalRelativePct = (growth / totalGrowth) * totalRelativePct;
+  }
+
+  return {
+    growth,
+    baseline,
+    relativePct,
+    contributionToTotalRelativePct,
+  };
+}
 
 function matchesTeam(
   position: PositionRecord,
@@ -116,6 +197,31 @@ function annualFotByLimitForDepartment(
   department: string,
 ): FotByLimit {
   return annualFotByLimit(positions, (position) => matchesDepartment(position, department));
+}
+
+function decemberGrowthByLimit(
+  positions: PositionRecord[],
+  match: (position: PositionRecord) => boolean,
+): FotByLimit {
+  const totals = EMPTY_FOT_BY_LIMIT();
+  for (const position of positions) {
+    if (!match(position) || position.status === "Closed") continue;
+    totals[position.limitFlag] +=
+      (position.monthlyBase[11] ?? 0) - (position.previousDecemberBase ?? 0);
+  }
+  return totals;
+}
+
+function previousDecemberByLimit(
+  positions: PositionRecord[],
+  match: (position: PositionRecord) => boolean,
+): FotByLimit {
+  const totals = EMPTY_FOT_BY_LIMIT();
+  for (const position of positions) {
+    if (!match(position) || position.status === "Closed") continue;
+    totals[position.limitFlag] += position.previousDecemberBase ?? 0;
+  }
+  return totals;
 }
 
 function headcountForDepartment(positions: PositionRecord[], department: string): number {
@@ -172,6 +278,41 @@ function annualFotDeltaForEvent(position: PositionRecord, event: PlannedEvent): 
   return afterFot - beforeFot;
 }
 
+/** Δ годового ФОТ события: baseline (утверждённый) → состояние после события в черновике. */
+function annualFotDeltaForDraftEvent(
+  baseline: PositionRecord | undefined,
+  draftPosition: PositionRecord,
+  event: PlannedEvent,
+): number {
+  const beforeFot =
+    baseline && baseline.status !== "Closed" ? annualTotal(applyEvents(baseline)) : 0;
+  const afterState = applyEventsUntil(draftPosition, event.id, true);
+  const afterFot = afterState.status !== "Closed" ? annualTotal(afterState) : 0;
+  return afterFot - beforeFot;
+}
+
+function summarizeDraftDeltaEvent(
+  baseline: PositionRecord | undefined,
+  draftPosition: PositionRecord,
+  event: PlannedEvent,
+): EventChangeSummary {
+  const month = Math.max(0, Math.min(11, event.payload.month));
+  const before = baseline ? applyEvents(baseline) : applyEvents({ ...draftPosition, events: [] });
+  const after = applyEventsUntil(draftPosition, event.id, true);
+  return {
+    month,
+    monthLabel: monthLabel(month),
+    statusBefore: POSITION_STATUS_LABELS[before.status],
+    statusAfter: POSITION_STATUS_LABELS[after.status],
+    baseBefore: before.monthlyBase[month] ?? 0,
+    baseAfter: after.monthlyBase[month] ?? 0,
+    specBefore: before.monthlySpec[month] ?? "",
+    specAfter: after.monthlySpec[month] ?? "",
+    levelBefore: before.monthlyLevel[month] ?? "",
+    levelAfter: after.monthlyLevel[month] ?? "",
+  };
+}
+
 function journalRowsToApprovalRows(
   journalRows: PlanEventJournalRow[],
   input: {
@@ -218,12 +359,16 @@ function deltaEventsToApprovalRows(
   const baselineById = new Map(
     input.baselinePositions.map((position) => [position.positionId, position] as const),
   );
+  const draftById = new Map(
+    input.draftPositions.map((position) => [position.positionId, position] as const),
+  );
   const baselinePositionIds = new Set(input.baselinePositions.map((position) => position.positionId));
 
   return deltaEvents.map(({ position, event }) => {
     const isNewPosition = !baselinePositionIds.has(position.positionId);
-    const baseline = baselineById.get(position.positionId) ?? position;
-    const change = summarizeEventChange(baseline, event);
+    const baseline = baselineById.get(position.positionId);
+    const draftPosition = draftById.get(position.positionId) ?? position;
+    const change = summarizeDraftDeltaEvent(baseline, draftPosition, event);
 
     return {
       positionId: position.positionId,
@@ -236,7 +381,7 @@ function deltaEventsToApprovalRows(
       change,
       comment: event.payload.comment?.trim() || eventCommentTooltip(event),
       isNewPosition,
-      fotDeltaAnnual: annualFotDeltaForEvent(baseline, event),
+      fotDeltaAnnual: annualFotDeltaForDraftEvent(baseline, draftPosition, event),
       event,
       createdAt: event.createdAt,
     };
@@ -244,7 +389,7 @@ function deltaEventsToApprovalRows(
 }
 
 /** Годовое планирование: все события команды. Квартальное: только новые события vs утверждённый год. */
-export function buildTeamApprovalDiff(input: {
+export function buildTeamApprovalDiff(rawInput: {
   baselinePositions: PositionRecord[];
   draftPositions: PositionRecord[];
   department: string;
@@ -252,17 +397,21 @@ export function buildTeamApprovalDiff(input: {
   team: string;
   mode: TeamApprovalSubmissionMode;
 }): { summary: TeamApprovalDiffSummary; rows: TeamApprovalDiffRow[] } {
+  const input = normalizeApprovalDiffInput({
+    baselinePositions: rawInput.baselinePositions,
+    draftPositions: rawInput.draftPositions,
+  });
   const scope = {
-    department: input.department,
-    unit: input.unit,
-    team: input.team,
+    department: rawInput.department,
+    unit: rawInput.unit,
+    team: rawInput.team,
   };
 
   const teamDraft = input.draftPositions.filter((position) => matchesTeam(position, scope));
 
   const rows =
-    input.mode === "annual"
-      ? journalRowsToApprovalRows(collectPlanEventJournalRows(teamDraft), input, input.mode)
+    rawInput.mode === "annual"
+      ? journalRowsToApprovalRows(collectPlanEventJournalRows(teamDraft), input, rawInput.mode)
       : deltaEventsToApprovalRows(
           collectDraftDeltaEvents(input.baselinePositions, input.draftPositions).filter(
             ({ position, event }) => {
@@ -294,21 +443,31 @@ export function buildTeamApprovalDiff(input: {
     baselineFotByLimit,
     draftFotByLimit,
     deltaFotByLimit: deltaFotByLimit(baselineFotByLimit, draftFotByLimit),
+    draftDecGrowthByLimit: decemberGrowthByLimit(input.draftPositions, (position) =>
+      matchesTeam(position, scope),
+    ),
+    draftPrevDecByLimit: previousDecemberByLimit(input.draftPositions, (position) =>
+      matchesTeam(position, scope),
+    ),
   };
 
   return { summary, rows };
 }
 
 /** Квартальное: дельта по юниту. Годовое: все события юнита. */
-export function buildUnitApprovalDiff(input: {
+export function buildUnitApprovalDiff(rawInput: {
   baselinePositions: PositionRecord[];
   draftPositions: PositionRecord[];
   department: string;
   unit: string;
   mode?: TeamApprovalSubmissionMode;
 }): { summary: TeamApprovalDiffSummary; rows: TeamApprovalDiffRow[] } {
-  const mode = input.mode ?? "quarterly";
-  const scope = { department: input.department, unit: input.unit };
+  const input = normalizeApprovalDiffInput({
+    baselinePositions: rawInput.baselinePositions,
+    draftPositions: rawInput.draftPositions,
+  });
+  const mode = rawInput.mode ?? "quarterly";
+  const scope = { department: rawInput.department, unit: rawInput.unit };
   const unitDraft = input.draftPositions.filter((position) => matchesUnit(position, scope));
 
   const rows =
@@ -346,20 +505,30 @@ export function buildUnitApprovalDiff(input: {
     baselineFotByLimit,
     draftFotByLimit,
     deltaFotByLimit: deltaFotByLimit(baselineFotByLimit, draftFotByLimit),
+    draftDecGrowthByLimit: decemberGrowthByLimit(input.draftPositions, (position) =>
+      matchesUnit(position, scope),
+    ),
+    draftPrevDecByLimit: previousDecemberByLimit(input.draftPositions, (position) =>
+      matchesUnit(position, scope),
+    ),
   };
 
   return { summary, rows };
 }
 
 /** Квартальное: дельта по департаменту. Годовое: все события департамента. */
-export function buildDepartmentApprovalDiff(input: {
+export function buildDepartmentApprovalDiff(rawInput: {
   baselinePositions: PositionRecord[];
   draftPositions: PositionRecord[];
   department: string;
   mode?: TeamApprovalSubmissionMode;
 }): { summary: TeamApprovalDiffSummary; rows: TeamApprovalDiffRow[] } {
-  const mode = input.mode ?? "quarterly";
-  const { department } = input;
+  const input = normalizeApprovalDiffInput({
+    baselinePositions: rawInput.baselinePositions,
+    draftPositions: rawInput.draftPositions,
+  });
+  const mode = rawInput.mode ?? "quarterly";
+  const { department } = rawInput;
   const deptDraft = input.draftPositions.filter((position) => matchesDepartment(position, department));
 
   const rows =
@@ -399,6 +568,12 @@ export function buildDepartmentApprovalDiff(input: {
     baselineFotByLimit,
     draftFotByLimit,
     deltaFotByLimit: deltaFotByLimit(baselineFotByLimit, draftFotByLimit),
+    draftDecGrowthByLimit: decemberGrowthByLimit(input.draftPositions, (position) =>
+      matchesDepartment(position, department),
+    ),
+    draftPrevDecByLimit: previousDecemberByLimit(input.draftPositions, (position) =>
+      matchesDepartment(position, department),
+    ),
   };
 
   return { summary, rows };

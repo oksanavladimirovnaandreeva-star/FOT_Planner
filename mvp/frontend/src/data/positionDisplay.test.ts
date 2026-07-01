@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PositionRecord } from "../types";
-import { formatCrCoefficient, formatEmployeeIdForDisplay, formatPositionOrgLine, employeeDisplayLine, positionEmployeePrimaryName } from "./positionDisplay";
+import { formatCrCoefficient, formatEmployeeIdForDisplay, formatPositionOrgLine, employeeDisplayLine, positionEmployeePrimaryName, positionScenarioHints } from "./positionDisplay";
 
 function sample(overrides: Partial<PositionRecord> = {}): PositionRecord {
   return {
@@ -37,10 +37,11 @@ function sample(overrides: Partial<PositionRecord> = {}): PositionRecord {
 describe("positionDisplay", () => {
   it("formatPositionOrgLine по роли", () => {
     const row = sample();
-    expect(formatPositionOrgLine(row, "team_lead")).toBe("Frontend Web (P001)");
-    expect(formatPositionOrgLine(row, "unit_lead")).toBe("Frontend Web (P001)");
+    expect(formatPositionOrgLine(row, "team_lead")).toBe("Frontend Web");
+    expect(formatPositionOrgLine(row, "unit_lead")).toBe("Frontend Web");
     expect(formatPositionOrgLine(row, "director")).toBe("ProductDev / Frontend Web (P001)");
     expect(formatPositionOrgLine(row, "cb_admin")).toBe("Engineering / ProductDev / Frontend Web (P001)");
+    expect(formatPositionOrgLine(row, "team_lead", { includePositionId: true })).toBe("Frontend Web (P001)");
   });
 
   it("positionEmployeePrimaryName для занятой", () => {
@@ -58,5 +59,21 @@ describe("positionDisplay", () => {
     expect(formatEmployeeIdForDisplay("E0042")).toBe("E0042");
     expect(employeeDisplayLine(persona)).toBe("Сидор Морозов");
     expect(employeeDisplayLine(sample())).toBe("Иванов (E001)");
+  });
+
+  it("positionScenarioHints для вакансий со сценариями", () => {
+    expect(positionScenarioHints(sample({ status: "Vacancy", role: "Engineer (временная замена)" }))).toEqual([
+      "Временная замена",
+    ]);
+    expect(
+      positionScenarioHints(
+        sample({
+          status: "Vacancy",
+          slotType: "carryover",
+          events: [],
+        }),
+      ),
+    ).toEqual(["Нет события переноса"]);
+    expect(positionScenarioHints(sample())).toEqual([]);
   });
 });

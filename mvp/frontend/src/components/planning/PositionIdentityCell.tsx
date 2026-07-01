@@ -32,11 +32,7 @@ export function PositionIdentityCell({ record, userRole, metaExtra, compact = fa
     <div className={`position-identity${compact ? " position-identity--compact" : ""}`}>
       <div className="position-identity__primary">
         {record.status === "Occupied" && employeeName ? (
-          <>
-            <strong className="position-identity__name">{employeeName}</strong>
-            <span className="position-identity__sep">·</span>
-            <span className="position-identity__status">{status}</span>
-          </>
+          <strong className="position-identity__name">{employeeName}</strong>
         ) : record.status === "Vacancy" ? (
           <>
             <strong className="position-identity__name">{vacancyTitle(record)}</strong>

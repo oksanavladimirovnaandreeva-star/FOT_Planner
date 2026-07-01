@@ -1,12 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { formatGrowthPct, sliceAnalytics } from "../data/dashboardMetrics";
-import { formatMoney } from "../data/formatDisplay";
+import { sliceAnalytics, annualFotForView, type ViewMode } from "../data/dashboardMetrics";
+import { formatLimitDecGrowthLine, formatMoney, formatSignedMoneyDelta } from "../data/formatDisplay";
 import { getMonthlyCR } from "../data/planningData";
 import { LIMIT_FLAG_LABELS } from "../data/planningData";
 import { METRIC_HELP } from "../data/metricHelp";
 import { MetricHelp } from "./MetricHelp";
 import type { LimitFlagKey, PositionRecord, SalaryRangeBand } from "../types";
-import type { ViewMode } from "../data/dashboardMetrics";
 
 const DISPLAY_LIMIT_FLAGS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT"];
 
@@ -98,10 +97,7 @@ export function AnalyticsSummaryStrip({
   );
   const yearPlanByLimit = active.reduce(
     (acc, position) => {
-      const yearPlan = viewMode === "total"
-        ? position.monthlyBase.reduce((sum, value, idx) => sum + value + position.monthlyBonus[idx], 0)
-        : position.monthlyBase.reduce((sum, value) => sum + value, 0);
-      acc[position.limitFlag] += yearPlan;
+      acc[position.limitFlag] += annualFotForView(position, viewMode);
       return acc;
     },
     { IN_LIMIT: 0, OVER_LIMIT: 0, UNLIMITED: 0 } satisfies Record<LimitFlagKey, number>,
@@ -123,10 +119,7 @@ export function AnalyticsSummaryStrip({
   const vacancyAmountByLimit = active.reduce(
     (acc, position) => {
       if (position.status !== "Vacancy") return acc;
-      const yearPlan = viewMode === "total"
-        ? position.monthlyBase.reduce((sum, value, idx) => sum + value + position.monthlyBonus[idx], 0)
-        : position.monthlyBase.reduce((sum, value) => sum + value, 0);
-      acc[position.limitFlag] += yearPlan;
+      acc[position.limitFlag] += annualFotForView(position, viewMode);
       return acc;
     },
     { IN_LIMIT: 0, OVER_LIMIT: 0, UNLIMITED: 0 } satisfies Record<LimitFlagKey, number>,
@@ -140,6 +133,7 @@ export function AnalyticsSummaryStrip({
   );
   const totalVacancyCount = active.filter((position) => position.status === "Vacancy").length;
   const totalVacancyAmount = vacancyAmountByLimit.IN_LIMIT + vacancyAmountByLimit.OVER_LIMIT;
+  const totalDecGrowth = a.decPlan - a.decPrev;
 
   const stripClass = [
     "analytics-strip",
@@ -189,25 +183,19 @@ export function AnalyticsSummaryStrip({
       </div>
       <div className="analytics-strip__item">
         <StripLabel>Дек → дек (прирост)</StripLabel>
-        <strong>
-          {formatGrowthPct(a.decPct)} · {formatMoney(a.decPlan - a.decPrev)}
-        </strong>
+        <strong>{formatSignedMoneyDelta(totalDecGrowth)}</strong>
         <div className="analytics-strip__rows">
-          {DISPLAY_LIMIT_FLAGS.map((flag) => (
-            <div key={flag} className="analytics-strip__row">
-              <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
-              <strong>
-                {formatGrowthPct(
-                  decByLimit[flag].prev === 0
-                    ? decByLimit[flag].plan === 0
-                      ? 0
-                      : 100
-                    : ((decByLimit[flag].plan - decByLimit[flag].prev) / decByLimit[flag].prev) * 100,
-                )}{" "}
-                · {formatMoney(decByLimit[flag].plan - decByLimit[flag].prev)}
-              </strong>
-            </div>
-          ))}
+          {DISPLAY_LIMIT_FLAGS.map((flag) => {
+            const growth = decByLimit[flag].plan - decByLimit[flag].prev;
+            return (
+              <div key={flag} className="analytics-strip__row">
+                <span className={`limit-flag-badge limit-flag-badge--${flag}`}>{LIMIT_FLAG_LABELS[flag]}</span>
+                <strong>
+                  {formatLimitDecGrowthLine(growth, decByLimit[flag].prev, totalDecGrowth, a.decPrev)}
+                </strong>
+              </div>
+            );
+          })}
         </div>
       </div>
     </>
@@ -308,7 +296,7 @@ export function AnalyticsSummaryStrip({
       <div className="analytics-strip analytics-strip--planning-compact">
         <div className="analytics-strip__row-group analytics-strip__row-group--compact">
           <div className="analytics-strip__item">
-            <span>Итого ФОТ год</span>
+            <span>{viewMode === "total" ? "Итого ФОТ год" : "Оклад год"}</span>
             <strong>{formatMoney(a.yearPlan, true)}</strong>
           </div>
           <div className="analytics-strip__item">

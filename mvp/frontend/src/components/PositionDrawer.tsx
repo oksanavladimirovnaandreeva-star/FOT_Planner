@@ -38,6 +38,7 @@ import {
   employeeInitials,
   formatEmployeeDrawerMeta,
   formatPositionHireLabel,
+  positionScenarioHints,
 } from "../data/positionDisplay";
 import {
   formatMaternityReplacementLabel,
@@ -622,6 +623,7 @@ export function PositionDrawer({
   };
 
   const isVacancyDraft = view.status === "Vacancy" && !isPersisted;
+  const scenarioHints = positionScenarioHints(view);
   const showPlanEvents = view.status !== "Vacancy" || isPersisted;
   const vacancyProfileMonth = view.activeFromMonth;
   const vacancyProfileSpec = view.monthlySpec[vacancyProfileMonth] ?? specOptions[0] ?? "";
@@ -820,6 +822,18 @@ export function PositionDrawer({
                     )}
                   </div>
                   <p className="drawer-identity__id">{view.positionId}</p>
+                  {scenarioHints.length > 0 ? (
+                    <div className="drawer-identity__hints">
+                      {scenarioHints.map((hint) => (
+                        <span
+                          key={hint}
+                          className={`scenario-badge${hint === "Нет события переноса" ? " scenario-badge--warn" : ""}`}
+                        >
+                          {hint}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
 
                 {!isVacancyDraft ? (

@@ -25,7 +25,7 @@ import {
 } from "../../data/teamSubmissionStore";
 import { buildTeamLeadVersionRibbon } from "../../data/teamLeadApprovalKanban";
 import { canRolePerformSubmissionAction, submissionActionLabel } from "../../data/submissionWorkflowPolicy";
-import { demoRoleActorOrg, demoRolePrimaryOrg } from "../../data/userAccess";
+import { demoRoleActorOrg, demoRolePrimaryOrg, filterPositionsByRole } from "../../data/userAccess";
 import { resolvePlanningTeamsForActivePersona } from "../../data/demoPersonas";
 import { buildBudgetContour } from "../../data/buildBudgetContour";
 import { loadResolvedDemoPersona, resolveActivePersonaOrgScope } from "../../data/demoSessionStore";
@@ -53,7 +53,7 @@ type Props = {
 
 export function BudgetWorkspacePanel({ level }: Props) {
   const {
-    allPositions,
+    positions,
     workingDraft,
     primaryBudget,
     latestApproved,
@@ -86,10 +86,18 @@ export function BudgetWorkspacePanel({ level }: Props) {
     };
   }, [level, roleKey]);
 
-  const applied = useMemo(() => mapPositionsWithAppliedEvents(allPositions), [allPositions]);
+  const applied = useMemo(() => mapPositionsWithAppliedEvents(positions), [positions]);
   const positionsById = useMemo(
     () => new Map(applied.map((position) => [position.positionId, position])),
     [applied],
+  );
+
+  const roleScopedVersionDiff = useMemo(
+    () => ({
+      baseline: filterPositionsByRole(versionDiff.baselinePositions, userRole),
+      draft: filterPositionsByRole(versionDiff.draftPositions, userRole),
+    }),
+    [versionDiff.baselinePositions, versionDiff.draftPositions, userRole],
   );
 
   const resolvedPositions = useMemo(
@@ -97,11 +105,11 @@ export function BudgetWorkspacePanel({ level }: Props) {
       resolveBudgetWorkspacePositions({
         workingDraft,
         primaryBudget,
-        versionDiffBaseline: versionDiff.baselinePositions,
-        versionDiffDraft: versionDiff.draftPositions,
+        versionDiffBaseline: roleScopedVersionDiff.baseline,
+        versionDiffDraft: roleScopedVersionDiff.draft,
         appliedPlanPositions: applied,
       }),
-    [workingDraft, primaryBudget, versionDiff, applied],
+    [workingDraft, primaryBudget, roleScopedVersionDiff, applied],
   );
 
   const pkg = useMemo(() => {
@@ -358,13 +366,17 @@ export function BudgetWorkspacePanel({ level }: Props) {
           })}
         </ol>
         {pkg.packageSubmission ? (
-          <p className="muted-line">
-            Пакет: <strong>{PACKAGE_PHASE_LABELS[pkg.packageSubmission.phase]}</strong>
-            {pkg.packageSubmission.submittedAt && packagePhase !== "collecting"
-              ? ` · ${formatIsoDateTime(pkg.packageSubmission.submittedAt)}`
-              : ""}
-            {pkg.packageSubmission.returnedNote ? ` · ${pkg.packageSubmission.returnedNote}` : ""}
-          </p>
+          <>
+            <p className="muted-line">
+              Пакет: <strong>{PACKAGE_PHASE_LABELS[pkg.packageSubmission.phase]}</strong>
+              {pkg.packageSubmission.submittedAt && packagePhase !== "collecting"
+                ? ` · ${formatIsoDateTime(pkg.packageSubmission.submittedAt)}`
+                : ""}
+            </p>
+            {packagePhase === "returned" && pkg.packageSubmission.returnedNote ? (
+              <p className="budget-workspace__return-note">{pkg.packageSubmission.returnedNote}</p>
+            ) : null}
+          </>
         ) : null}
         <p className="muted-line">
           {packageTeamsProgressLine({

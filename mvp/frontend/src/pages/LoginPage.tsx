@@ -17,11 +17,13 @@ function PersonaButton({
   selected,
   onSelect,
   onEnter,
+  hideRoleLabel = false,
 }: {
   persona: LoginPersonaLeaf;
   selected: boolean;
   onSelect: (id: DemoPersonaId) => void;
   onEnter: (id: DemoPersonaId) => void;
+  hideRoleLabel?: boolean;
 }) {
   return (
     <button
@@ -31,7 +33,7 @@ function PersonaButton({
       onDoubleClick={() => onEnter(persona.id)}
     >
       <strong>{persona.displayName}</strong>
-      <span className="login-org-person__role">{persona.roleLabel}</span>
+      {!hideRoleLabel ? <span className="login-org-person__role">{persona.roleLabel}</span> : null}
     </button>
   );
 }
@@ -98,6 +100,7 @@ export function LoginPage() {
                     selected={personaId === persona.id}
                     onSelect={selectPersona}
                     onEnter={enterAs}
+                    hideRoleLabel
                   />
                 ))}
               </div>

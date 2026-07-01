@@ -213,10 +213,9 @@ export function formatApprovalJournalSummary(row: {
   typeLabel: string;
 }): { title: string; detail: string } {
   if (row.isNewPosition) {
-    const fot = Math.round(row.fotDeltaAnnual).toLocaleString("ru-RU");
     return {
       title: "Новая позиция",
-      detail: fotDeltaAnnualNonZero(row.fotDeltaAnnual) ? `ФОТ ${fot} ₽/год` : "плановый найм",
+      detail: fotDeltaAnnualNonZero(row.fotDeltaAnnual) ? "плановый найм" : "плановый найм",
     };
   }
 

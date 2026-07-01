@@ -10,6 +10,12 @@ export const LIMIT_FLAG_KEYS: LimitFlagKey[] = ["IN_LIMIT", "OVER_LIMIT", "UNLIM
 
 export type ViewMode = "base" | "total";
 
+/** Годовой план по позиции: оклад или оклад + премии — по режиму просмотра. */
+export function annualFotForView(position: PositionRecord, viewMode: ViewMode): number {
+  if (viewMode === "total") return annualTotal(position);
+  return position.monthlyBase.reduce((sum, value) => sum + value, 0);
+}
+
 export type DashboardFilters = OrgSliceSelection & {
   limitFlag: "All" | LimitFlagKey;
   status: "All" | PositionRecord["status"];

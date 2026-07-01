@@ -39,7 +39,6 @@ import {
   stripPlanningDeepLinkParams,
 } from "../data/planningDeepLink";
 import {
-  annualTotal,
   applyEvents,
   collectIndexationBatchesFromPositions,
   applyExistingIndexationBatches,
@@ -50,7 +49,6 @@ import {
   formatGrowthPct,
   getMonthlyCR,
   growthTone,
-  hasCarryoverEvent,
   LIMIT_FLAG_LABELS,
   monthLabel,
   normalizeOrgPath,
@@ -75,6 +73,7 @@ import {
   withAppliedEvents,
 } from "../data/planOperations";
 import { useMvpApp } from "../context/MvpAppContext";
+import { annualFotForView } from "../data/dashboardMetrics";
 import { AnalyticsSummaryStrip } from "../components/AnalyticsSummaryStrip";
 import { ExportCsvActions } from "../components/ExportCsvActions";
 import { PositionIdentityCell } from "../components/planning/PositionIdentityCell";
@@ -125,18 +124,10 @@ function avgCR(record: PositionRecord, bands: SalaryRangeBand[]): number {
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
 }
 
-function isTemporaryReplacementVacancy(record: PositionRecord): boolean {
-  return record.status === "Vacancy" && record.role.includes("(временная замена");
-}
-
 function crTone(value: number): "warn" | "ok" | "danger" {
   if (value < 0.8) return "warn";
   if (value > 1.2) return "danger";
   return "ok";
-}
-
-function needsCarryoverEvent(record: PositionRecord): boolean {
-  return record.status === "Vacancy" && record.slotType === "carryover" && !hasCarryoverEvent(record);
 }
 
 type WorkspaceTab = "positions" | "matrix" | "journal";
@@ -951,17 +942,6 @@ export function PlanningPage() {
         </div>
       </header>
 
-      {isTeamSliceReadOnly ? (
-        <section className="workflow-hint" role="status">
-          <p className="workflow-hint__text">
-            Команда уже сдана на согласование. Правки в плане заблокированы до возврата на доработку.
-          </p>
-          <Link className="workflow-hint__link" to="/versions?tab=approval">
-            Открыть согласование
-          </Link>
-        </section>
-      ) : null}
-
       <nav className="planning-workspace-tabs planning-mode-tabs" aria-label="Режим планирования">
         {!leadQuarterlyOnly ? (
         <button
@@ -1024,23 +1004,13 @@ export function PlanningPage() {
         leadEditFrozenForRole={leadEditFrozenForRole}
         leadEditFrozen={leadEditFrozen}
         canToggleLeadFreeze={canToggleLeadFreeze}
+        teamSliceReadOnly={isTeamSliceReadOnly}
+        leadIndexationBatches={
+          workspaceTab === "positions" && !canMassIndexation && indexationBatchesForUser.length > 0
+            ? indexationBatchesForUser
+            : undefined
+        }
       />
-
-      {workspaceTab === "positions" && !canMassIndexation && indexationBatchesForUser.length > 0 ? (
-        <PlanIndexationSection
-          batches={indexationBatchesForUser}
-          isIndexationAdmin={false}
-          canEditWorkspace={canEditWorkspace}
-          activeCount={indexationTargetPositions.length}
-          idxPercent={idxPercent}
-          idxMonth={idxMonth}
-          correctionWindow={correctionWindow}
-          onPercentChange={setIdxPercent}
-          onMonthChange={setIdxMonth}
-          onApply={applyIndexationToPlan}
-          onDeleteBatch={deleteIndexationBatch}
-        />
-      ) : null}
 
       {workspaceTab === "positions" || workspaceTab === "matrix" || workspaceTab === "journal" ? (
         <SliceToolbar
@@ -1168,7 +1138,7 @@ export function PlanningPage() {
               <th className="positions-table__sticky-col">Сотрудник / позиция</th>
               <th>Спец. и уровень</th>
               <th>Дек → дек</th>
-              <th>ФОТ год</th>
+              <th>{viewMode === "total" ? "ФОТ год" : "Оклад год"}</th>
               <th>CR</th>
               <th>Лимит</th>
               {canEditWorkspace ? <th className="positions-table__actions" aria-label="Действия" /> : null}
@@ -1181,7 +1151,6 @@ export function PlanningPage() {
               const decPct = decToDec(row.previousDecemberBase, row.monthlyBase[11]);
               const gradeRange = positionGradeYearRange(row);
               const rowExtra = recentlyIndexedIds.includes(row.positionId) ? "row-updated" : undefined;
-              const eventCount = row.events.length;
               return (
                 <tr
                   key={row.positionId}
@@ -1203,18 +1172,9 @@ export function PlanningPage() {
                       record={row}
                       userRole={userRole}
                       metaExtra={
-                        <>
-                          {eventCount > 0 ? (
-                            <span className="position-state-badge position-state-badge--events">{eventCount} соб.</span>
-                          ) : null}
-                          {active?.positionId === row.positionId && !positions.some((p) => p.positionId === row.positionId) ? (
-                            <span className="position-state-badge position-state-badge--draft">черновик</span>
-                          ) : null}
-                          {isTemporaryReplacementVacancy(row) && <span className="scenario-badge">Временная замена</span>}
-                          {needsCarryoverEvent(row) && (
-                            <span className="scenario-badge scenario-badge--warn">Нет события переноса</span>
-                          )}
-                        </>
+                        active?.positionId === row.positionId && !positions.some((p) => p.positionId === row.positionId) ? (
+                          <span className="position-state-badge position-state-badge--draft">черновик</span>
+                        ) : null
                       }
                     />
                   </td>
@@ -1239,7 +1199,7 @@ export function PlanningPage() {
                       {formatGrowthDelta(decDelta)} · {formatGrowthPct(decPct)}
                     </div>
                   </td>
-                  <td>{annualTotal(row).toLocaleString("ru-RU")} ₽</td>
+                  <td>{annualFotForView(row, viewMode).toLocaleString("ru-RU")} ₽</td>
                   <td>
                     <span className={`cr-coef cr-coef--${crTone(cr)}`}>{formatCrCoefficient(cr)}</span>
                   </td>

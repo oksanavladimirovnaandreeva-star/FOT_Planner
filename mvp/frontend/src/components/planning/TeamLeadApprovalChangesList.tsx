@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { MessageSquare } from "lucide-react";
+import { formatSignedMoneyDelta } from "../../data/formatDisplay";
 import {
   formatApprovalJournalSummary,
   tableRowStatusClass,
@@ -16,6 +17,8 @@ type Props = {
   versionLabel?: string;
   submissionMode: TeamApprovalSubmissionMode;
   planningLink: string;
+  /** Общий Δ ФОТ команды (для сверки с суммой строк). */
+  totalDeltaFot?: number;
 };
 
 export function TeamLeadApprovalChangesList({
@@ -25,6 +28,7 @@ export function TeamLeadApprovalChangesList({
   versionLabel,
   submissionMode,
   planningLink,
+  totalDeltaFot,
 }: Props) {
   const { userRole } = useMvpApp();
   const navigate = useNavigate();
@@ -35,6 +39,8 @@ export function TeamLeadApprovalChangesList({
     const separator = planningLink.includes("?") ? "&" : "?";
     navigate(`${planningLink}${separator}position=${encodeURIComponent(positionId)}`);
   };
+
+  const rowsDeltaSum = rows.reduce((sum, row) => sum + row.fotDeltaAnnual, 0);
 
   if (rows.length === 0) {
     return (
@@ -72,6 +78,7 @@ export function TeamLeadApprovalChangesList({
               <th>С месяца</th>
               <th>Позиция</th>
               <th>Суть изменения</th>
+              <th className="team-lead-approval__changes-fot">Δ ФОТ год</th>
               <th>Комментарий</th>
             </tr>
           </thead>
@@ -110,13 +117,10 @@ export function TeamLeadApprovalChangesList({
                     <div className="plan-journal-change">
                       <strong>{summary.title}</strong>
                       <div className="muted-line">{summary.detail}</div>
-                      {row.fotDeltaAnnual !== 0 ? (
-                        <div className="positions-table__dec-range">
-                          Δ ФОТ {row.fotDeltaAnnual > 0 ? "+" : "−"}
-                          {Math.abs(Math.round(row.fotDeltaAnnual)).toLocaleString("ru-RU")} ₽/год
-                        </div>
-                      ) : null}
                     </div>
+                  </td>
+                  <td className="team-lead-approval__changes-fot">
+                    <strong>{formatSignedMoneyDelta(row.fotDeltaAnnual)}</strong>
                   </td>
                   <td>
                     {row.comment ? (
@@ -134,6 +138,15 @@ export function TeamLeadApprovalChangesList({
           </tbody>
         </table>
       </div>
+      {!isAnnual && totalDeltaFot !== undefined ? (
+        <p className="muted-line team-lead-approval__changes-foot">
+          Σ по строкам: {formatSignedMoneyDelta(rowsDeltaSum, true)} · общий Δ команды:{" "}
+          {formatSignedMoneyDelta(totalDeltaFot, true)}
+          {Math.abs(rowsDeltaSum - totalDeltaFot) > 1
+            ? " · разница — индексация C&B и переносы (в журнале не показываются)"
+            : null}
+        </p>
+      ) : null}
     </section>
   );
 }

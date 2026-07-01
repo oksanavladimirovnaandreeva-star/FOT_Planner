@@ -4,14 +4,14 @@ import {
   planEventMonthBlockedMessage,
   type CorrectionWindowInfo,
 } from "../../data/planCorrectionWindow";
-import { monthLabel } from "../../data/planningData";
+import { monthLabel, type IndexationBatchLog } from "../../data/planningData";
 import { planWorkspaceBasePath, planWorkspacePath, type PlanWorkspaceMode } from "../../data/planWorkspaceMode";
 import { useMvpApp } from "../../context/MvpAppContext";
 import { formatPlanVersionTitle } from "../../data/planVersionDisplay";
 
 type ContextLine = {
   id: string;
-  tone: "freeze-blocked" | "freeze" | "quarter" | "workspace" | "readonly";
+  tone: "freeze-blocked" | "freeze" | "quarter" | "workspace" | "readonly" | "indexation";
   title: string;
   body?: string;
   link?: { to: string; label: string };
@@ -29,6 +29,8 @@ type Props = {
   leadEditFrozen: boolean;
   canToggleLeadFreeze: boolean;
   primaryBudgetTitle?: string;
+  teamSliceReadOnly?: boolean;
+  leadIndexationBatches?: IndexationBatchLog[];
 };
 
 function toneClass(tone: ContextLine["tone"]): string {
@@ -39,9 +41,52 @@ function toneClass(tone: ContextLine["tone"]): string {
       return "plan-policy-banner--freeze";
     case "quarter":
       return "plan-policy-banner--quarter";
+    case "indexation":
+      return "plan-policy-banner--indexation";
     default:
       return "plan-policy-banner--workspace";
   }
+}
+
+function insertAfterId(lines: ContextLine[], afterId: string, line: ContextLine): ContextLine[] {
+  const index = lines.findIndex((item) => item.id === afterId);
+  if (index < 0) return [line, ...lines];
+  const next = [...lines];
+  next.splice(index + 1, 0, line);
+  return next;
+}
+
+function appendLeadIndexation(lines: ContextLine[], batches?: IndexationBatchLog[]): ContextLine[] {
+  if (!batches || batches.length === 0) return lines;
+  return [
+    ...lines,
+    {
+      id: "indexation-info",
+      tone: "indexation",
+      title: "Индексация в плане",
+      body: batches.map((batch) => `+${batch.percent}% с ${monthLabel(batch.month)}`).join(" · "),
+    },
+  ];
+}
+
+function buildContextLines(props: Props & { canManagePlanVersions: boolean }): ContextLine[] {
+  let lines = buildLines(props);
+
+  if (props.teamSliceReadOnly) {
+    const teamLine: ContextLine = {
+      id: "team-readonly",
+      tone: "freeze-blocked",
+      title: "Команда сдана на согласование",
+      body: "Правки заблокированы до возврата на доработку.",
+      link: { to: "/versions?tab=approval", label: "Открыть согласование" },
+    };
+    lines = insertAfterId(lines, "freeze-blocked", teamLine);
+    if (!lines.some((line) => line.id === "team-readonly")) {
+      lines = [teamLine, ...lines];
+    }
+  }
+
+  return appendLeadIndexation(lines, props.leadIndexationBatches);
 }
 
 function buildLines(props: Props & { canManagePlanVersions: boolean }): ContextLine[] {
@@ -172,22 +217,40 @@ function ContextLineContent({ line }: { line: ContextLine }) {
   );
 }
 
+function ContextBanner({ line }: { line: ContextLine }) {
+  return (
+    <div className={`plan-policy-banner ${toneClass(line.tone)}`} role="status">
+      <ContextLineContent line={line} />
+    </div>
+  );
+}
+
 export function PlanContextBar(props: Props) {
   const { primaryBudget, canManagePlanVersions } = useMvpApp();
   const primaryBudgetTitle =
     props.primaryBudgetTitle ??
     (primaryBudget ? formatPlanVersionTitle(primaryBudget) : undefined);
-  const lines = buildLines({ ...props, primaryBudgetTitle, canManagePlanVersions });
+  const lines = buildContextLines({ ...props, primaryBudgetTitle, canManagePlanVersions });
 
   if (lines.length === 0) return null;
 
+  const [primary, ...rest] = lines;
+
   return (
     <div className="plan-context-bar">
-      {lines.map((line) => (
-        <div key={line.id} className={`plan-policy-banner ${toneClass(line.tone)}`} role="status">
-          <ContextLineContent line={line} />
-        </div>
-      ))}
+      <div className={`plan-policy-banner ${toneClass(primary.tone)} plan-context-bar__primary`} role="status">
+        <ContextLineContent line={primary} />
+      </div>
+      {rest.length > 0 ? (
+        <details className="plan-context-bar__details">
+          <summary>Подробнее ({rest.length})</summary>
+          <div className="plan-context-bar__more">
+            {rest.map((line) => (
+              <ContextBanner key={line.id} line={line} />
+            ))}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

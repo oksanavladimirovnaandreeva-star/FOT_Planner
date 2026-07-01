@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { DemoUserCard } from "./DemoUserCard";
 import { PlanWorkspaceContext } from "./PlanWorkspaceContext";
@@ -35,7 +36,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     canToggleLeadFreeze,
     leadEditFrozen,
     setLeadEditFrozen,
+    positions,
   } = useMvpApp();
+
+  const planHasBonus = useMemo(
+    () => positions.some((position) => position.monthlyBonus.some((bonus) => bonus !== 0)),
+    [positions],
+  );
 
   const showSettingsNav = roleSettingsNavVisible(userRole);
   const versionsNavLabel = roleVersionsNavLabel(userRole);
@@ -69,6 +76,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <option value="base">Оклад</option>
               <option value="total">Итого ФОТ</option>
             </select>
+            {!planHasBonus ? (
+              <span className="muted-line app-sidebar__view-hint">
+                Премий в плане нет — режимы дают одинаковые суммы.
+              </span>
+            ) : null}
           </label>
           {canToggleLeadFreeze ? (
             <label className="app-sidebar__freeze">

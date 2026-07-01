@@ -1,6 +1,6 @@
 import { MONTHS } from "../types";
 import type { PositionRecord } from "../types";
-import { POSITION_STATUS_LABELS } from "./planningData";
+import { POSITION_STATUS_LABELS, hasCarryoverEvent } from "./planningData";
 import type { UserRole } from "./userAccess";
 
 /** Подпись «даты приёма» для UI: месяц первого PLANNED_HIRE или activeFromMonth. */
@@ -66,8 +66,19 @@ export function positionEmployeePrimaryName(record: PositionRecord): string {
   return "";
 }
 
-/** Вторая строка: org по уровню доступа + (position_id). */
-export function formatPositionOrgLine(record: PositionRecord, role: UserRole): string {
+export type PositionOrgLineOptions = {
+  /** В таблице у лидов id позиции — только в drawer. */
+  includePositionId?: boolean;
+};
+
+/** Вторая строка: org по уровню доступа; position_id — для C&B/директора или в drawer. */
+export function formatPositionOrgLine(
+  record: PositionRecord,
+  role: UserRole,
+  options?: PositionOrgLineOptions,
+): string {
+  const includePositionId =
+    options?.includePositionId ?? (role !== "team_lead" && role !== "unit_lead");
   const parts: string[] = [];
   if (role === "cb_admin" || role === "gd" || role === "viewer") {
     parts.push(record.department, record.unit);
@@ -76,7 +87,10 @@ export function formatPositionOrgLine(record: PositionRecord, role: UserRole): s
   }
   if (record.team) parts.push(record.team);
   const org = parts.filter(Boolean).join(" / ");
-  return org ? `${org} (${record.positionId})` : `(${record.positionId})`;
+  if (includePositionId) {
+    return org ? `${org} (${record.positionId})` : `(${record.positionId})`;
+  }
+  return org || "—";
 }
 
 export function employeeInitials(name: string): string {
@@ -106,4 +120,16 @@ export function formatEmployeeDrawerMeta(record: PositionRecord, planYear: numbe
 /** CR как коэффициент (1.00 = midpoint), не проценты. */
 export function formatCrCoefficient(cr: number): string {
   return cr > 0 ? cr.toFixed(2) : "—";
+}
+
+/** Подсказки по особым сценариям позиции — для drawer, не для таблицы. */
+export function positionScenarioHints(record: PositionRecord): string[] {
+  const hints: string[] = [];
+  if (record.status === "Vacancy" && record.role.includes("(временная замена")) {
+    hints.push("Временная замена");
+  }
+  if (record.status === "Vacancy" && record.slotType === "carryover" && !hasCarryoverEvent(record)) {
+    hints.push("Нет события переноса");
+  }
+  return hints;
 }

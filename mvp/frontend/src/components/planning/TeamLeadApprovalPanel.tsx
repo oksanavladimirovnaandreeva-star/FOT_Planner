@@ -19,7 +19,7 @@ import {
   type TeamLeadKanbanColumn,
 } from "../../data/teamLeadApprovalKanban";
 import { canRolePerformSubmissionAction } from "../../data/submissionWorkflowPolicy";
-import { demoRoleActorOrg, demoRolePrimaryOrg } from "../../data/userAccess";
+import { demoRoleActorOrg, demoRolePrimaryOrg, filterPositionsByRole } from "../../data/userAccess";
 import { resolveActivePersonaOrgScope } from "../../data/demoSessionStore";
 import { planTeamPlanningPath, planWorkspacePath } from "../../data/planWorkspaceMode";
 import { buildTeamApprovalDiff, type TeamApprovalSubmissionMode } from "../../data/teamApprovalDiff";
@@ -201,16 +201,21 @@ export function TeamLeadApprovalPanel() {
 
   const draftPositionsForApproval = useMemo(() => {
     if (submissionMode === "quarterly" && versionDiff.draftPositions.length > 0) {
-      return versionDiff.draftPositions;
+      return filterPositionsByRole(versionDiff.draftPositions, userRole);
     }
     if (submissionMode === "annual") {
       return positions;
     }
     return [];
-  }, [submissionMode, versionDiff.draftPositions, positions]);
+  }, [submissionMode, versionDiff.draftPositions, positions, userRole]);
 
-  const baselinePositionsForApproval =
-    submissionMode === "quarterly" ? versionDiff.baselinePositions : [];
+  const baselinePositionsForApproval = useMemo(
+    () =>
+      submissionMode === "quarterly"
+        ? filterPositionsByRole(versionDiff.baselinePositions, userRole)
+        : [],
+    [submissionMode, versionDiff.baselinePositions, userRole],
+  );
 
   const approvalDiff = useMemo(() => {
     if (!submissionMode || draftPositionsForApproval.length === 0) return null;
@@ -264,7 +269,11 @@ export function TeamLeadApprovalPanel() {
               <p className="muted-line">
                 {[rosterBrief !== "—" ? rosterBrief : null, draftLabel || null].filter(Boolean).join(" · ")}
               </p>
-              {activeColumn !== "returned" ? (
+              {activeColumn === "returned" && submission?.returnedNote ? (
+                <p className="team-lead-approval__status-hint team-lead-approval__status-hint--return">
+                  {submission.returnedNote}
+                </p>
+              ) : activeColumn === "in_progress" ? (
                 <p className="team-lead-approval__status-hint">{statusCopy.hint}</p>
               ) : null}
             </div>
@@ -291,11 +300,6 @@ export function TeamLeadApprovalPanel() {
           ) : null}
 
           {approvalSubstep ? <p className="team-lead-approval__substep">{approvalSubstep}</p> : null}
-          {submission?.returnedNote ? (
-            <p className="team-lead-approval__return-note">
-              <strong>Комментарий:</strong> {submission.returnedNote}
-            </p>
-          ) : null}
           {submission?.teamSubmittedAt && activeColumn === "in_approval" ? (
             <p className="muted-line">Сдано {formatIsoDateTime(submission.teamSubmittedAt)}</p>
           ) : null}
@@ -327,6 +331,7 @@ export function TeamLeadApprovalPanel() {
           versionLabel={draftLabel}
           submissionMode={submissionMode}
           planningLink={planningLink}
+          totalDeltaFot={approvalDiff.summary.deltaFot}
         />
       ) : null}
     </div>
