@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { PersonaAccessMatrixPanel } from "../components/settings/PersonaAccessMatrixPanel";
+import { BandAccessGrantsPanel } from "../components/settings/BandAccessGrantsPanel";
 import { DataSettingsPanel } from "../components/settings/DataSettingsPanel";
 import { OrgStructureSettingsPanel } from "../components/settings/OrgStructureSettingsPanel";
 import { USER_ROLE_LABELS, useMvpApp } from "../context/MvpAppContext";
@@ -108,13 +109,22 @@ export function SettingsPage() {
         <OrgStructureSettingsPanel />
       </section>
 
-      <section className="card settings-section">
+      <section className="card settings-section settings-section--access">
         <h2 className="section-title">Доступы (демо)</h2>
-        <p className="muted-line">
-          Кто видит какие команды в планировании и какие строки справочника окладов (специализация × уровень) — по
-          оргструктуре и пользователям.
-        </p>
-        <PersonaAccessMatrixPanel />
+
+        <div className="settings-access-block">
+          <h3 className="settings-access-block__title">Планирование · орг-срез</h3>
+          <p className="muted-line">Кто видит какие команды и позиции на экране «Планирование».</p>
+          <PersonaAccessMatrixPanel />
+        </div>
+
+        <div className="settings-access-block settings-access-block--catalog">
+          <h3 className="settings-access-block__title">Справочник диапазонов · кто видит строку</h3>
+          <p className="muted-line">
+            Матрица как в Excel C&amp;B: на каждую пару специализация × уровень — свой список зрителей.
+          </p>
+          <BandAccessGrantsPanel />
+        </div>
       </section>
 
       <section className="card settings-section">

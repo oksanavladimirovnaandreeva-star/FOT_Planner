@@ -9132,6 +9132,70 @@ body.drawer-close-guard .drawer-overlay {
   margin-top: 12px;
 }
 
+.settings-access-block {
+  margin-top: 20px;
+}
+
+.settings-access-block:first-of-type {
+  margin-top: 0;
+}
+
+.settings-access-block--catalog {
+  padding-top: 20px;
+  border-top: 1px solid var(--tone-border, #e5e7eb);
+}
+
+.settings-access-block__title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.band-access-grants-panel__scroll {
+  max-height: min(70vh, 640px);
+}
+
+.band-access-grants-panel__table {
+  font-size: 12px;
+}
+
+.band-access-grants-panel__group-head {
+  text-align: center;
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--tone-muted, #f3f4f6);
+}
+
+.band-access-grants-panel__persona-head {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 500;
+  min-width: 36px;
+  padding: 4px 2px;
+}
+
+.band-access-grants-panel__persona-short {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.band-access-grants-panel__cell {
+  text-align: center;
+  padding: 4px 2px;
+}
+
+.band-access-grants-panel__checkbox {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+
+.band-access-grants-panel__count {
+  font-weight: 600;
+  text-align: center;
+}
+
 .budget-contour__lead {
   margin: -6px 0 12px;
   font-size: 13px;

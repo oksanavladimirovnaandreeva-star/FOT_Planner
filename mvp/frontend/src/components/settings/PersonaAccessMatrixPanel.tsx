@@ -8,23 +8,11 @@ import {
   type DemoPersonaId,
 } from "../../data/demoPersonas";
 import {
-  defaultPersonaCatalogVisibilityForSettings,
   defaultPersonaScopesForSettings,
-  writePersonaCatalogAccessOverrides,
-  writePersonaCatalogVisibilityOverrides,
   writePersonaScopeOverrides,
 } from "../../data/demoSessionStore";
 import { departmentOptions } from "../../data/orgStructure";
 import { countOrgNodes, readOrgTree } from "../../data/orgStructureStore";
-import {
-  catalogAccessForRole,
-  catalogFieldToMultiSelect,
-  catalogSliceFromPositions,
-  countCatalogBands,
-  defaultCatalogVisibilityForPersona,
-  levelCatalogOptions,
-  multiSelectToCatalogField,
-} from "../../data/personaCatalogDefaults";
 import {
   countPositionsForScope,
   isSimpleOrgScope,
@@ -34,8 +22,6 @@ import {
   unitOptionsForMatrix,
   type PersonaOrgMatrixRow,
 } from "../../data/personaAccessMatrix";
-import { specializationOptions } from "../../data/salaryRangeData";
-import type { CatalogVisibilityRule, SalaryCatalogAccess } from "../../types";
 import type { PersonaAccessScope } from "../../data/personaAccessScope";
 
 function emptyOrgRow(): PersonaOrgMatrixRow {
@@ -43,15 +29,12 @@ function emptyOrgRow(): PersonaOrgMatrixRow {
 }
 
 export function PersonaAccessMatrixPanel() {
-  const { refreshAppConfig, appConfigRevision, allPositions, salaryBands } = useMvpApp();
+  const { refreshAppConfig, appConfigRevision, allPositions } = useMvpApp();
   const [scopes, setScopes] = useState(() => defaultPersonaScopesForSettings());
-  const [catalog, setCatalog] = useState(() => defaultPersonaCatalogVisibilityForSettings(allPositions));
   const [message, setMessage] = useState<string | null>(null);
 
   const tree = useMemo(() => readOrgTree(), [appConfigRevision]);
   const counts = useMemo(() => countOrgNodes(tree), [tree]);
-  const specOptions = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
-  const levelOptions = useMemo(() => levelCatalogOptions(salaryBands), [salaryBands]);
 
   const rows = useMemo(
     () =>
@@ -78,8 +61,6 @@ export function PersonaAccessMatrixPanel() {
         const positionCount = hasPlanningSlice
           ? countPositionsForScope(allPositions, previewScope ?? null)
           : allPositions.filter((p) => p.status !== "Closed").length;
-        const catalogRule = catalog[persona.id];
-        const catalogBandCount = countCatalogBands(salaryBands, catalogRule);
 
         return {
           persona,
@@ -87,11 +68,9 @@ export function PersonaAccessMatrixPanel() {
           isCustom,
           orgRow,
           positionCount,
-          catalogRule,
-          catalogBandCount,
         };
       }),
-    [scopes, catalog, allPositions, salaryBands, appConfigRevision],
+    [scopes, allPositions, appConfigRevision],
   );
 
   const updateOrgRow = (personaId: DemoPersonaId, patch: Partial<PersonaOrgMatrixRow>) => {
@@ -110,25 +89,6 @@ export function PersonaAccessMatrixPanel() {
     });
   };
 
-  const updateCatalog = (personaId: DemoPersonaId, patch: Partial<CatalogVisibilityRule>) => {
-    setCatalog((prev) => ({
-      ...prev,
-      [personaId]: { ...prev[personaId], ...patch },
-    }));
-  };
-
-  const fillCatalogFromPositions = (personaId: DemoPersonaId) => {
-    const persona = DEMO_PERSONAS.find((item) => item.id === personaId);
-    if (!persona) return;
-    const scope = scopes[personaId] ?? persona.defaultScope ?? null;
-    const slice = catalogSliceFromPositions(allPositions, scope);
-    updateCatalog(personaId, {
-      specs: slice.specs,
-      levels: slice.levels,
-      access: catalogAccessForRole(persona.role),
-    });
-  };
-
   const save = () => {
     const scopePayload: Partial<Record<DemoPersonaId, PersonaAccessScope>> = {};
     for (const persona of DEMO_PERSONAS.filter(personaNeedsScope)) {
@@ -136,35 +96,16 @@ export function PersonaAccessMatrixPanel() {
       if (scope) scopePayload[persona.id] = scope;
     }
     writePersonaScopeOverrides(scopePayload);
-
-    const catalogPayload = {} as Record<DemoPersonaId, CatalogVisibilityRule>;
-    for (const persona of DEMO_PERSONAS) {
-      catalogPayload[persona.id] = {
-        ...catalog[persona.id],
-        access: catalogAccessForRole(persona.role),
-      };
-    }
-    writePersonaCatalogVisibilityOverrides(catalogPayload);
-
-    const legacyAccess: Partial<Record<DemoPersonaId, SalaryCatalogAccess>> = {};
-    for (const persona of DEMO_PERSONAS) {
-      const access = catalogPayload[persona.id]?.access;
-      if (access === "read" || access === "write") legacyAccess[persona.id] = access;
-    }
-    writePersonaCatalogAccessOverrides(legacyAccess);
     refreshAppConfig();
-    setMessage("Доступы сохранены.");
+    setMessage("Орг-срезы планирования сохранены.");
   };
 
   const reset = () => {
     const nextScopes = {} as Record<DemoPersonaId, PersonaAccessScope | null>;
-    const nextCatalog = {} as Record<DemoPersonaId, CatalogVisibilityRule>;
     for (const persona of DEMO_PERSONAS) {
       nextScopes[persona.id] = persona.defaultScope ?? null;
-      nextCatalog[persona.id] = defaultCatalogVisibilityForPersona(persona, allPositions);
     }
     setScopes(nextScopes);
-    setCatalog(nextCatalog);
     writePersonaScopeOverrides(
       Object.fromEntries(
         DEMO_PERSONAS.filter((persona) => persona.defaultScope).map((persona) => [
@@ -173,17 +114,15 @@ export function PersonaAccessMatrixPanel() {
         ]),
       ) as Partial<Record<DemoPersonaId, PersonaAccessScope>>,
     );
-    writePersonaCatalogVisibilityOverrides({});
-    writePersonaCatalogAccessOverrides({});
     refreshAppConfig();
-    setMessage("Сброшено к демо-пресетам.");
+    setMessage("Орг-срезы сброшены к демо-пресетам.");
   };
 
   return (
     <div className="persona-access-matrix">
       <p className="muted-line">
-        Срез планирования — по оргструктуре. Справочник окладов — по <strong>специализациям и уровням</strong>:
-        тимлид видит только строки диапазонов своей команды, не весь каталог. Редактирует справочник только C&B.
+        Кто видит какие команды и позиции в <strong>планировании</strong>. Справочник окладов настраивается
+        отдельно ниже — по строкам каталога.
       </p>
       <p className="settings-scope">
         Оргструктура: {counts.departmentCount} деп. · {counts.unitCount} юнитов · {counts.teamCount} команд
@@ -200,148 +139,89 @@ export function PersonaAccessMatrixPanel() {
               <th>Команда</th>
               <th>Без себя</th>
               <th>Позиций</th>
-              <th>Специализации</th>
-              <th>Уровни</th>
-              <th>Строк справочника</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(
-              ({
-                persona,
-                hasPlanningSlice,
-                isCustom,
-                orgRow,
-                positionCount,
-                catalogRule,
-                catalogBandCount,
-              }) => {
-                const canEditCatalog = persona.role === "cb_admin";
-                const specValue = catalogFieldToMultiSelect(catalogRule.specs, specOptions);
-                const levelValue = catalogFieldToMultiSelect(catalogRule.levels, levelOptions);
-
-                return (
-                  <tr key={persona.id}>
-                    <td>
-                      <div>{persona.displayName}</div>
-                      <div className="demo-access-persona-id muted-line">{persona.loginAccount}</div>
-                    </td>
-                    <td>{USER_ROLE_LABELS[persona.role]}</td>
-                    <td colSpan={hasPlanningSlice ? 1 : 4}>
-                      {!hasPlanningSlice ? (
-                        <span className="muted-line">Весь план</span>
-                      ) : isCustom ? (
-                        <span
-                          className="persona-access-matrix__custom"
-                          title="Редактируйте в расширенных правилах"
-                        >
-                          Нестандартные правила
-                        </span>
-                      ) : orgRow ? (
-                        <OrgSliceMultiSelect
-                          label="Деп."
-                          layout="toolbar"
-                          options={departmentOptions()}
-                          value={orgRow.departments}
-                          onChange={(departments) => updateOrgRow(persona.id, { departments })}
+            {rows.map(({ persona, hasPlanningSlice, isCustom, orgRow, positionCount }) => (
+              <tr key={persona.id}>
+                <td>
+                  <div>{persona.displayName}</div>
+                  <div className="demo-access-persona-id muted-line">{persona.loginAccount}</div>
+                </td>
+                <td>{USER_ROLE_LABELS[persona.role]}</td>
+                <td colSpan={hasPlanningSlice ? 1 : 4}>
+                  {!hasPlanningSlice ? (
+                    <span className="muted-line">Весь план</span>
+                  ) : isCustom ? (
+                    <span
+                      className="persona-access-matrix__custom"
+                      title="Редактируйте в расширенных правилах"
+                    >
+                      Нестандартные правила
+                    </span>
+                  ) : orgRow ? (
+                    <OrgSliceMultiSelect
+                      label="Деп."
+                      layout="toolbar"
+                      options={departmentOptions()}
+                      value={orgRow.departments}
+                      onChange={(departments) => updateOrgRow(persona.id, { departments })}
+                    />
+                  ) : null}
+                </td>
+                {hasPlanningSlice ? (
+                  <td>
+                    {isCustom || !orgRow ? (
+                      <span className="muted-line">—</span>
+                    ) : (
+                      <OrgSliceMultiSelect
+                        label="Юнит"
+                        layout="toolbar"
+                        options={unitOptionsForMatrix(orgRow)}
+                        value={orgRow.units}
+                        onChange={(units) => updateOrgRow(persona.id, { units })}
+                      />
+                    )}
+                  </td>
+                ) : null}
+                {hasPlanningSlice ? (
+                  <td>
+                    {isCustom || !orgRow ? (
+                      <span className="muted-line">—</span>
+                    ) : (
+                      <OrgSliceMultiSelect
+                        label="Команда"
+                        layout="toolbar"
+                        options={teamOptionsForMatrix(orgRow)}
+                        value={orgRow.teams}
+                        onChange={(teams) => updateOrgRow(persona.id, { teams })}
+                      />
+                    )}
+                  </td>
+                ) : null}
+                {hasPlanningSlice ? (
+                  <td>
+                    {isCustom || !orgRow ? (
+                      <span className="muted-line">—</span>
+                    ) : persona.selfEmployeeName ? (
+                      <label className="persona-access-matrix__checkbox">
+                        <input
+                          type="checkbox"
+                          checked={orgRow.excludeSelf}
+                          onChange={(event) =>
+                            updateOrgRow(persona.id, { excludeSelf: event.target.checked })
+                          }
                         />
-                      ) : null}
-                    </td>
-                    {hasPlanningSlice ? (
-                      <td>
-                        {isCustom || !orgRow ? (
-                          <span className="muted-line">—</span>
-                        ) : (
-                          <OrgSliceMultiSelect
-                            label="Юнит"
-                            layout="toolbar"
-                            options={unitOptionsForMatrix(orgRow)}
-                            value={orgRow.units}
-                            onChange={(units) => updateOrgRow(persona.id, { units })}
-                          />
-                        )}
-                      </td>
-                    ) : null}
-                    {hasPlanningSlice ? (
-                      <td>
-                        {isCustom || !orgRow ? (
-                          <span className="muted-line">—</span>
-                        ) : (
-                          <OrgSliceMultiSelect
-                            label="Команда"
-                            layout="toolbar"
-                            options={teamOptionsForMatrix(orgRow)}
-                            value={orgRow.teams}
-                            onChange={(teams) => updateOrgRow(persona.id, { teams })}
-                          />
-                        )}
-                      </td>
-                    ) : null}
-                    {hasPlanningSlice ? (
-                      <td>
-                        {isCustom || !orgRow ? (
-                          <span className="muted-line">—</span>
-                        ) : persona.selfEmployeeName ? (
-                          <label className="persona-access-matrix__checkbox">
-                            <input
-                              type="checkbox"
-                              checked={orgRow.excludeSelf}
-                              onChange={(event) =>
-                                updateOrgRow(persona.id, { excludeSelf: event.target.checked })
-                              }
-                            />
-                            <span className="sr-only">Исключить {persona.selfEmployeeName}</span>
-                          </label>
-                        ) : (
-                          <span className="muted-line">—</span>
-                        )}
-                      </td>
-                    ) : null}
-                    <td>{positionCount}</td>
-                    <td>
-                      <OrgSliceMultiSelect
-                        label="Спец."
-                        layout="toolbar"
-                        options={specOptions}
-                        value={specValue}
-                        onChange={(selected) =>
-                          updateCatalog(persona.id, {
-                            specs: multiSelectToCatalogField(selected, specOptions),
-                          })
-                        }
-                      />
-                    </td>
-                    <td>
-                      <OrgSliceMultiSelect
-                        label="Уровни"
-                        layout="toolbar"
-                        options={levelOptions}
-                        value={levelValue}
-                        onChange={(selected) =>
-                          updateCatalog(persona.id, {
-                            levels: multiSelectToCatalogField(selected, levelOptions),
-                          })
-                        }
-                      />
-                    </td>
-                    <td>
-                      <div className="persona-access-matrix__catalog-count">{catalogBandCount}</div>
-                      {hasPlanningSlice ? (
-                        <button
-                          type="button"
-                          className="app-btn app-btn--ghost app-btn--sm persona-access-matrix__fill"
-                          onClick={() => fillCatalogFromPositions(persona.id)}
-                        >
-                          Из позиций
-                        </button>
-                      ) : canEditCatalog ? (
-                        <span className="muted-line persona-access-matrix__fill">редакт. справочника</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              },
-            )}
+                        <span className="sr-only">Исключить {persona.selfEmployeeName}</span>
+                      </label>
+                    ) : (
+                      <span className="muted-line">—</span>
+                    )}
+                  </td>
+                ) : null}
+                <td>{positionCount}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

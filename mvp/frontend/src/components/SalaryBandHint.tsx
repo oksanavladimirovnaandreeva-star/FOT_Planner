@@ -1,14 +1,14 @@
 import { useMemo } from "react";
 import { buildSalaryBandHint } from "../data/salaryBandHint";
 import { formatMoney } from "../data/formatDisplay";
-import type { CatalogVisibilityRule, SalaryRangeBand } from "../types";
+import type { SalaryRangeBand } from "../types";
 
 type Props = {
   specialization: string;
   level: string;
   baseSalary: number | "";
   bands: SalaryRangeBand[];
-  catalogRule: CatalogVisibilityRule;
+  canView: boolean;
   compact?: boolean;
 };
 
@@ -17,7 +17,7 @@ export function SalaryBandHint({
   level,
   baseSalary,
   bands,
-  catalogRule,
+  canView,
   compact = false,
 }: Props) {
   const hint = useMemo(
@@ -27,9 +27,9 @@ export function SalaryBandHint({
         level,
         baseSalary,
         bands,
-        catalogRule,
+        canView,
       }),
-    [specialization, level, baseSalary, bands, catalogRule],
+    [specialization, level, baseSalary, bands, canView],
   );
 
   if (!hint.visible) {

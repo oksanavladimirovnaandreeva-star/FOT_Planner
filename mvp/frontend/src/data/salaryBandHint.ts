@@ -1,5 +1,4 @@
-import type { CatalogVisibilityRule, SalaryRangeBand } from "../types";
-import { bandMatchesCatalogVisibility } from "./catalogVisibility";
+import type { SalaryRangeBand } from "../types";
 import { findSalaryBand, getMonthlyCR } from "./salaryRangeData";
 
 export type SalaryBandCrTone = "ok" | "warn" | "danger";
@@ -62,19 +61,15 @@ export function buildSalaryBandHint(input: {
   level: string;
   baseSalary: number | "" | null | undefined;
   bands: SalaryRangeBand[];
-  catalogRule: CatalogVisibilityRule;
+  canView: boolean;
 }): SalaryBandHintView {
-  if (input.catalogRule.access === "none") {
+  if (!input.canView) {
     return { ...HIDDEN, message: "Диапазон недоступен для вашей роли" };
   }
 
   const band = findSalaryBand(input.specialization, input.level, input.bands);
   if (!band) {
     return { ...HIDDEN, message: "Нет в справочнике" };
-  }
-
-  if (!bandMatchesCatalogVisibility(band, input.catalogRule)) {
-    return { ...HIDDEN, inCatalog: true, message: "Диапазон недоступен для вашей роли" };
   }
 
   const base =

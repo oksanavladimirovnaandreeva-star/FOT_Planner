@@ -17,11 +17,16 @@ import {
   type PersonaAccessScope,
 } from "./personaAccessScope";
 import { saveUserRole, type UserRole } from "./userAccess";
-import type { SalaryCatalogAccess, CatalogVisibilityRule } from "../types";
+import type { PositionRecord, SalaryCatalogAccess, CatalogVisibilityRule, SalaryRangeBand } from "../types";
 import {
   defaultCatalogVisibilityForPersona,
   seedPositionsForCatalogDefaults,
 } from "./personaCatalogDefaults";
+import {
+  canViewBand,
+  resolveBandAccessGrants,
+  type BandAccessGrants,
+} from "./bandAccessGrants";
 
 const SESSION_PERSONA_KEY = "fot_mvp_demo_persona_id";
 const PERSONA_SCOPES_KEY = "fot_mvp_demo_persona_scopes";
@@ -267,6 +272,31 @@ export function defaultPersonaCatalogVisibilityForSettings(
       overrides[persona.id] ?? defaultCatalogVisibilityForPersona(persona, positions);
   }
   return result;
+}
+
+export function scopeForPersonaSettings(personaId: DemoPersonaId): PersonaAccessScope | null {
+  const overrides = readScopeOverrides();
+  const persona = DEMO_PERSONA_BY_ID[personaId];
+  const scope = overrides[personaId] ?? persona.defaultScope ?? null;
+  return scope ? normalizeAccessScope(scope) : null;
+}
+
+export function loadResolvedBandAccessGrants(
+  bands: SalaryRangeBand[],
+  positions: PositionRecord[] = seedPositionsForCatalogDefaults(),
+): BandAccessGrants {
+  return resolveBandAccessGrants(bands, positions, scopeForPersonaSettings);
+}
+
+export function canActivePersonaViewBand(
+  band: Pick<SalaryRangeBand, "specialization" | "level">,
+  bands: SalaryRangeBand[],
+  positions: PositionRecord[],
+): boolean {
+  const persona = loadResolvedDemoPersona();
+  if (!persona) return false;
+  const grants = loadResolvedBandAccessGrants(bands, positions);
+  return canViewBand(band, persona.id, persona.role, grants);
 }
 
 /** Список для экрана входа: ФИО + роль, сортировка по ФИО. */

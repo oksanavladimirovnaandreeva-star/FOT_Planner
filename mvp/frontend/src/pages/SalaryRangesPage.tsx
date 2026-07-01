@@ -2,8 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { useMvpApp } from "../context/MvpAppContext";
-import { bandMatchesCatalogVisibility } from "../data/catalogVisibility";
-import { loadResolvedCatalogVisibility } from "../data/demoSessionStore";
+import { canActivePersonaViewBand } from "../data/demoSessionStore";
 import {
   bandKey,
   initialSalaryBands,
@@ -51,7 +50,7 @@ const SORT_COLUMNS: { key: SortKey; label: string }[] = [
 ];
 
 export function SalaryRangesPage() {
-  const { activePlan, salaryBands, setSalaryBands, canEditSalaryCatalog, userRole, allPositions, appConfigRevision } =
+  const { activePlan, salaryBands, setSalaryBands, canEditSalaryCatalog, allPositions, appConfigRevision } =
     useMvpApp();
   const [specFilter, setSpecFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("");
@@ -65,14 +64,9 @@ export function SalaryRangesPage() {
   const specs = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const levels = useMemo(() => [...new Set(salaryBands.map((band) => band.level))].sort((a, b) => a.localeCompare(b, "ru")), [salaryBands]);
 
-  const catalogVisibility = useMemo(
-    () => loadResolvedCatalogVisibility(allPositions),
-    [userRole, allPositions, appConfigRevision],
-  );
-
   const filtered = useMemo(() => {
     const rows = salaryBands.filter((band) => {
-      if (!bandMatchesCatalogVisibility(band, catalogVisibility)) return false;
+      if (!canActivePersonaViewBand(band, salaryBands, allPositions)) return false;
       if (specFilter && band.specialization !== specFilter) return false;
       if (levelFilter && band.level !== levelFilter) return false;
       if (search) {
@@ -82,7 +76,7 @@ export function SalaryRangesPage() {
       return true;
     });
     return [...rows].sort((a, b) => compareBands(a, b, sortKey, sortDir));
-  }, [salaryBands, specFilter, levelFilter, search, sortKey, sortDir, catalogVisibility]);
+  }, [salaryBands, specFilter, levelFilter, search, sortKey, sortDir, allPositions, appConfigRevision]);
 
   const [editorOpen, setEditorOpen] = useState(false);
 
@@ -354,7 +348,8 @@ export function SalaryRangesPage() {
       )}
 
       <p className="muted-line">
-        Настройка доступа к справочнику — в <Link to="/settings">Настройки → Доступ к диапазонам</Link> (C&B).
+        Настройка доступа к строкам справочника — в{" "}
+        <Link to="/settings">Настройки → Доступы → Справочник диапазонов</Link> (C&amp;B).
       </p>
     </div>
   );

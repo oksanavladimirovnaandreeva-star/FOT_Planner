@@ -4,12 +4,9 @@ import {
   salaryBandCrTone,
   salaryBandMarkerPct,
 } from "./salaryBandHint";
-import { defaultCatalogVisibilityForRole } from "./catalogVisibility";
 import { initialSalaryBands } from "./salaryRangeData";
 
 const bands = initialSalaryBands();
-const readRule = defaultCatalogVisibilityForRole("team_lead");
-const noneRule = defaultCatalogVisibilityForRole("viewer");
 
 describe("salaryBandHint", () => {
   it("оклад на мидпоинте — CR ≈ 1 и маркер по центру", () => {
@@ -19,7 +16,7 @@ describe("salaryBandHint", () => {
       level: "Middle",
       baseSalary: band.midpoint,
       bands,
-      catalogRule: readRule,
+      canView: true,
     });
     expect(hint.visible).toBe(true);
     expect(hint.inCatalog).toBe(true);
@@ -37,7 +34,7 @@ describe("salaryBandHint", () => {
       level: "Middle",
       baseSalary: band.minSalary - 1,
       bands,
-      catalogRule: readRule,
+      canView: true,
     });
     expect(hint.belowMin).toBe(true);
     expect(hint.markerPct).toBe(0);
@@ -50,20 +47,20 @@ describe("salaryBandHint", () => {
       level: "Intern",
       baseSalary: 100_000,
       bands,
-      catalogRule: readRule,
+      canView: true,
     });
     expect(hint.visible).toBe(false);
     expect(hint.inCatalog).toBe(false);
     expect(hint.message).toBe("Нет в справочнике");
   });
 
-  it("access none — диапазон недоступен", () => {
+  it("canView false — диапазон недоступен", () => {
     const hint = buildSalaryBandHint({
       specialization: "Engineering",
       level: "Middle",
       baseSalary: 150_000,
       bands,
-      catalogRule: noneRule,
+      canView: false,
     });
     expect(hint.visible).toBe(false);
     expect(hint.message).toBe("Диапазон недоступен для вашей роли");
@@ -75,7 +72,7 @@ describe("salaryBandHint", () => {
       level: "Middle",
       baseSalary: "",
       bands,
-      catalogRule: readRule,
+      canView: true,
     });
     expect(hint.visible).toBe(true);
     expect(hint.cr).toBeNull();

@@ -21,6 +21,7 @@ const PILOT_AND_PLAN_KEYS = [
   "fot_mvp_demo_persona_scopes",
   "fot_mvp_demo_persona_catalog_access",
   "fot_mvp_demo_persona_catalog_visibility",
+  "fot_mvp_band_access_grants",
   "fot_mvp_demo_role_scope",
   "fot_mvp_last_export_snapshot",
   "fot_mvp_pre_import_backup",

@@ -96,7 +96,7 @@ import { positionsUseLegacyOrg, resetStaleDemoOrgCaches } from "../data/demoStor
 import { clearSubmissionsForPlan, getTeamSubmission, isTeamEditingLocked } from "../data/teamSubmissionStore";
 import { scopePrimaryEq } from "../data/personaAccessScope";
 import {
-  loadResolvedCatalogVisibility,
+  loadResolvedCatalogAccess,
   loadResolvedDemoPersona,
   readPersonaCatalogAccessOverrides,
   writePersonaCatalogAccessOverrides,
@@ -358,11 +358,7 @@ export function MvpAppProvider({ children }: { children: React.ReactNode }) {
     setConfigRevision((value) => value + 1);
   };
 
-  const catalogAccess = useMemo(() => {
-    const visibility = loadResolvedCatalogVisibility();
-    if (visibility.access === "none") return "read" as const;
-    return visibility.access;
-  }, [userRole, configRevision]);
+  const catalogAccess = useMemo(() => loadResolvedCatalogAccess(), [userRole, configRevision]);
 
   const canEditSalaryCatalog = catalogAccess === "write";
 
