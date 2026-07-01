@@ -18,7 +18,10 @@ import {
 } from "./personaAccessScope";
 import { saveUserRole, type UserRole } from "./userAccess";
 import type { SalaryCatalogAccess, CatalogVisibilityRule } from "../types";
-import { defaultCatalogVisibilityForRole } from "./catalogVisibility";
+import {
+  defaultCatalogVisibilityForPersona,
+  seedPositionsForCatalogDefaults,
+} from "./personaCatalogDefaults";
 
 const SESSION_PERSONA_KEY = "fot_mvp_demo_persona_id";
 const PERSONA_SCOPES_KEY = "fot_mvp_demo_persona_scopes";
@@ -225,26 +228,43 @@ export function writePersonaCatalogVisibilityOverrides(
   localStorage.setItem(PERSONA_CATALOG_VISIBILITY_KEY, JSON.stringify(overrides));
 }
 
-export function resolvePersonaCatalogVisibility(personaId: DemoPersonaId): CatalogVisibilityRule {
+export function resolvePersonaCatalogVisibility(
+  personaId: DemoPersonaId,
+  positions = seedPositionsForCatalogDefaults(),
+): CatalogVisibilityRule {
   const overrides = readCatalogVisibilityOverrides();
-  if (overrides[personaId]) return overrides[personaId]!;
-  const legacy = readCatalogAccessOverrides()[personaId];
-  const base = defaultCatalogVisibilityForRole(DEMO_PERSONA_BY_ID[personaId].role);
-  if (legacy) return { ...base, access: legacy };
-  return base;
+  if (overrides[personaId]) {
+    const persona = DEMO_PERSONA_BY_ID[personaId];
+    return {
+      ...overrides[personaId]!,
+      access: overrides[personaId]!.access ?? defaultCatalogVisibilityForPersona(persona, positions).access,
+    };
+  }
+  const persona = DEMO_PERSONA_BY_ID[personaId];
+  return defaultCatalogVisibilityForPersona(persona, positions);
 }
 
-export function loadResolvedCatalogVisibility(): CatalogVisibilityRule {
+export function loadResolvedCatalogVisibility(
+  positions = seedPositionsForCatalogDefaults(),
+): CatalogVisibilityRule {
   const persona = loadResolvedDemoPersona();
-  if (!persona) return defaultCatalogVisibilityForRole("viewer");
-  return resolvePersonaCatalogVisibility(persona.id);
+  if (!persona) {
+    return defaultCatalogVisibilityForPersona(
+      { role: "viewer" },
+      positions,
+    );
+  }
+  return resolvePersonaCatalogVisibility(persona.id, positions);
 }
 
-export function defaultPersonaCatalogVisibilityForSettings(): Record<DemoPersonaId, CatalogVisibilityRule> {
+export function defaultPersonaCatalogVisibilityForSettings(
+  positions = seedPositionsForCatalogDefaults(),
+): Record<DemoPersonaId, CatalogVisibilityRule> {
   const overrides = readCatalogVisibilityOverrides();
   const result = {} as Record<DemoPersonaId, CatalogVisibilityRule>;
   for (const persona of DEMO_PERSONAS) {
-    result[persona.id] = overrides[persona.id] ?? resolvePersonaCatalogVisibility(persona.id);
+    result[persona.id] =
+      overrides[persona.id] ?? defaultCatalogVisibilityForPersona(persona, positions);
   }
   return result;
 }

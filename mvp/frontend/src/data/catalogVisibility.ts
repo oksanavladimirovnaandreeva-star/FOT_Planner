@@ -16,6 +16,8 @@ export function bandMatchesCatalogVisibility(
   rule: CatalogVisibilityRule,
 ): boolean {
   if (rule.access === "none") return false;
+  if (rule.specs !== "*" && rule.specs.length === 0) return false;
+  if (rule.levels !== "*" && rule.levels.length === 0) return false;
   if (rule.specs !== "*" && !rule.specs.includes(band.specialization)) return false;
   if (rule.levels !== "*" && !rule.levels.includes(band.level)) return false;
   return true;

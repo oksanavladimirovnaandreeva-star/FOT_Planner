@@ -51,7 +51,8 @@ const SORT_COLUMNS: { key: SortKey; label: string }[] = [
 ];
 
 export function SalaryRangesPage() {
-  const { activePlan, salaryBands, setSalaryBands, canEditSalaryCatalog, userRole } = useMvpApp();
+  const { activePlan, salaryBands, setSalaryBands, canEditSalaryCatalog, userRole, allPositions, appConfigRevision } =
+    useMvpApp();
   const [specFilter, setSpecFilter] = useState("");
   const [levelFilter, setLevelFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -64,7 +65,10 @@ export function SalaryRangesPage() {
   const specs = useMemo(() => specializationOptions(salaryBands), [salaryBands]);
   const levels = useMemo(() => [...new Set(salaryBands.map((band) => band.level))].sort((a, b) => a.localeCompare(b, "ru")), [salaryBands]);
 
-  const catalogVisibility = useMemo(() => loadResolvedCatalogVisibility(), [userRole]);
+  const catalogVisibility = useMemo(
+    () => loadResolvedCatalogVisibility(allPositions),
+    [userRole, allPositions, appConfigRevision],
+  );
 
   const filtered = useMemo(() => {
     const rows = salaryBands.filter((band) => {

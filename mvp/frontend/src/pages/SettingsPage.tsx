@@ -1,6 +1,5 @@
 import { useMemo } from "react";
-import { DemoAccessSettingsPanel } from "../components/settings/DemoAccessSettingsPanel";
-import { SalaryCatalogAccessPanel } from "../components/settings/SalaryCatalogAccessPanel";
+import { PersonaAccessMatrixPanel } from "../components/settings/PersonaAccessMatrixPanel";
 import { DataSettingsPanel } from "../components/settings/DataSettingsPanel";
 import { OrgStructureSettingsPanel } from "../components/settings/OrgStructureSettingsPanel";
 import { USER_ROLE_LABELS, useMvpApp } from "../context/MvpAppContext";
@@ -39,7 +38,6 @@ export function SettingsPage() {
     positions,
     positionsTotalCount,
     activePlan,
-    refreshAppConfig,
   } = useMvpApp();
 
   const access = roleSettingsAccess(userRole);
@@ -112,15 +110,11 @@ export function SettingsPage() {
 
       <section className="card settings-section">
         <h2 className="section-title">Доступы (демо)</h2>
-        <DemoAccessSettingsPanel />
-      </section>
-
-      <section className="card settings-section">
-        <h2 className="section-title">Доступ к диапазонам (демо)</h2>
         <p className="muted-line">
-          Видимость и редактирование справочника окладов по пользователям — аналогично срезам команд выше.
+          Кто видит какие команды в планировании и какие строки справочника окладов (специализация × уровень) — по
+          оргструктуре и пользователям.
         </p>
-        <SalaryCatalogAccessPanel onSaved={refreshAppConfig} />
+        <PersonaAccessMatrixPanel />
       </section>
 
       <section className="card settings-section">

@@ -9078,6 +9078,60 @@ body.drawer-close-guard .drawer-overlay {
   max-width: 200px;
 }
 
+.persona-access-matrix__table .org-slice-filter--toolbar {
+  min-width: 100px;
+}
+
+.persona-access-matrix__table .org-slice-filter__trigger {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.persona-access-matrix__field {
+  max-width: 140px;
+  font-size: 12px;
+}
+
+.persona-access-matrix__checkbox {
+  display: flex;
+  justify-content: center;
+}
+
+.persona-access-matrix__custom {
+  font-size: 12px;
+  color: var(--tone-text-secondary, #6b7280);
+  font-style: italic;
+}
+
+.persona-access-matrix__catalog-count {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.persona-access-matrix__fill {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.persona-access-matrix__advanced {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--tone-border, #e5e7eb);
+  border-radius: var(--radius-lg, 10px);
+  background: var(--tone-muted, #f3f4f6);
+}
+
+.persona-access-matrix__advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.persona-access-matrix__advanced .demo-access-personas {
+  margin-top: 12px;
+}
+
 .budget-contour__lead {
   margin: -6px 0 12px;
   font-size: 13px;

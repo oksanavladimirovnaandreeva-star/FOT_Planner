@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { OrgSliceMultiSelect } from "../OrgSliceMultiSelect";
 import { useMvpApp } from "../../context/MvpAppContext";
 import { USER_ROLE_LABELS } from "../../context/MvpAppContext";
@@ -248,9 +248,19 @@ function PersonaAccessCard({
   );
 }
 
-export function DemoAccessSettingsPanel() {
+export function DemoAccessSettingsPanel({
+  embedded = false,
+  scopes: controlledScopes,
+  onScopesChange,
+}: {
+  embedded?: boolean;
+  scopes?: Record<DemoPersonaId, PersonaAccessScope | null>;
+  onScopesChange?: Dispatch<SetStateAction<Record<DemoPersonaId, PersonaAccessScope | null>>>;
+} = {}) {
   const { refreshAppConfig, appConfigRevision, allPositions } = useMvpApp();
-  const [scopes, setScopes] = useState(() => defaultPersonaScopesForSettings());
+  const [internalScopes, setInternalScopes] = useState(() => defaultPersonaScopesForSettings());
+  const scopes = controlledScopes ?? internalScopes;
+  const setScopes = onScopesChange ?? setInternalScopes;
   const [saved, setSaved] = useState(false);
 
   const scopedPersonas = DEMO_PERSONAS.filter(personaNeedsScope);
@@ -294,11 +304,13 @@ export function DemoAccessSettingsPanel() {
 
   return (
     <div className="demo-access-settings">
-      <p className="muted-line">
-        Правила доступа для именованных пользователей: <strong>равно / не равно</strong>, несколько значений в
-        правиле, фильтр по оргструктуре и <strong>ФИО</strong> (чтобы исключить самого лида из среза). Все правила
-        соединяются через <strong>И</strong>.
-      </p>
+      {!embedded ? (
+        <p className="muted-line">
+          Правила доступа для именованных пользователей: <strong>равно / не равно</strong>, несколько значений в
+          правиле, фильтр по оргструктуре и <strong>ФИО</strong> (чтобы исключить самого лида из среза). Все правила
+          соединяются через <strong>И</strong>.
+        </p>
+      ) : null}
       <div className="demo-access-personas">
         {scopedPersonas.map((persona) => {
           const scope = scopes[persona.id];
@@ -319,19 +331,23 @@ export function DemoAccessSettingsPanel() {
           );
         })}
       </div>
-      <p className="muted-line">
-        <strong>C&B</strong> — без среза. Пример: команда <em>равно</em> Качество <strong>И</strong> ФИО{" "}
-        <em>не равно</em> Татьяна Белова.
-      </p>
-      <div className="app-data-panel__actions">
-        <button type="button" className="app-btn app-btn--primary" onClick={save}>
-          Сохранить доступы
-        </button>
-        <button type="button" className="app-btn app-btn--ghost" onClick={reset}>
-          Сбросить пресеты
-        </button>
-        {saved ? <span className="muted-line">Сохранено</span> : null}
-      </div>
+      {!embedded ? (
+        <>
+          <p className="muted-line">
+            <strong>C&B</strong> — без среза. Пример: команда <em>равно</em> Качество <strong>И</strong> ФИО{" "}
+            <em>не равно</em> Татьяна Белова.
+          </p>
+          <div className="app-data-panel__actions">
+            <button type="button" className="app-btn app-btn--primary" onClick={save}>
+              Сохранить доступы
+            </button>
+            <button type="button" className="app-btn app-btn--ghost" onClick={reset}>
+              Сбросить пресеты
+            </button>
+            {saved ? <span className="muted-line">Сохранено</span> : null}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
